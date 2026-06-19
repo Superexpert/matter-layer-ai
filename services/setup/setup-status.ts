@@ -15,7 +15,7 @@ export const SETUP_CHECK_ORDER: SetupArea[] = [
   "ai-provider",
 ];
 
-function orderChecks(checks: SetupCheckResult[]) {
+export function orderChecks(checks: SetupCheckResult[]) {
   return SETUP_CHECK_ORDER.map((area) => {
     const check = checks.find((candidate) => candidate.area === area);
 
@@ -36,10 +36,19 @@ export function getSetupStatusFromEnv(
     checkDatabaseSetup(env),
     checkAIProviderSetup(env),
   ]);
-  const firstBlockingCheck = checks.find((check) => check.status !== "ready");
+  return createSetupStatusFromChecks(checks);
+}
+
+export function createSetupStatusFromChecks(
+  checks: SetupCheckResult[],
+): SetupStatus {
+  const orderedChecks = orderChecks(checks);
+  const firstBlockingCheck = orderedChecks.find(
+    (check) => check.status !== "ready",
+  );
 
   return {
-    checks,
+    checks: orderedChecks,
     firstBlockingArea: firstBlockingCheck?.area,
     ready: !firstBlockingCheck,
   };

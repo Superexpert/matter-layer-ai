@@ -26,9 +26,11 @@ test("redirects protected app routes to database setup when DATABASE_URL is miss
 test("redirects protected app routes to AI setup when AI_PROVIDER is missing", async ({
   page,
 }) => {
+  test.skip(!process.env.DATABASE_URL, "Requires DATABASE_URL for setup health checks.");
+
   const server = await startNextTestServer({
     aiProvider: "",
-    databaseUrl: "postgresql://test:test@localhost:5432/test",
+    databaseUrl: process.env.DATABASE_URL,
     port: 3251,
   });
 

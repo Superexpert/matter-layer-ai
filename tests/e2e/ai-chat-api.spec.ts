@@ -7,8 +7,10 @@ test.describe.configure({ mode: "serial" });
 test("rejects empty AI chat messages without calling the provider", async ({
   page,
 }) => {
+  test.skip(!process.env.DATABASE_URL, "Requires DATABASE_URL and the User table.");
+
   const server = await startNextTestServer({
-    databaseUrl: "postgresql://test:test@localhost:5432/test",
+    databaseUrl: process.env.DATABASE_URL,
     port: 3240,
   });
 

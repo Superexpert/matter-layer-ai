@@ -6,6 +6,7 @@ export type SetupCheckResult = {
   area: SetupArea;
   status: SetupCheckStatus;
   missingEnvVars: string[];
+  databaseName?: string;
   message?: string;
 };
 

@@ -8,9 +8,10 @@
     "postinstall": "dotenv -e .env.local -- prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
+    "test": "npm run test:e2e",
+    "test:e2e": "dotenv -e .env.local -- playwright test",
+    "test:e2e:ui": "dotenv -e .env.local -- playwright test --ui",
+    "test:e2e:headed": "dotenv -e .env.local -- playwright test --headed",
     "db:push": "dotenv -e .env.local -- prisma db push",
     "db:studio": "dotenv -e .env.local -- prisma studio"
   },

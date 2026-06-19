@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { connection } from "next/server";
 
 import { getSetupCheck, getSetupStatus } from "@/services/setup";
@@ -11,9 +12,10 @@ export const metadata: Metadata = {
 export default async function DatabaseSetupPage() {
   await connection();
 
-  const setupStatus = await getSetupStatus();
+  const setupStatus = await getSetupStatus({ verifyDatabase: true });
   const check = getSetupCheck(setupStatus, "database");
   const isReady = check.status === "ready";
+  const isMissingDatabase = check.status === "invalid";
 
   return (
     <main
@@ -26,42 +28,68 @@ export default async function DatabaseSetupPage() {
             Matter Layer configuration
           </p>
           <h1 className="max-w-3xl text-4xl font-semibold leading-tight text-zinc-950 sm:text-5xl">
-            Database setup required
+            {isMissingDatabase ? "Database Not Created" : "Database setup required"}
           </h1>
           <p className="max-w-3xl text-lg leading-8 text-zinc-700">
             {isReady
               ? "Matter Layer found the required Postgres configuration."
-              : "Matter Layer needs a PostgreSQL database connection string before it can load or create matter data."}
+              : isMissingDatabase
+                ? "Your DATABASE_URL points to a database that has not been created yet."
+                : "Matter Layer needs a PostgreSQL database connection string before it can load or create matter data."}
           </p>
           {!isReady ? (
             <div className="border-l-4 border-[#b24a3b] bg-[#fff4f0] p-5">
               <h2 className="text-lg font-semibold text-zinc-950">
-                Database configuration is incomplete
+                {isMissingDatabase
+                  ? "Create the configured database"
+                  : "Database configuration is incomplete"}
               </h2>
               {check.message ? (
                 <p className="mt-2 text-sm leading-6 text-zinc-700">
                   {check.message}
                 </p>
               ) : null}
-              <p className="mt-2 text-sm leading-6 text-zinc-700">
-                The following environment variables are missing:
-              </p>
-              <ul className="mt-3 flex flex-wrap gap-2">
-                {check.missingEnvVars.map((envVar) => (
-                  <li
-                    className="border border-[#e5b2a6] bg-white px-3 py-1 font-mono text-sm text-[#8b2f23]"
-                    data-testid="missing-database-env-var"
-                    key={envVar}
-                  >
-                    {envVar}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 text-sm leading-6 text-zinc-700">
-                Add <code className="font-mono">DATABASE_URL</code> to{" "}
-                <code className="font-mono">.env.local</code>, then restart the
-                dev server.
-              </p>
+              {isMissingDatabase ? (
+                <>
+                  {check.databaseName ? (
+                    <p className="mt-3 text-sm leading-6 text-zinc-700">
+                      Database name:{" "}
+                      <code
+                        className="font-mono"
+                        data-testid="missing-database-name"
+                      >
+                        {check.databaseName}
+                      </code>
+                    </p>
+                  ) : null}
+                  <p className="mt-3 text-sm leading-6 text-zinc-700">
+                    The full <code className="font-mono">DATABASE_URL</code> is
+                    not shown because it may contain credentials.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm leading-6 text-zinc-700">
+                    The following environment variables are missing:
+                  </p>
+                  <ul className="mt-3 flex flex-wrap gap-2">
+                    {check.missingEnvVars.map((envVar) => (
+                      <li
+                        className="border border-[#e5b2a6] bg-white px-3 py-1 font-mono text-sm text-[#8b2f23]"
+                        data-testid="missing-database-env-var"
+                        key={envVar}
+                      >
+                        {envVar}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-sm leading-6 text-zinc-700">
+                    Add <code className="font-mono">DATABASE_URL</code> to{" "}
+                    <code className="font-mono">.env.local</code>, then restart
+                    the dev server.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="border-l-4 border-[#5c6f47] bg-[#f4f8ef] p-5">
@@ -92,17 +120,27 @@ export default async function DatabaseSetupPage() {
 
         <div className="bg-white p-6 shadow-sm ring-1 ring-zinc-200">
           <h2 className="text-2xl font-semibold text-zinc-950">
-            Prepare the database
+            {isMissingDatabase ? "Create and prepare the database" : "Prepare the database"}
           </h2>
           <p className="mt-3 text-sm leading-6 text-zinc-700">
-            The PostgreSQL database must exist before preparing the Prisma
-            schema. After editing <code className="font-mono">.env.local</code>,
-            restart the dev server.
+            Confirm that Postgres is running, create the database named in{" "}
+            <code className="font-mono">DATABASE_URL</code>, then apply the
+            Prisma schema.
           </p>
           <pre className="mt-4 overflow-x-auto bg-zinc-950 p-4 text-sm leading-6 text-zinc-50">
             <code>{`npm run db:push`}</code>
           </pre>
-          
+          <p className="mt-4 text-sm leading-6 text-zinc-700">
+            After the command completes, refresh the application.
+          </p>
+          <div className="mt-5">
+            <Link
+              className="inline-flex h-10 items-center justify-center bg-[#263326] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#344734]"
+              href="/app/matters"
+            >
+              Try Again
+            </Link>
+          </div>
         </div>
       </section>
     </main>

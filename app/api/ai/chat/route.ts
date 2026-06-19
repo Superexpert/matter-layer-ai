@@ -1,7 +1,7 @@
-import { auth } from "@/auth";
 import { createAIService } from "@/services/ai";
 import type { AIMessage } from "@/services/ai";
 import { getSetupStatus } from "@/services/setup";
+import { requireCurrentUser } from "@/services/users";
 
 type ChatRequestBody = {
   matterId: string;
@@ -68,7 +68,7 @@ function parseChatRequestBody(value: unknown): ChatRequestBody | null {
 }
 
 export async function POST(request: Request) {
-  const setupStatus = await getSetupStatus();
+  const setupStatus = await getSetupStatus({ verifyDatabase: true });
 
   if (!setupStatus.ready) {
     return jsonError(
@@ -77,9 +77,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await auth();
-
-  if (!session?.user) {
+  try {
+    await requireCurrentUser();
+  } catch {
     return jsonError("Authentication is required.", 401);
   }
 

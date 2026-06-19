@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 
 import { auth } from "@/auth";
+import { AppContainer } from "@/components/app-container";
 import { AppNav } from "@/components/app-nav";
 import { requireAppSetup } from "@/services/setup";
+import { ensureUserForSession } from "@/services/users";
 
 export default async function AuthenticatedAppLayout({
   children,
@@ -19,12 +21,14 @@ export default async function AuthenticatedAppLayout({
     redirect("/login");
   }
 
+  await ensureUserForSession(session);
+
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <AppNav />
-      <main className="mx-auto w-full max-w-6xl px-6 py-8 sm:px-8 lg:px-10">
+      <AppContainer className="py-8">
         {children}
-      </main>
+      </AppContainer>
     </div>
   );
 }

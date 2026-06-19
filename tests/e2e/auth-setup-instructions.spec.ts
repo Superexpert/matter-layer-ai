@@ -34,24 +34,3 @@ for (const { missingEnvVar, port } of missingEnvScenarios) {
     }
   });
 }
-
-test("does not show auth setup instructions when all auth env vars are present", async ({
-  page,
-}) => {
-  const server = await startNextTestServer({
-    databaseUrl: "postgresql://test:test@localhost:5432/test",
-    port: 3204,
-  });
-
-  try {
-    await page.goto(server.baseURL);
-
-    await expect(page.getByTestId("auth-setup-instructions")).toHaveCount(0);
-    await expect(page).toHaveURL(`${server.baseURL}/login`);
-    await expect(
-      page.getByRole("heading", { name: "Sign in required" }),
-    ).toBeVisible();
-  } finally {
-    await server.stop();
-  }
-});

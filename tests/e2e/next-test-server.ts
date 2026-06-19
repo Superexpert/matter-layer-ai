@@ -114,7 +114,7 @@ export async function startNextTestServer(
     },
   );
 
-  await waitForServer(baseURL, child);
+  await waitForServer(`${baseURL}/favicon.ico`, child);
 
   return {
     baseURL,
@@ -128,15 +128,26 @@ export async function startNextTestServer(
   };
 }
 
-export async function addTestAuthSession(page: Page, baseURL: string) {
+type TestAuthUser = {
+  email?: string;
+  name?: string;
+  sub?: string;
+};
+
+export async function addTestAuthSession(
+  page: Page,
+  baseURL: string,
+  user: TestAuthUser = {},
+) {
   const url = new URL(baseURL);
+  const email = user.email ?? "lawyer@smithlaw.com";
   const sessionToken = await encode({
     secret: dummyAuthEnv.AUTH_SECRET,
     token: {
-      email: "lawyer@smithlaw.com",
-      name: "Test Lawyer",
+      email,
+      name: user.name ?? "Test Lawyer",
       picture: null,
-      sub: "test-user",
+      sub: user.sub ?? email,
     },
   });
 
