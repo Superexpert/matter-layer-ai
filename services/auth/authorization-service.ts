@@ -1,21 +1,28 @@
 import "server-only";
 
 import { UserRole } from "@prisma/client";
+import { redirect } from "next/navigation";
 
-import { requireCurrentUser } from "@/services/users/user-service";
+import { getCurrentUser } from "@/services/users/user-service";
 
-export async function requireAdmin() {
-  const currentUser = await requireCurrentUser();
+export async function getCurrentUserRole() {
+  const currentUser = await getCurrentUser();
 
-  if (currentUser.role !== UserRole.ADMIN) {
-    throw new Error("Admin access is required.");
-  }
-
-  return currentUser;
+  return currentUser?.role ?? null;
 }
 
 export async function isCurrentUserAdmin() {
-  const currentUser = await requireCurrentUser();
+  const role = await getCurrentUserRole();
 
-  return currentUser.role === UserRole.ADMIN;
+  return role === UserRole.ADMIN;
+}
+
+export async function requireAdmin() {
+  const currentUser = await getCurrentUser();
+
+  if (currentUser?.role !== UserRole.ADMIN) {
+    redirect("/app/matters");
+  }
+
+  return currentUser;
 }

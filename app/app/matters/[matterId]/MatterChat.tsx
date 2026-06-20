@@ -12,12 +12,33 @@ type ChatMessage = AIMessage & {
 };
 
 type MatterChatProps = {
+  isAdmin: boolean;
   matterId: string;
   matterName: string;
 };
 
-type ChatResponseBody = {
-  message?: AIMessage;
+type ChatStreamEvent =
+  | {
+      type: "text-delta";
+      delta: string;
+    }
+  | {
+      type: "done";
+      message: {
+        role: "assistant";
+        content: string;
+        provider: string;
+        model: string;
+      };
+    }
+  | {
+      type: "error";
+      error: string;
+    };
+
+type ChatErrorResponse = {
+  error: string;
+  redirectTo?: string;
 };
 
 const actionCards = [
@@ -36,26 +57,173 @@ function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function isAssistantMessage(value: unknown): value is AIMessage {
+function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const message = value as Partial<AIMessage>;
+  const event = value as Partial<ChatStreamEvent>;
 
-  return message.role === "assistant" && typeof message.content === "string";
+  if (event.type === "text-delta") {
+    return typeof event.delta === "string";
+  }
+
+  if (event.type === "done") {
+    return (
+      Boolean(event.message) &&
+      event.message?.role === "assistant" &&
+      typeof event.message.content === "string"
+    );
+  }
+
+  return event.type === "error" && typeof event.error === "string";
 }
 
-export function MatterChat({ matterId, matterName }: MatterChatProps) {
+function parseServerSentEventFrame(frame: string) {
+  const data = frame
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trimStart())
+    .join("\n");
+
+  if (!data) {
+    return null;
+  }
+
+  const parsedValue: unknown = JSON.parse(data);
+
+  if (!isChatStreamEvent(parsedValue)) {
+    throw new Error("Unexpected chat stream event.");
+  }
+
+  return parsedValue;
+}
+
+function isChatErrorResponse(value: unknown): value is ChatErrorResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const response = value as Partial<ChatErrorResponse>;
+
+  return (
+    typeof response.error === "string" &&
+    (response.redirectTo === undefined || typeof response.redirectTo === "string")
+  );
+}
+
+export function MatterChat({ isAdmin, matterId, matterName }: MatterChatProps) {
   const [draftMessage, setDraftMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const abortControllerRef = useRef<AbortController | null>(null);
   const conversationEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     conversationEndRef.current?.scrollIntoView({ block: "end" });
   }, [messages, isPending, errorMessage]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
+  function updateAssistantMessage(messageId: string, content: string) {
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              content,
+            }
+          : message,
+      ),
+    );
+  }
+
+  function appendAssistantMessageDelta(messageId: string, delta: string) {
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              content: `${message.content}${delta}`,
+            }
+          : message,
+      ),
+    );
+  }
+
+  async function handleChatStream(
+    response: Response,
+    assistantMessageId: string,
+  ) {
+    const reader = response.body?.getReader();
+
+    if (!reader) {
+      throw new Error("AI chat response did not include a stream.");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        const event = parseServerSentEventFrame(frame);
+
+        if (!event) {
+          continue;
+        }
+
+        if (event.type === "text-delta") {
+          appendAssistantMessageDelta(assistantMessageId, event.delta);
+          continue;
+        }
+
+        if (event.type === "done") {
+          updateAssistantMessage(assistantMessageId, event.message.content);
+          continue;
+        }
+
+        throw new Error(
+          "Matter Layer could not generate a response. Try again.",
+        );
+      }
+    }
+
+    buffer += decoder.decode();
+    const remainingEvent = parseServerSentEventFrame(buffer);
+
+    if (remainingEvent?.type === "text-delta") {
+      appendAssistantMessageDelta(assistantMessageId, remainingEvent.delta);
+    }
+
+    if (remainingEvent?.type === "done") {
+      updateAssistantMessage(assistantMessageId, remainingEvent.message.content);
+    }
+
+    if (remainingEvent?.type === "error") {
+      throw new Error("Matter Layer could not generate a response. Try again.");
+    }
+  }
+
+  function stopStreaming() {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsPending(false);
+  }
 
   async function submitMessage() {
     const content = draftMessage.trim();
@@ -69,9 +237,17 @@ export function MatterChat({ matterId, matterName }: MatterChatProps) {
       role: "user",
       content,
     };
+    const assistantMessage: ChatMessage = {
+      id: createMessageId(),
+      role: "assistant",
+      content: "",
+    };
     const nextMessages = [...messages, userMessage];
+    const abortController = new AbortController();
 
-    setMessages(nextMessages);
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = abortController;
+    setMessages([...nextMessages, assistantMessage]);
     setDraftMessage("");
     setErrorMessage("");
     setIsPending(true);
@@ -80,39 +256,51 @@ export function MatterChat({ matterId, matterName }: MatterChatProps) {
       const response = await fetch("/api/ai/chat", {
         body: JSON.stringify({
           matterId,
-          messages: nextMessages.map(({ content: messageContent, role }) => ({
-            content: messageContent,
-            role,
-          })),
+          messages: nextMessages
+            .filter((message) => message.content.trim().length > 0)
+            .map(({ content: messageContent, role }) => ({
+              content: messageContent,
+              role,
+            })),
         }),
         headers: {
           "Content-Type": "application/json",
         },
         method: "POST",
+        signal: abortController.signal,
       });
 
-      const responseBody = (await response.json()) as ChatResponseBody;
+      if (!response.ok) {
+        const errorBody: unknown = await response.json().catch(() => null);
 
-      if (!response.ok || !isAssistantMessage(responseBody.message)) {
+        if (isChatErrorResponse(errorBody)) {
+          if (errorBody.redirectTo) {
+            window.location.assign(errorBody.redirectTo);
+            return;
+          }
+
+          throw new Error(errorBody.error);
+        }
+
         throw new Error("AI chat request failed.");
       }
 
-      const assistantMessage = responseBody.message;
+      await handleChatStream(response, assistantMessage.id);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
 
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: createMessageId(),
-          content: assistantMessage.content.trim(),
-          role: "assistant",
-        },
-      ]);
-    } catch {
       setErrorMessage(
-        "Matter Layer could not generate a response. Check your AI provider configuration and try again.",
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Matter Layer could not generate a response. Try again.",
       );
     } finally {
-      setIsPending(false);
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+        setIsPending(false);
+      }
     }
   }
 
@@ -133,8 +321,18 @@ export function MatterChat({ matterId, matterName }: MatterChatProps) {
             Matter Layer
           </Link>
           <div className="flex items-center gap-1">
+            {isAdmin ? (
+              <Link
+                className="rounded-lg px-3 py-2 text-sm font-medium text-[#E8E2F0] hover:bg-white/10 hover:text-white"
+                data-testid="nav-admin"
+                href="/app/admin"
+              >
+                Admin
+              </Link>
+            ) : null}
             <Link
               className="rounded-lg px-3 py-2 text-sm font-medium text-[#E8E2F0] hover:bg-white/10 hover:text-white"
+              data-testid="nav-settings"
               href="/app/settings"
             >
               Settings
@@ -151,25 +349,25 @@ export function MatterChat({ matterId, matterName }: MatterChatProps) {
       >
         <AppContainer>
           <ol className="flex h-10 items-center gap-2 text-sm">
-          <li>
-            <Link
-              className="font-medium text-[#5F4B76] hover:text-[#42305B]"
-              data-testid="breadcrumb-home"
-              href="/app/matters"
+            <li>
+              <Link
+                className="font-medium text-[#5F4B76] hover:text-[#42305B]"
+                data-testid="breadcrumb-home"
+                href="/app/matters"
+              >
+                Home
+              </Link>
+            </li>
+            <li aria-hidden="true" className="text-[#A79AB4]">
+              /
+            </li>
+            <li
+              aria-current="page"
+              className="truncate font-semibold text-[#211B27]"
+              data-testid="breadcrumb-current-matter"
             >
-              Home
-            </Link>
-          </li>
-          <li aria-hidden="true" className="text-[#A79AB4]">
-            /
-          </li>
-          <li
-            aria-current="page"
-            className="truncate font-semibold text-[#211B27]"
-            data-testid="breadcrumb-current-matter"
-          >
-            {matterName}
-          </li>
+              {matterName}
+            </li>
           </ol>
         </AppContainer>
       </nav>
@@ -238,18 +436,11 @@ export function MatterChat({ matterId, matterName }: MatterChatProps) {
                   data-testid={`chat-message-${chatMessage.role}`}
                   key={chatMessage.id}
                 >
-                  <p className="whitespace-pre-wrap">{chatMessage.content}</p>
+                  <p className="min-h-6 whitespace-pre-wrap">
+                    {chatMessage.content}
+                  </p>
                 </article>
               ))}
-
-              {isPending ? (
-                <article
-                  className="mr-auto max-w-[78%] rounded-xl rounded-bl-md border border-[#E3DEEA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#74677F]"
-                  data-testid="assistant-thinking"
-                >
-                  Matter Layer is thinking...
-                </article>
-              ) : null}
 
               {errorMessage ? (
                 <p
@@ -295,14 +486,25 @@ export function MatterChat({ matterId, matterName }: MatterChatProps) {
                 value={draftMessage}
               />
               <div className="mt-3 flex justify-end">
-                <button
-                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
-                  data-testid="send-message-button"
-                  disabled={isPending || !draftMessage.trim()}
-                  type="submit"
-                >
-                  {isPending ? "Sending" : "Send"}
-                </button>
+                {isPending ? (
+                  <button
+                    className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC]"
+                    data-testid="stop-streaming-button"
+                    onClick={stopStreaming}
+                    type="button"
+                  >
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
+                    data-testid="send-message-button"
+                    disabled={!draftMessage.trim()}
+                    type="submit"
+                  >
+                    Send
+                  </button>
+                )}
               </div>
             </form>
           </div>

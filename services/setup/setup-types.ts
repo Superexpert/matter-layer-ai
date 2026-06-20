@@ -1,4 +1,4 @@
-export type SetupArea = "google-oauth" | "database" | "ai-provider";
+export type SetupArea = "google-oauth" | "database";
 
 export type SetupCheckStatus = "ready" | "missing" | "invalid";
 

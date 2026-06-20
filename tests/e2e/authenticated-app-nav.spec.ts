@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { addTestAuthSession, startNextTestServer } from "./next-test-server";
+import {
+  addTestAuthSession,
+  seedTestAISettings,
+  startNextTestServer,
+} from "./next-test-server";
 
 test.describe.configure({ mode: "serial" });
 
@@ -32,6 +36,7 @@ test("shows global nav actions on matters", async ({ page }) => {
   const server = await startNextTestServer({ port: 3211 });
 
   try {
+    await seedTestAISettings();
     await addTestAuthSession(page, server.baseURL);
     await page.goto(`${server.baseURL}/app/matters`);
 
@@ -84,6 +89,7 @@ test("redirects /app to /app/matters for authenticated users", async ({
   const server = await startNextTestServer({ port: 3213 });
 
   try {
+    await seedTestAISettings();
     await addTestAuthSession(page, server.baseURL);
     await page.goto(`${server.baseURL}/app`);
 
@@ -100,6 +106,7 @@ test("logs out from the global top bar", async ({ page }) => {
   const server = await startNextTestServer({ port: 3214 });
 
   try {
+    await seedTestAISettings();
     await addTestAuthSession(page, server.baseURL);
     await page.goto(`${server.baseURL}/app/matters`);
 

@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { addTestAuthSession, startNextTestServer } from "./next-test-server";
+import {
+  addTestAuthSession,
+  seedTestAISettings,
+  startNextTestServer,
+} from "./next-test-server";
 
 test.describe.configure({ mode: "serial" });
 
@@ -83,6 +87,7 @@ test("does not show database setup instructions when DATABASE_URL is present", a
   });
 
   try {
+    await seedTestAISettings();
     await addTestAuthSession(page, server.baseURL);
     await page.goto(`${server.baseURL}/app/matters`);
 

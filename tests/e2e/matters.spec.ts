@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { addTestAuthSession, startNextTestServer } from "./next-test-server";
+import {
+  addTestAuthSession,
+  seedTestAISettings,
+  startNextTestServer,
+} from "./next-test-server";
 
 test.describe.configure({ mode: "serial" });
 
@@ -14,6 +18,7 @@ test("authenticated user can create a matter", async ({ page }) => {
   const matterName = `Test Matter ${Date.now()}`;
 
   try {
+    await seedTestAISettings();
     await addTestAuthSession(page, server.baseURL);
     await page.goto(`${server.baseURL}/app/matters`);
 
@@ -106,6 +111,68 @@ test("authenticated user can create a matter", async ({ page }) => {
       "none",
     );
     await expect(page.getByTestId("send-message-button")).toBeVisible();
+
+    let resolveFirstChatRequest: (() => void) | undefined;
+    let chatRequestCount = 0;
+
+    await page.route("**/api/ai/chat", async (route) => {
+      chatRequestCount += 1;
+
+      if (chatRequestCount === 1) {
+        await new Promise<void>((resolve) => {
+          resolveFirstChatRequest = resolve;
+        });
+
+        await route.fulfill({
+          body: [
+            'data: {"type":"text-delta","delta":"Hello"}',
+            "",
+            'data: {"type":"text-delta","delta":" streamed response"}',
+            "",
+            'data: {"type":"done","message":{"role":"assistant","content":"Hello streamed response","provider":"openai","model":"test-model"}}',
+            "",
+          ].join("\n"),
+          contentType: "text/event-stream; charset=utf-8",
+          status: 200,
+        });
+        return;
+      }
+
+      await route.fulfill({
+        body: [
+          'data: {"type":"error","error":"Test stream failure."}',
+          "",
+        ].join("\n"),
+        contentType: "text/event-stream; charset=utf-8",
+        status: 200,
+      });
+    });
+
+    await page.getByTestId("message-textarea").fill("Draft a case summary.");
+    await page.getByTestId("send-message-button").click();
+
+    await expect(page.getByTestId("chat-message-user")).toContainText(
+      "Draft a case summary.",
+    );
+    await expect(page.getByTestId("chat-message-assistant")).toBeVisible();
+    await expect(page.getByTestId("stop-streaming-button")).toBeVisible();
+
+    resolveFirstChatRequest?.();
+
+    await expect(page.getByTestId("chat-message-assistant")).toContainText(
+      "Hello streamed response",
+    );
+    await expect(page.getByTestId("send-message-button")).toBeVisible();
+
+    await page.getByTestId("message-textarea").fill("Trigger an error.");
+    await page.getByTestId("send-message-button").click();
+
+    await expect(page.getByTestId("chat-message-user").last()).toContainText(
+      "Trigger an error.",
+    );
+    await expect(page.getByTestId("chat-error")).toContainText(
+      "Matter Layer could not generate a response.",
+    );
 
     await page.getByTestId("breadcrumb-home").click();
     await expect(page).toHaveURL(`${server.baseURL}/app/matters`);

@@ -9,13 +9,24 @@ import { AppContainer } from "./app-container";
 
 const navItems = [
   {
+    href: "/app/admin",
+    label: "Admin",
+    testId: "nav-admin",
+    adminOnly: true,
+  },
+  {
     href: "/app/settings",
     label: "Settings",
     testId: "nav-settings",
+    adminOnly: false,
   },
 ];
 
-export function AppNav() {
+type AppNavProps = {
+  isAdmin: boolean;
+};
+
+export function AppNav({ isAdmin }: AppNavProps) {
   const pathname = usePathname();
   const pathSegments = pathname.split("/").filter(Boolean);
   const isMatterDetailRoute =
@@ -41,7 +52,7 @@ export function AppNav() {
           Matter Layer
         </Link>
         <div className="flex items-center gap-1">
-          {navItems.map((item) => {
+          {navItems.filter((item) => !item.adminOnly || isAdmin).map((item) => {
             const selected =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
 

@@ -1,10 +1,8 @@
-import { checkAIProviderSetup } from "./checks/ai-provider-check";
 import { checkDatabaseSetup } from "./checks/database-check";
 import { checkGoogleOAuthSetup } from "./checks/google-oauth-check";
 import type { SetupArea, SetupCheckResult, SetupStatus } from "./setup-types";
 
 export const SETUP_AREA_ROUTES: Record<SetupArea, string> = {
-  "ai-provider": "/setup/ai-provider",
   database: "/setup/database",
   "google-oauth": "/setup/google-oauth",
 };
@@ -12,7 +10,6 @@ export const SETUP_AREA_ROUTES: Record<SetupArea, string> = {
 export const SETUP_CHECK_ORDER: SetupArea[] = [
   "google-oauth",
   "database",
-  "ai-provider",
 ];
 
 export function orderChecks(checks: SetupCheckResult[]) {
@@ -34,7 +31,6 @@ export function getSetupStatusFromEnv(
   const checks = orderChecks([
     checkGoogleOAuthSetup(env),
     checkDatabaseSetup(env),
-    checkAIProviderSetup(env),
   ]);
   return createSetupStatusFromChecks(checks);
 }

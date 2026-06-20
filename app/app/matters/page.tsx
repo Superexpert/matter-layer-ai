@@ -1,8 +1,12 @@
 import Link from "next/link";
 
+import { requireConfiguredAISettings } from "@/services/ai/ai-settings-service";
+
 import { NewMatterForm } from "./NewMatterForm";
 
 export default async function MattersPage() {
+  await requireConfiguredAISettings();
+
   const { prisma } = await import("@/lib/prisma");
 
   const matters = await prisma.matter.findMany({

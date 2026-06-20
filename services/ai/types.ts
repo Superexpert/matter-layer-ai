@@ -17,3 +17,17 @@ export type AIResponse = {
   provider: string;
   model: string;
 };
+
+export type AIStreamEvent =
+  | {
+      type: "text-delta";
+      delta: string;
+    }
+  | {
+      type: "done";
+      response: AIResponse;
+    }
+  | {
+      type: "error";
+      error: string;
+    };

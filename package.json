@@ -8,6 +8,7 @@
     "postinstall": "dotenv -e .env.local -- prisma generate",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "npm run test:e2e",
     "test:e2e": "dotenv -e .env.local -- playwright test",
     "test:e2e:ui": "dotenv -e .env.local -- playwright test --ui",
@@ -16,6 +17,7 @@
     "db:studio": "dotenv -e .env.local -- prisma studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@prisma/client": "^6.19.3",
     "next": "16.2.9",
     "next-auth": "^4.24.14",

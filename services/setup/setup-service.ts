@@ -36,7 +36,6 @@ export async function getSetupStatus(options: GetSetupStatusOptions = {}) {
   return createSetupStatusFromChecks([
     googleOAuthCheck,
     databaseHealthCheck,
-    getSetupCheck(status, "ai-provider"),
   ]);
 }
 

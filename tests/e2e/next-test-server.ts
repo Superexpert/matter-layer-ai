@@ -2,8 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 
 import type { Page } from "@playwright/test";
 import { encode } from "next-auth/jwt";
+import { PrismaClient } from "@prisma/client";
 
 import type { RequiredAuthEnvVar } from "../../lib/auth/env";
+
+const prisma = new PrismaClient();
 
 const dummyAuthEnv: Record<RequiredAuthEnvVar, string> = {
   AUTH_GOOGLE_ID: "test-google-id",
@@ -18,9 +21,6 @@ type NextTestServer = {
 };
 
 type StartNextTestServerOptions = {
-  aiOpenAIModel?: string;
-  aiProvider?: string;
-  openAIAPIKey?: string;
   databaseUrl?: string;
   missingEnvVar?: RequiredAuthEnvVar;
   port: number;
@@ -104,10 +104,7 @@ export async function startNextTestServer(
       env: {
         ...process.env,
         ...authEnvForScenario(options),
-        AI_OPENAI_MODEL: options.aiOpenAIModel ?? "gpt-5",
-        AI_PROVIDER: options.aiProvider ?? "openai",
         DATABASE_URL: options.databaseUrl ?? process.env.DATABASE_URL ?? "",
-        OPENAI_API_KEY: options.openAIAPIKey ?? "test-openai-api-key",
         NEXT_TELEMETRY_DISABLED: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -161,4 +158,16 @@ export async function addTestAuthSession(
       value: sessionToken,
     },
   ]);
+}
+
+export async function seedTestAISettings() {
+  await prisma.aiProviderConfig.deleteMany();
+  await prisma.aiProviderConfig.create({
+    data: {
+      apiKey: "test-openai-api-key",
+      isActive: true,
+      model: "gpt-5",
+      provider: "openai",
+    },
+  });
 }

@@ -1,1 +1,5 @@
-export { isCurrentUserAdmin, requireAdmin } from "./authorization-service";
+export {
+  getCurrentUserRole,
+  isCurrentUserAdmin,
+  requireAdmin,
+} from "./authorization-service";
