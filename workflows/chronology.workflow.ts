@@ -23,10 +23,14 @@ export const chronologyDefinition: WorkflowDefinition = {
       type: "fileSelector",
     },
     {
-      description: "Placeholder for chronology extraction from selected documents.",
-      id: "extract-chronology-events",
-      name: "Extract chronology events",
-      parameters: {},
+      description: "Convert the selected documents into AI-readable Markdown for chronology extraction.",
+      id: "extract-chronology",
+      name: "Prepare source documents",
+      parameters: {
+        inputStepId: "select-source-files",
+        profile: "chronology",
+        representationType: "MARKDOWN",
+      },
       type: "extraction",
     },
   ],

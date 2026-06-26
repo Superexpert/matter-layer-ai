@@ -32,13 +32,33 @@ enum WorkflowRunStepFileSelectionSource {
   uploaded_during_step
 }
 
+enum MatterDocumentRepresentationType {
+  MARKDOWN
+}
+
+enum MatterDocumentRepresentationStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum WorkflowExtractionRunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  PARTIAL_FAILED
+}
+
 model Matter {
-  id           String           @id @default(cuid())
-  name         String
-  documents    MatterDocument[]
-  workflowRuns WorkflowRun[]
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id             String                  @id @default(cuid())
+  name           String
+  documents      MatterDocument[]
+  workflowRuns   WorkflowRun[]
+  extractionRuns WorkflowExtractionRun[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
 }
 
 model User {
@@ -98,22 +118,23 @@ model Workflow {
 }
 
 model MatterDocument {
-  id                 String                   @id @default(cuid())
+  id                 String                         @id @default(cuid())
   matterId           String
   fileName           String
   mimeType           String
   size               Int
   sha256             String?
-  storageProvider    String                   @default("database")
+  storageProvider    String                         @default("database")
   storageKey         String?
-  sourceType         MatterDocumentSourceType @default(upload)
+  sourceType         MatterDocumentSourceType       @default(upload)
   uploadedByUserId   String
-  matter             Matter                   @relation(fields: [matterId], references: [id], onDelete: Cascade)
-  uploadedByUser     User                     @relation("MatterDocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+  matter             Matter                         @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  uploadedByUser     User                           @relation("MatterDocumentUploadedBy", fields: [uploadedByUserId], references: [id])
   content            MatterDocumentContent?
+  representations    MatterDocumentRepresentation[]
   stepFileSelections WorkflowRunStepFile[]
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
 
   @@index([matterId])
   @@index([uploadedByUserId])
@@ -128,17 +149,72 @@ model MatterDocumentContent {
   document         MatterDocument @relation(fields: [matterDocumentId], references: [id], onDelete: Cascade)
 }
 
+model MatterDocumentRepresentation {
+  id               String                             @id @default(cuid())
+  matterDocumentId String
+  type             MatterDocumentRepresentationType
+  status           MatterDocumentRepresentationStatus @default(PENDING)
+  content          String?
+  error            String?
+  metadataJson     Json?
+  document         MatterDocument                     @relation(fields: [matterDocumentId], references: [id], onDelete: Cascade)
+  createdAt        DateTime                           @default(now())
+  updatedAt        DateTime                           @updatedAt
+
+  @@unique([matterDocumentId, type])
+  @@index([matterDocumentId])
+  @@index([status])
+}
+
 model WorkflowRun {
-  id                   String                @id
+  id                   String                  @id
   matterId             String
   workflowDefinitionId String
-  status               WorkflowRunStatus     @default(running)
-  matter               Matter                @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  status               WorkflowRunStatus       @default(running)
+  matter               Matter                  @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  extractionRuns       WorkflowExtractionRun[]
+  stepOutputs          WorkflowRunStepOutput[]
   selectedFiles        WorkflowRunStepFile[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   @@index([matterId])
+}
+
+model WorkflowRunStepOutput {
+  id            String      @id @default(cuid())
+  workflowRunId String
+  stepId        String
+  outputJson    Json
+  workflowRun   WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([workflowRunId, stepId])
+  @@index([workflowRunId])
+}
+
+model WorkflowExtractionRun {
+  id                      String                      @id @default(cuid())
+  workflowRunId           String
+  stepId                  String
+  matterId                String
+  profile                 String
+  representationType      String                      @default("MARKDOWN")
+  status                  WorkflowExtractionRunStatus @default(PENDING)
+  selectedDocumentIdsJson Json?
+  metadataJson            Json?
+  error                   String?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  workflowRun             WorkflowRun                 @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  matter                  Matter                      @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+
+  @@index([workflowRunId])
+  @@index([matterId])
+  @@index([status])
 }
 
 model WorkflowRunStepFile {

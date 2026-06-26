@@ -8,6 +8,11 @@ import {
 import { requireCurrentUser } from "@/services/users/user-service";
 import type { WorkflowDefinition } from "@/services/workflows/types";
 import {
+  loadExtractionStepState,
+  runExtractionStep,
+} from "@/workflow-steps/extraction/server";
+import type { WorkflowStepDefinition } from "@/services/workflows/types";
+import {
   loadFileSelectorStepState,
   saveFileSelectorStepSelection,
   uploadMatterDocuments,
@@ -74,4 +79,26 @@ export async function saveFileSelectorSelectionAction(input: {
     ...input,
     userId: currentUser.id,
   });
+}
+
+export async function loadExtractionStepStateAction(input: {
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  await requireCurrentUser();
+
+  return loadExtractionStepState(input);
+}
+
+export async function runExtractionStepAction(input: {
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  await requireCurrentUser();
+
+  return runExtractionStep(input);
 }

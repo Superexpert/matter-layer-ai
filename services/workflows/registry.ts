@@ -4,6 +4,7 @@ import {
   type WorkflowStepRegistration,
   type WorkflowStepType,
 } from "./types";
+import { extractionStep } from "@/workflow-steps/extraction/definition";
 import { fileSelectorStep } from "@/workflow-steps/file-selector/definition";
 
 function placeholderExecute(): never {
@@ -77,11 +78,7 @@ export const workflowStepRegistry: Record<WorkflowStepType, WorkflowStepRegistra
     "Document Editor",
     "Let the user review and edit a generated document.",
   ),
-  extraction: register(
-    "extraction",
-    "Extraction",
-    "Extract structured information from selected matter documents.",
-  ),
+  extraction: extractionStep,
   fileSelector: fileSelectorStep,
   form: register(
     "form",

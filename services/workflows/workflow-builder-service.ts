@@ -95,6 +95,11 @@ export function createDefaultWorkflowStep(
       "extraction",
       "Extract Information",
       "Extract structured facts or events from selected matter documents.",
+      {
+        inputStepId: "select-files-1",
+        profile: "chronology",
+        representationType: "MARKDOWN",
+      },
     );
   }
 
@@ -235,8 +240,13 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
         step(
           "extract-events",
           "extraction",
-          "Extract Events",
-          "Extract dates, events, people, and source references from selected documents.",
+          "Prepare Source Documents",
+          "Convert the selected documents into AI-readable Markdown for chronology extraction.",
+          {
+            inputStepId: "select-files",
+            profile: "chronology",
+            representationType: "MARKDOWN",
+          },
         ),
         step(
           "generate-chronology",

@@ -20,13 +20,17 @@ import {
   type WorkflowDefinition,
   type WorkflowStepDefinition,
 } from "@/services/workflows";
+import { ExtractionStepComponent } from "@/workflow-steps/extraction/component";
+import type { ExtractionStepOutput } from "@/workflow-steps/extraction/schema";
 import { FileSelectorStepComponent } from "@/workflow-steps/file-selector/component";
 import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/schema";
 
 import {
   deleteWorkflowAction,
   duplicateWorkflowAction,
+  loadExtractionStepStateAction,
   loadFileSelectorStepStateAction,
+  runExtractionStepAction,
   saveCustomWorkflowAction,
   saveFileSelectorSelectionAction,
   uploadFileSelectorFilesAction,
@@ -908,6 +912,36 @@ export function MatterChat({
     ]);
   }
 
+  function completeExtractionStep(output: ExtractionStepOutput) {
+    if (!activeWorkflow || !activeWorkflowStep) {
+      throw new Error("Completing an extraction step requires an active workflow step.");
+    }
+
+    const currentStepIndex = activeWorkflow.workflowDefinition.steps.findIndex(
+      (step) => step.id === activeWorkflowStep.id,
+    );
+    const nextStep = activeWorkflow.workflowDefinition.steps[currentStepIndex + 1];
+    const nextStepOutputs = {
+      ...activeWorkflow.stepOutputs,
+      [activeWorkflowStep.id]: output,
+    };
+
+    setActiveWorkflow({
+      ...activeWorkflow,
+      activeStepId: nextStep?.id ?? activeWorkflow.activeStepId,
+      completed: !nextStep,
+      stepOutputs: nextStepOutputs,
+    });
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createWorkflowMessage(
+        nextStep
+          ? `Prepared ${output.readyRepresentationCount} source document${output.readyRepresentationCount === 1 ? "" : "s"}. Next step: ${nextStep.name}.`
+          : `Prepared ${output.readyRepresentationCount} source document${output.readyRepresentationCount === 1 ? "" : "s"}. Workflow complete.`,
+      ),
+    ]);
+  }
+
   async function submitMessage(messageOverride?: string) {
     const content = (messageOverride ?? draftMessage).trim();
 
@@ -1610,6 +1644,18 @@ export function MatterChat({
                     saveSelection={saveFileSelectorSelectionAction}
                     step={activeWorkflowStep}
                     uploadFiles={uploadFileSelectorFilesAction}
+                    workflowDefinitionId={activeWorkflow.workflowDefinition.id}
+                    workflowRunId={activeWorkflow.workflowRunId}
+                  />
+                ) : selectedTab === "Workflows" &&
+                  activeWorkflow &&
+                  activeWorkflowStep?.type === "extraction" ? (
+                  <ExtractionStepComponent
+                    loadStepState={loadExtractionStepStateAction}
+                    matterId={matterId}
+                    onComplete={completeExtractionStep}
+                    runStep={runExtractionStepAction}
+                    step={activeWorkflowStep}
                     workflowDefinitionId={activeWorkflow.workflowDefinition.id}
                     workflowRunId={activeWorkflow.workflowRunId}
                   />

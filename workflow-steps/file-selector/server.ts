@@ -298,20 +298,35 @@ export async function saveFileSelectorStepSelection(input: SaveFileSelectionInpu
       },
     });
 
-    if (output.selectedMatterDocumentIds.length === 0) {
-      return;
+    if (output.selectedMatterDocumentIds.length > 0) {
+      await tx.workflowRunStepFile.createMany({
+        data: output.selectedMatterDocumentIds.map((matterDocumentId) => ({
+          matterDocumentId,
+          selectedByUserId: input.userId,
+          selectionSource: uploadedDuringStepIds.has(matterDocumentId)
+            ? WorkflowRunStepFileSelectionSource.uploaded_during_step
+            : WorkflowRunStepFileSelectionSource.manual,
+          stepId: input.stepId,
+          workflowRunId: input.workflowRunId,
+        })) satisfies Prisma.WorkflowRunStepFileCreateManyInput[],
+      });
     }
 
-    await tx.workflowRunStepFile.createMany({
-      data: output.selectedMatterDocumentIds.map((matterDocumentId) => ({
-        matterDocumentId,
-        selectedByUserId: input.userId,
-        selectionSource: uploadedDuringStepIds.has(matterDocumentId)
-          ? WorkflowRunStepFileSelectionSource.uploaded_during_step
-          : WorkflowRunStepFileSelectionSource.manual,
+    await tx.workflowRunStepOutput.upsert({
+      create: {
+        outputJson: JSON.parse(JSON.stringify(output)) as Prisma.InputJsonValue,
         stepId: input.stepId,
         workflowRunId: input.workflowRunId,
-      })) satisfies Prisma.WorkflowRunStepFileCreateManyInput[],
+      },
+      update: {
+        outputJson: JSON.parse(JSON.stringify(output)) as Prisma.InputJsonValue,
+      },
+      where: {
+        workflowRunId_stepId: {
+          stepId: input.stepId,
+          workflowRunId: input.workflowRunId,
+        },
+      },
     });
   });
 

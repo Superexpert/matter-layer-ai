@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import type { Page } from "@playwright/test";
 import { encode } from "next-auth/jwt";
@@ -83,9 +85,41 @@ async function waitForServer(url: string, process: ChildProcess) {
   throw new Error(`Timed out waiting for ${url}: ${String(lastError)}`);
 }
 
+async function removeStaleNextDevLock() {
+  const lockPath = path.join(process.cwd(), ".next", "dev", "lock");
+  let lock: { appUrl?: unknown } | null = null;
+
+  try {
+    lock = JSON.parse(await fs.readFile(lockPath, "utf8")) as {
+      appUrl?: unknown;
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+
+    return;
+  }
+
+  if (typeof lock.appUrl !== "string") {
+    await fs.unlink(lockPath);
+    return;
+  }
+
+  try {
+    await fetch(`${lock.appUrl}/favicon.ico`, {
+      signal: AbortSignal.timeout(500),
+    });
+  } catch {
+    await fs.unlink(lockPath);
+  }
+}
+
 export async function startNextTestServer(
   options: StartNextTestServerOptions,
 ): Promise<NextTestServer> {
+  await removeStaleNextDevLock();
+
   const baseURL = `http://127.0.0.1:${options.port}`;
   const child = spawn(
     "npm",

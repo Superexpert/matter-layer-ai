@@ -9,11 +9,16 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:e2e",
-    "test:e2e": "dotenv -e .env.test.local -- playwright test",
-    "test:e2e:ui": "dotenv -e .env.test.local -- playwright test --ui",
-    "test:e2e:headed": "dotenv -e .env.test.local -- playwright test --headed",
+    "test": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- vitest run",
+    "test:watch": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- vitest",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- vitest run tests/integration",
+    "test:e2e": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- playwright test",
+    "test:e2e:ui": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- playwright test --ui",
+    "test:e2e:headed": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- playwright test --headed",
     "test:e2e:reset-db": "dotenv -e .env.test.local -- tsx tests/e2e/reset-test-db.ts",
+    "test:all": "npm run test && npm run test:e2e",
+    "test:coverage": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- vitest run --coverage",
     "db:push": "dotenv -e .env.local -- prisma db push",
     "db:studio": "dotenv -e .env.local -- prisma studio",
     "sync:workflows": "dotenv -e .env.local -- tsx scripts/sync-workflows.ts"
@@ -21,11 +26,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@prisma/client": "^6.19.3",
+    "mammoth": "^1.12.0",
     "next": "16.2.9",
     "next-auth": "^4.24.14",
     "openai": "^6.44.0",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.0",
@@ -33,12 +41,17 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.9",
     "dotenv-cli": "^11.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }

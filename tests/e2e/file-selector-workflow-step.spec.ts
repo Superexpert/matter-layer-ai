@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import {
+  MatterDocumentRepresentationStatus,
   MatterDocumentSourceType,
   PrismaClient,
+  WorkflowExtractionRunStatus,
   WorkflowRunStepFileSelectionSource,
 } from "@prisma/client";
 
@@ -10,16 +12,6 @@ import {
   seedTestAISettings,
   startNextTestServer,
 } from "./next-test-server";
-import {
-  loadFileSelectorStepState,
-  saveFileSelectorStepSelection,
-  uploadMatterDocuments,
-} from "../../workflow-steps/file-selector/server";
-import { defaultFileSelectorConfig } from "../../workflow-steps/file-selector/schema";
-import {
-  getMatterDocumentStorageProvider,
-  readMatterDocumentFile,
-} from "../../services/matter-documents/storage";
 
 test.describe.configure({ mode: "serial" });
 
@@ -55,13 +47,18 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
   });
   const existingDocument = await prisma.matterDocument.create({
     data: {
+      content: {
+        create: {
+          bytes: Buffer.from("existing chronology source"),
+        },
+      },
       fileName: "existing-source.txt",
       matterId: matter.id,
       mimeType: "text/plain",
-      size: 18,
+      size: 26,
       sourceType: MatterDocumentSourceType.upload,
-      storageProvider: "local",
-      storageKey: `${matter.id}/existing-source.txt`,
+      storageProvider: "database",
+      storageKey: null,
       uploadedByUserId: user.id,
     },
   });
@@ -121,9 +118,20 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     );
 
     await page.getByTestId("file-selector-continue").click();
-    await expect(page.getByTestId("workflow-active-summary")).toContainText(
-      "Current step: Extract chronology events",
+    await expect(page.getByTestId("extraction-step")).toContainText(
+      "Prepare source documents",
     );
+    await expect(page.getByTestId("extraction-document-list")).toContainText(
+      "existing-source.txt",
+    );
+    await expect(page.getByTestId("extraction-document-list")).toContainText(
+      "uploaded-source.txt",
+    );
+    await page.getByTestId("extraction-run-button").click();
+    await expect(page.getByTestId("extraction-summary")).toContainText(
+      "2 documents ready for extraction.",
+    );
+    await expect(page.getByTestId("extraction-continue")).toBeEnabled();
 
     const persistedSelections = await prisma.workflowRunStepFile.findMany({
       include: {
@@ -173,12 +181,58 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
         (selection) => selection.matterDocument.fileName === "uploaded-source.txt",
       )?.selectionSource,
     ).toBe(WorkflowRunStepFileSelectionSource.uploaded_during_step);
+
+    const representations = await prisma.matterDocumentRepresentation.findMany({
+      where: {
+        document: {
+          matterId: matter.id,
+        },
+      },
+    });
+
+    expect(representations).toHaveLength(2);
+    expect(
+      representations.every(
+        (representation) =>
+          representation.status === MatterDocumentRepresentationStatus.READY,
+      ),
+    ).toBe(true);
+
+    const extractionRun = await prisma.workflowExtractionRun.findFirstOrThrow({
+      where: {
+        matterId: matter.id,
+        status: WorkflowExtractionRunStatus.COMPLETED,
+      },
+    });
+    const extractionOutput = await prisma.workflowRunStepOutput.findFirstOrThrow({
+      where: {
+        stepId: "extract-chronology",
+        workflowRunId: extractionRun.workflowRunId,
+      },
+    });
+    expect(extractionOutput.outputJson).toMatchObject({
+      extractionRunId: extractionRun.id,
+      readyRepresentationCount: 2,
+      status: "completed",
+    });
   } finally {
     await prisma.workflowRunStepFile.deleteMany({
       where: {
         workflowRun: {
           matterId: matter.id,
         },
+      },
+    });
+    await prisma.workflowRunStepOutput.deleteMany({
+      where: {
+        workflowRun: {
+          matterId: matter.id,
+        },
+      },
+    });
+    await prisma.workflowExtractionRun.deleteMany({
+      where: {
+        matterId: matter.id,
       },
     });
     await prisma.workflowRun.deleteMany({
@@ -197,415 +251,5 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
       },
     });
     await server.stop();
-  }
-});
-
-test("File Selector rejects selections containing documents from another matter", async () => {
-  test.skip(
-    !process.env.DATABASE_URL,
-    "Requires DATABASE_URL and a migrated PostgreSQL database.",
-  );
-
-  const user = await prisma.user.upsert({
-    create: {
-      email: "cross-matter-lawyer@example.com",
-      name: "Cross Matter Lawyer",
-    },
-    update: {},
-    where: {
-      email: "cross-matter-lawyer@example.com",
-    },
-  });
-  const [matter, otherMatter] = await Promise.all([
-    prisma.matter.create({
-      data: {
-        name: `Allowed Matter ${Date.now()}`,
-      },
-    }),
-    prisma.matter.create({
-      data: {
-        name: `Other Matter ${Date.now()}`,
-      },
-    }),
-  ]);
-  const otherMatterDocument = await prisma.matterDocument.create({
-    data: {
-      fileName: "other-matter.txt",
-      matterId: otherMatter.id,
-      mimeType: "text/plain",
-      size: 12,
-      sourceType: MatterDocumentSourceType.upload,
-      storageProvider: "local",
-      storageKey: `${otherMatter.id}/other-matter.txt`,
-      uploadedByUserId: user.id,
-    },
-  });
-
-  try {
-    await expect(
-      saveFileSelectorStepSelection({
-        config: defaultFileSelectorConfig,
-        matterId: matter.id,
-        selectedMatterDocumentIds: [otherMatterDocument.id],
-        stepId: "select-source-files",
-        uploadedDuringStepMatterDocumentIds: [],
-        userId: user.id,
-        workflowDefinitionId: "chronology",
-        workflowRunId: `test-run-${Date.now()}`,
-      }),
-    ).rejects.toThrow("Every selected document must belong to the workflow run matter.");
-  } finally {
-    await prisma.workflowRunStepFile.deleteMany({
-      where: {
-        workflowRun: {
-          matterId: {
-            in: [matter.id, otherMatter.id],
-          },
-        },
-      },
-    });
-    await prisma.workflowRun.deleteMany({
-      where: {
-        matterId: {
-          in: [matter.id, otherMatter.id],
-        },
-      },
-    });
-    await prisma.matterDocument.deleteMany({
-      where: {
-        matterId: {
-          in: [matter.id, otherMatter.id],
-        },
-      },
-    });
-    await prisma.matter.deleteMany({
-      where: {
-        id: {
-          in: [matter.id, otherMatter.id],
-        },
-      },
-    });
-  }
-});
-
-test("matter document storage defaults to database and keeps list queries metadata-only", async () => {
-  test.skip(
-    !process.env.DATABASE_URL,
-    "Requires DATABASE_URL and a migrated PostgreSQL database.",
-  );
-
-  const previousStorageProvider = process.env.MATTER_FILE_STORAGE_PROVIDER;
-  const previousMaxUploadMb = process.env.MATTER_FILE_MAX_UPLOAD_MB;
-
-  delete process.env.MATTER_FILE_STORAGE_PROVIDER;
-  delete process.env.MATTER_FILE_MAX_UPLOAD_MB;
-
-  const user = await prisma.user.upsert({
-    create: {
-      email: "db-storage-lawyer@example.com",
-      name: "DB Storage Lawyer",
-    },
-    update: {},
-    where: {
-      email: "db-storage-lawyer@example.com",
-    },
-  });
-  const matter = await prisma.matter.create({
-    data: {
-      name: `DB Storage Matter ${Date.now()}`,
-    },
-  });
-
-  try {
-    expect(getMatterDocumentStorageProvider().provider).toBe("database");
-
-    const [document] = await uploadMatterDocuments({
-      config: defaultFileSelectorConfig,
-      files: [
-        new File([Buffer.from("database stored file")], "database-file.txt", {
-          type: "text/plain",
-        }),
-      ],
-      matterId: matter.id,
-      userId: user.id,
-    });
-
-    expect(document?.storageProvider).toBe("database");
-
-    const metadata = await prisma.matterDocument.findUniqueOrThrow({
-      where: {
-        id: document!.id,
-      },
-    });
-    const metadataKeys = Object.keys(metadata);
-
-    expect(metadata.storageProvider).toBe("database");
-    expect(metadata.storageKey).toBeNull();
-    expect(metadata.sha256).toHaveLength(64);
-    expect(metadataKeys).not.toContain("bytes");
-
-    const content = await prisma.matterDocumentContent.findUniqueOrThrow({
-      where: {
-        matterDocumentId: document!.id,
-      },
-    });
-
-    expect(content.bytes).toEqual(Buffer.from("database stored file"));
-
-    const stepState = await loadFileSelectorStepState({
-      matterId: matter.id,
-      stepId: "select-source-files",
-      workflowRunId: `list-run-${Date.now()}`,
-    });
-    const listedDocument = stepState.documents.find(
-      (candidate) => candidate.id === document!.id,
-    );
-
-    expect(listedDocument).toMatchObject({
-      fileName: "database-file.txt",
-      storageProvider: "database",
-    });
-    expect(Object.keys(listedDocument ?? {})).not.toContain("bytes");
-
-    const readFile = await readMatterDocumentFile({
-      matterDocumentId: document!.id,
-      matterId: matter.id,
-    });
-
-    expect(readFile.bytes).toEqual(Buffer.from("database stored file"));
-
-    const otherMatter = await prisma.matter.create({
-      data: {
-        name: `Other Read Matter ${Date.now()}`,
-      },
-    });
-
-    await expect(
-      readMatterDocumentFile({
-        matterDocumentId: document!.id,
-        matterId: otherMatter.id,
-      }),
-    ).rejects.toThrow("Matter document was not found for this matter.");
-
-    await prisma.matter.delete({
-      where: {
-        id: otherMatter.id,
-      },
-    });
-  } finally {
-    if (previousStorageProvider === undefined) {
-      delete process.env.MATTER_FILE_STORAGE_PROVIDER;
-    } else {
-      process.env.MATTER_FILE_STORAGE_PROVIDER = previousStorageProvider;
-    }
-
-    if (previousMaxUploadMb === undefined) {
-      delete process.env.MATTER_FILE_MAX_UPLOAD_MB;
-    } else {
-      process.env.MATTER_FILE_MAX_UPLOAD_MB = previousMaxUploadMb;
-    }
-
-    await prisma.workflowRunStepFile.deleteMany({
-      where: {
-        workflowRun: {
-          matterId: matter.id,
-        },
-      },
-    });
-    await prisma.workflowRun.deleteMany({
-      where: {
-        matterId: matter.id,
-      },
-    });
-    await prisma.matterDocument.deleteMany({
-      where: {
-        matterId: matter.id,
-      },
-    });
-    await prisma.matter.delete({
-      where: {
-        id: matter.id,
-      },
-    });
-  }
-});
-
-test("matter document upload limit defaults to 25 MB and can be overridden", async () => {
-  test.skip(
-    !process.env.DATABASE_URL,
-    "Requires DATABASE_URL and a migrated PostgreSQL database.",
-  );
-
-  const previousStorageProvider = process.env.MATTER_FILE_STORAGE_PROVIDER;
-  const previousMaxUploadMb = process.env.MATTER_FILE_MAX_UPLOAD_MB;
-
-  delete process.env.MATTER_FILE_STORAGE_PROVIDER;
-  delete process.env.MATTER_FILE_MAX_UPLOAD_MB;
-
-  const user = await prisma.user.upsert({
-    create: {
-      email: "limit-lawyer@example.com",
-      name: "Limit Lawyer",
-    },
-    update: {},
-    where: {
-      email: "limit-lawyer@example.com",
-    },
-  });
-  const matter = await prisma.matter.create({
-    data: {
-      name: `Upload Limit Matter ${Date.now()}`,
-    },
-  });
-
-  try {
-    await expect(
-      uploadMatterDocuments({
-        config: defaultFileSelectorConfig,
-        files: [
-          new File([Buffer.alloc(25 * 1024 * 1024 + 1)], "too-large.txt", {
-            type: "text/plain",
-          }),
-        ],
-        matterId: matter.id,
-        userId: user.id,
-      }),
-    ).rejects.toThrow("Files must be 25 MB or smaller.");
-
-    process.env.MATTER_FILE_MAX_UPLOAD_MB = "1";
-
-    await expect(
-      uploadMatterDocuments({
-        config: defaultFileSelectorConfig,
-        files: [
-          new File([Buffer.alloc(1024 * 1024 + 1)], "too-large-override.txt", {
-            type: "text/plain",
-          }),
-        ],
-        matterId: matter.id,
-        userId: user.id,
-      }),
-    ).rejects.toThrow("Files must be 1 MB or smaller.");
-  } finally {
-    if (previousStorageProvider === undefined) {
-      delete process.env.MATTER_FILE_STORAGE_PROVIDER;
-    } else {
-      process.env.MATTER_FILE_STORAGE_PROVIDER = previousStorageProvider;
-    }
-
-    if (previousMaxUploadMb === undefined) {
-      delete process.env.MATTER_FILE_MAX_UPLOAD_MB;
-    } else {
-      process.env.MATTER_FILE_MAX_UPLOAD_MB = previousMaxUploadMb;
-    }
-
-    await prisma.matterDocument.deleteMany({
-      where: {
-        matterId: matter.id,
-      },
-    });
-    await prisma.matter.delete({
-      where: {
-        id: matter.id,
-      },
-    });
-  }
-});
-
-test("MATTER_FILE_STORAGE_PROVIDER=local uses local storage metadata", async () => {
-  test.skip(
-    !process.env.DATABASE_URL,
-    "Requires DATABASE_URL and a migrated PostgreSQL database.",
-  );
-
-  const previousStorageProvider = process.env.MATTER_FILE_STORAGE_PROVIDER;
-  const previousStorageRoot = process.env.MATTER_FILE_STORAGE_ROOT;
-  const previousMaxUploadMb = process.env.MATTER_FILE_MAX_UPLOAD_MB;
-
-  process.env.MATTER_FILE_STORAGE_PROVIDER = "local";
-  process.env.MATTER_FILE_STORAGE_ROOT = ".matter-layer/test-uploads";
-  delete process.env.MATTER_FILE_MAX_UPLOAD_MB;
-
-  const user = await prisma.user.upsert({
-    create: {
-      email: "local-storage-lawyer@example.com",
-      name: "Local Storage Lawyer",
-    },
-    update: {},
-    where: {
-      email: "local-storage-lawyer@example.com",
-    },
-  });
-  const matter = await prisma.matter.create({
-    data: {
-      name: `Local Storage Matter ${Date.now()}`,
-    },
-  });
-
-  try {
-    expect(getMatterDocumentStorageProvider().provider).toBe("local");
-
-    const [document] = await uploadMatterDocuments({
-      config: defaultFileSelectorConfig,
-      files: [
-        new File([Buffer.from("local stored file")], "local-file.txt", {
-          type: "text/plain",
-        }),
-      ],
-      matterId: matter.id,
-      userId: user.id,
-    });
-    const metadata = await prisma.matterDocument.findUniqueOrThrow({
-      where: {
-        id: document!.id,
-      },
-    });
-
-    expect(metadata.storageProvider).toBe("local");
-    expect(metadata.storageKey).toContain(matter.id);
-    expect(metadata.storageKey).not.toContain(process.cwd());
-    await expect(
-      prisma.matterDocumentContent.findUnique({
-        where: {
-          matterDocumentId: document!.id,
-        },
-      }),
-    ).resolves.toBeNull();
-
-    const readFile = await readMatterDocumentFile({
-      matterDocumentId: document!.id,
-      matterId: matter.id,
-    });
-
-    expect(readFile.bytes).toEqual(Buffer.from("local stored file"));
-  } finally {
-    if (previousStorageProvider === undefined) {
-      delete process.env.MATTER_FILE_STORAGE_PROVIDER;
-    } else {
-      process.env.MATTER_FILE_STORAGE_PROVIDER = previousStorageProvider;
-    }
-
-    if (previousStorageRoot === undefined) {
-      delete process.env.MATTER_FILE_STORAGE_ROOT;
-    } else {
-      process.env.MATTER_FILE_STORAGE_ROOT = previousStorageRoot;
-    }
-
-    if (previousMaxUploadMb === undefined) {
-      delete process.env.MATTER_FILE_MAX_UPLOAD_MB;
-    } else {
-      process.env.MATTER_FILE_MAX_UPLOAD_MB = previousMaxUploadMb;
-    }
-
-    await prisma.matterDocument.deleteMany({
-      where: {
-        matterId: matter.id,
-      },
-    });
-    await prisma.matter.delete({
-      where: {
-        id: matter.id,
-      },
-    });
   }
 });
