@@ -1,0 +1,392 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import type { WorkflowStepDefinition } from "@/services/workflows/types";
+import {
+  normalizeFileSelectorConfig,
+  validateFileSelectorOutput,
+  type FileSelectorStepConfig,
+  type FileSelectorStepOutput,
+} from "./schema";
+import type {
+  FileSelectorMatterDocument,
+  FileSelectorStepState,
+} from "./server";
+
+type FileSelectorStepComponentProps = {
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+  loadStepState: (input: {
+    matterId: string;
+    stepId: string;
+    workflowRunId: string;
+  }) => Promise<FileSelectorStepState>;
+  uploadFiles: (input: {
+    config: FileSelectorStepConfig;
+    formData: FormData;
+    matterId: string;
+  }) => Promise<FileSelectorMatterDocument[]>;
+  saveSelection: (input: {
+    config: FileSelectorStepConfig;
+    matterId: string;
+    selectedMatterDocumentIds: string[];
+    stepId: string;
+    uploadedDuringStepMatterDocumentIds: string[];
+    workflowDefinitionId: string;
+    workflowRunId: string;
+  }) => Promise<FileSelectorStepOutput>;
+  onComplete: (output: FileSelectorStepOutput) => void;
+};
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function selectedSummary(count: number) {
+  if (count === 0) {
+    return "No documents selected.";
+  }
+
+  return `${count} document${count === 1 ? "" : "s"} selected.`;
+}
+
+export function FileSelectorStepComponent({
+  loadStepState,
+  matterId,
+  onComplete,
+  saveSelection,
+  step,
+  uploadFiles,
+  workflowDefinitionId,
+  workflowRunId,
+}: FileSelectorStepComponentProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const config = useMemo(
+    () => normalizeFileSelectorConfig(step.parameters),
+    [step.parameters],
+  );
+  const [documents, setDocuments] = useState<FileSelectorMatterDocument[]>([]);
+  const [selectedMatterDocumentIds, setSelectedMatterDocumentIds] = useState<string[]>([]);
+  const [uploadedDuringStepMatterDocumentIds, setUploadedDuringStepMatterDocumentIds] =
+    useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const selectedDocumentIdSet = useMemo(
+    () => new Set(selectedMatterDocumentIds),
+    [selectedMatterDocumentIds],
+  );
+  const validationError = validateFileSelectorOutput(
+    {
+      selectedMatterDocumentIds,
+    },
+    config,
+  );
+  const acceptAttribute = config.acceptedMimeTypes?.join(",") ?? undefined;
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadState() {
+      if (isCurrent) {
+        setIsLoading(true);
+        setErrorMessage("");
+      }
+
+      try {
+        const state = await loadStepState({
+          matterId,
+          stepId: step.id,
+          workflowRunId,
+        });
+
+        if (!isCurrent) {
+          return;
+        }
+
+        setDocuments(state.documents);
+        setSelectedMatterDocumentIds(state.selectedMatterDocumentIds);
+      } catch (error) {
+        if (!isCurrent) {
+          return;
+        }
+
+        setErrorMessage(
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Matter Layer could not load matter documents.",
+        );
+      } finally {
+        if (isCurrent) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadState();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [loadStepState, matterId, step.id, workflowRunId]);
+
+  function toggleDocument(documentId: string) {
+    setErrorMessage("");
+    setSelectedMatterDocumentIds((currentIds) => {
+      if (currentIds.includes(documentId)) {
+        return currentIds.filter((currentId) => currentId !== documentId);
+      }
+
+      if (config.maxFiles !== null && currentIds.length >= config.maxFiles) {
+        setErrorMessage(`Select no more than ${config.maxFiles} file${config.maxFiles === 1 ? "" : "s"}.`);
+        return currentIds;
+      }
+
+      return [...currentIds, documentId];
+    });
+  }
+
+  async function handleUpload(files: FileList | null) {
+    const fileArray = Array.from(files ?? []);
+
+    if (fileArray.length === 0) {
+      return;
+    }
+
+    setErrorMessage("");
+
+    const unsupportedFile = config.acceptedMimeTypes?.length
+      ? fileArray.find((file) => !config.acceptedMimeTypes?.includes(file.type))
+      : null;
+
+    if (unsupportedFile) {
+      setErrorMessage(`Unsupported file type: ${unsupportedFile.type || "unknown"}.`);
+      return;
+    }
+
+    if (
+      config.maxFiles !== null &&
+      selectedMatterDocumentIds.length + fileArray.length > config.maxFiles
+    ) {
+      setErrorMessage(`Select no more than ${config.maxFiles} file${config.maxFiles === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const formData = new FormData();
+
+      fileArray.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const uploadedDocuments = await uploadFiles({
+        config,
+        formData,
+        matterId,
+      });
+      const uploadedIds = uploadedDocuments.map((document) => document.id);
+
+      setDocuments((currentDocuments) => [...uploadedDocuments, ...currentDocuments]);
+      setSelectedMatterDocumentIds((currentIds) => [
+        ...currentIds,
+        ...uploadedIds.filter((documentId) => !currentIds.includes(documentId)),
+      ]);
+      setUploadedDuringStepMatterDocumentIds((currentIds) => [
+        ...currentIds,
+        ...uploadedIds.filter((documentId) => !currentIds.includes(documentId)),
+      ]);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Matter Layer could not upload the selected files.",
+      );
+    } finally {
+      setIsUploading(false);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
+  async function continueWorkflow() {
+    if (validationError) {
+      setErrorMessage(validationError);
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage("");
+
+    try {
+      const output = await saveSelection({
+        config,
+        matterId,
+        selectedMatterDocumentIds,
+        stepId: step.id,
+        uploadedDuringStepMatterDocumentIds,
+        workflowDefinitionId,
+        workflowRunId,
+      });
+
+      onComplete(output);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Matter Layer could not save the selected documents.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="grid gap-5" data-testid="file-selector-step">
+      <div>
+        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
+          Active Workflow
+        </p>
+        <h2 className="mt-2 text-lg font-semibold text-[#211B27]">
+          {step.name}
+        </h2>
+        {step.description ? (
+          <p className="mt-1 text-sm leading-6 text-[#74677F]">
+            {step.description}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="rounded-xl border border-[#E3DEEA] bg-[#FBFAFC] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-base font-semibold text-[#211B27]">
+            Matter documents
+          </h3>
+          {config.allowUpload ? (
+            <div>
+              <input
+                accept={acceptAttribute}
+                className="sr-only"
+                data-testid="file-selector-upload-input"
+                multiple
+                onChange={(event) => {
+                  void handleUpload(event.target.files);
+                }}
+                ref={fileInputRef}
+                type="file"
+              />
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+                data-testid="file-selector-upload-button"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                type="button"
+              >
+                {isUploading ? "Uploading..." : "Upload Files"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        {isLoading ? (
+          <p className="mt-4 rounded-lg border border-[#E3DEEA] bg-white p-3 text-sm leading-6 text-[#74677F]">
+            Loading matter documents...
+          </p>
+        ) : documents.length ? (
+          <div className="mt-4 grid gap-2" data-testid="file-selector-document-list">
+            {documents.map((document) => (
+              <label
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#E3DEEA] bg-white p-3 transition-colors hover:border-[#CFC5DA]"
+                data-testid={`file-selector-document-${document.id}`}
+                key={document.id}
+              >
+                <input
+                  checked={selectedDocumentIdSet.has(document.id)}
+                  className="mt-1 h-4 w-4 accent-[#5F4B76]"
+                  data-testid={`file-selector-checkbox-${document.id}`}
+                  disabled={!config.allowExistingMatterFiles && !uploadedDuringStepMatterDocumentIds.includes(document.id)}
+                  onChange={() => toggleDocument(document.id)}
+                  type="checkbox"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-[#211B27]">
+                    {document.fileName}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-[#74677F]">
+                    {document.mimeType} - {formatFileSize(document.size)}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p
+            className="mt-4 rounded-lg border border-dashed border-[#CFC5DA] bg-white p-4 text-sm leading-6 text-[#74677F]"
+            data-testid="file-selector-empty-state"
+          >
+            No matter documents have been added yet.
+          </p>
+        )}
+      </div>
+
+      <div
+        className="rounded-xl border border-[#E3DEEA] bg-[#FBFAFC] p-4"
+        data-testid="file-selector-summary"
+      >
+        <h3 className="text-base font-semibold text-[#211B27]">
+          Selected documents
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-[#74677F]">
+          {selectedSummary(selectedMatterDocumentIds.length)}
+        </p>
+        {selectedMatterDocumentIds.length ? (
+          <ul className="mt-3 grid gap-1 text-sm leading-6 text-[#211B27]">
+            {documents
+              .filter((document) => selectedDocumentIdSet.has(document.id))
+              .map((document) => (
+                <li key={document.id}>{document.fileName}</li>
+              ))}
+          </ul>
+        ) : null}
+      </div>
+
+      {errorMessage || validationError ? (
+        <p
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
+          data-testid="file-selector-validation"
+          role="alert"
+        >
+          {errorMessage || validationError}
+        </p>
+      ) : null}
+
+      <button
+        className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
+        data-testid="file-selector-continue"
+        disabled={Boolean(validationError) || isLoading || isSaving}
+        onClick={() => {
+          void continueWorkflow();
+        }}
+        type="button"
+      >
+        {isSaving ? "Saving..." : "Continue"}
+      </button>
+    </section>
+  );
+}

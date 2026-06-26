@@ -2,6 +2,10 @@ import { notFound } from "next/navigation";
 
 import { requireConfiguredAISettings } from "@/services/ai/ai-settings-service";
 import { isCurrentUserAdmin } from "@/services/auth";
+import {
+  listEnabledWorkflowCatalog,
+  syncBuiltInWorkflows,
+} from "@/services/workflows/catalog-service";
 
 import { MatterChat } from "./MatterChat";
 
@@ -33,11 +37,15 @@ export default async function MatterPage({ params }: MatterPageProps) {
     notFound();
   }
 
+  await syncBuiltInWorkflows();
+  const workflowCatalog = await listEnabledWorkflowCatalog();
+
   return (
     <MatterChat
       isAdmin={isAdmin}
       matterId={matterId}
       matterName={matter.name}
+      workflowDefinitions={workflowCatalog}
     />
   );
 }

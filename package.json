@@ -10,11 +10,13 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:e2e",
-    "test:e2e": "dotenv -e .env.local -- playwright test",
-    "test:e2e:ui": "dotenv -e .env.local -- playwright test --ui",
-    "test:e2e:headed": "dotenv -e .env.local -- playwright test --headed",
+    "test:e2e": "dotenv -e .env.test.local -- playwright test",
+    "test:e2e:ui": "dotenv -e .env.test.local -- playwright test --ui",
+    "test:e2e:headed": "dotenv -e .env.test.local -- playwright test --headed",
+    "test:e2e:reset-db": "dotenv -e .env.test.local -- tsx tests/e2e/reset-test-db.ts",
     "db:push": "dotenv -e .env.local -- prisma db push",
-    "db:studio": "dotenv -e .env.local -- prisma studio"
+    "db:studio": "dotenv -e .env.local -- prisma studio",
+    "sync:workflows": "dotenv -e .env.local -- tsx scripts/sync-workflows.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
@@ -36,6 +38,7 @@
     "eslint-config-next": "16.2.9",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

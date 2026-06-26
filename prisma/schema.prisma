@@ -12,21 +12,47 @@ enum UserRole {
   ADMIN
 }
 
+enum WorkflowSource {
+  builtIn
+  custom
+}
+
+enum MatterDocumentSourceType {
+  upload
+}
+
+enum WorkflowRunStatus {
+  running
+  completed
+  failed
+}
+
+enum WorkflowRunStepFileSelectionSource {
+  manual
+  uploaded_during_step
+}
+
 model Matter {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String           @id @default(cuid())
+  name         String
+  documents    MatterDocument[]
+  workflowRuns WorkflowRun[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  image     String?
-  role      UserRole @default(USER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String                @id @default(cuid())
+  email             String                @unique
+  name              String?
+  image             String?
+  role              UserRole              @default(USER)
+  createdWorkflows  Workflow[]            @relation("WorkflowCreatedBy")
+  updatedWorkflows  Workflow[]            @relation("WorkflowUpdatedBy")
+  uploadedDocuments MatterDocument[]      @relation("MatterDocumentUploadedBy")
+  selectedStepFiles WorkflowRunStepFile[] @relation("WorkflowRunStepFileSelectedBy")
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 }
 
 model AppSettings {
@@ -48,4 +74,86 @@ model AiProviderConfig {
   updatedAt DateTime @updatedAt
 
   @@index([isActive])
+}
+
+model Workflow {
+  id              String         @id @default(cuid())
+  slug            String         @unique
+  name            String
+  description     String
+  definitionJson  Json
+  source          WorkflowSource
+  builtInVersion  Int?
+  isSystem        Boolean        @default(false)
+  isEnabled       Boolean        @default(true)
+  createdByUserId String?
+  updatedByUserId String?
+  createdByUser   User?          @relation("WorkflowCreatedBy", fields: [createdByUserId], references: [id])
+  updatedByUser   User?          @relation("WorkflowUpdatedBy", fields: [updatedByUserId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([source])
+  @@index([isEnabled])
+}
+
+model MatterDocument {
+  id                 String                   @id @default(cuid())
+  matterId           String
+  fileName           String
+  mimeType           String
+  size               Int
+  sha256             String?
+  storageProvider    String                   @default("database")
+  storageKey         String?
+  sourceType         MatterDocumentSourceType @default(upload)
+  uploadedByUserId   String
+  matter             Matter                   @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  uploadedByUser     User                     @relation("MatterDocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+  content            MatterDocumentContent?
+  stepFileSelections WorkflowRunStepFile[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@index([matterId])
+  @@index([uploadedByUserId])
+  @@index([storageProvider])
+}
+
+model MatterDocumentContent {
+  id               String         @id @default(cuid())
+  matterDocumentId String         @unique
+  bytes            Bytes
+  createdAt        DateTime       @default(now())
+  document         MatterDocument @relation(fields: [matterDocumentId], references: [id], onDelete: Cascade)
+}
+
+model WorkflowRun {
+  id                   String                @id
+  matterId             String
+  workflowDefinitionId String
+  status               WorkflowRunStatus     @default(running)
+  matter               Matter                @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  selectedFiles        WorkflowRunStepFile[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  @@index([matterId])
+}
+
+model WorkflowRunStepFile {
+  id               String                             @id @default(cuid())
+  workflowRunId    String
+  stepId           String
+  matterDocumentId String
+  selectedByUserId String
+  selectedAt       DateTime                           @default(now())
+  selectionSource  WorkflowRunStepFileSelectionSource
+  workflowRun      WorkflowRun                        @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  matterDocument   MatterDocument                     @relation(fields: [matterDocumentId], references: [id], onDelete: Cascade)
+  selectedByUser   User                               @relation("WorkflowRunStepFileSelectedBy", fields: [selectedByUserId], references: [id])
+
+  @@unique([workflowRunId, stepId, matterDocumentId])
+  @@index([matterDocumentId])
+  @@index([selectedByUserId])
 }
