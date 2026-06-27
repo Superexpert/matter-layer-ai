@@ -1,4 +1,3 @@
-import { MatterDocumentRepresentationStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,7 +15,7 @@ describe("extraction representation display state", () => {
     );
     expect(
       extractionRepresentationDisplayState(
-        MatterDocumentRepresentationStatus.FAILED,
+        "FAILED",
         stalePdfWorkerError,
       ),
     ).toEqual({
@@ -28,7 +27,7 @@ describe("extraction representation display state", () => {
   it("treats stale runtime require failures as not started", () => {
     expect(
       extractionRepresentationDisplayState(
-        MatterDocumentRepresentationStatus.FAILED,
+        "FAILED",
         "require is not defined",
       ),
     ).toEqual({
@@ -40,7 +39,7 @@ describe("extraction representation display state", () => {
   it("keeps current conversion failures visible", () => {
     expect(
       extractionRepresentationDisplayState(
-        MatterDocumentRepresentationStatus.FAILED,
+        "FAILED",
         "No extractable text was found in this PDF. OCR is not implemented yet.",
       ),
     ).toEqual({
@@ -52,7 +51,7 @@ describe("extraction representation display state", () => {
   it("maps normal representation statuses", () => {
     expect(
       extractionRepresentationDisplayState(
-        MatterDocumentRepresentationStatus.READY,
+        "READY",
         null,
       ),
     ).toEqual({
@@ -61,7 +60,7 @@ describe("extraction representation display state", () => {
     });
     expect(
       extractionRepresentationDisplayState(
-        MatterDocumentRepresentationStatus.PROCESSING,
+        "PROCESSING",
         null,
       ),
     ).toEqual({

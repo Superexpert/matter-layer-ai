@@ -97,6 +97,7 @@ export async function loadExtractionStepStateAction(input: {
 }
 
 export async function runExtractionStepAction(input: {
+  executionMode?: "autorun" | "manual";
   matterId: string;
   step: WorkflowStepDefinition;
   workflowDefinitionId: string;

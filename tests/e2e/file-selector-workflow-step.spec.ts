@@ -248,11 +248,6 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
         },
       },
     });
-    await prisma.extractedFact.deleteMany({
-      where: {
-        matterId: matter.id,
-      },
-    });
     await prisma.workflowExtractionRun.deleteMany({
       where: {
         matterId: matter.id,

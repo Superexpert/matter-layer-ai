@@ -1,5 +1,3 @@
-import { Prisma, WorkflowExtractionRunStatus } from "@prisma/client";
-
 import type { ChronologyExtractionProfileContext } from ".";
 import { buildChronologyUserPrompt, chronologySystemPrompt } from "./prompts";
 import {
@@ -13,16 +11,13 @@ export type ChronologyExtractionResult = {
   error: string | null;
   extractedFactCount: number;
   extractionWindowCount: number;
+  facts: ChronologyFact[];
   factsByType: Record<string, number>;
   failedWindowCount: number;
   provider: string | null;
   model: string | null;
-  status: WorkflowExtractionRunStatus;
+  status: "COMPLETED" | "FAILED" | "PARTIAL_FAILED";
 };
-
-function jsonValue(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-}
 
 function conciseError(error: unknown) {
   if (error instanceof Error && error.message.trim()) {
@@ -38,39 +33,18 @@ function statusForResult(input: {
   totalWindowCount: number;
 }) {
   if (input.totalWindowCount === 0) {
-    return WorkflowExtractionRunStatus.FAILED;
+    return "FAILED" as const;
   }
 
   if (input.failedWindowCount === 0) {
-    return WorkflowExtractionRunStatus.COMPLETED;
+    return "COMPLETED" as const;
   }
 
   if (input.extractedFactCount > 0 || input.failedWindowCount < input.totalWindowCount) {
-    return WorkflowExtractionRunStatus.PARTIAL_FAILED;
+    return "PARTIAL_FAILED" as const;
   }
 
-  return WorkflowExtractionRunStatus.FAILED;
-}
-
-function factCreateInput(input: {
-  extractionRunId: string;
-  fact: ChronologyFact;
-  matterId: string;
-  stepId: string;
-  workflowRunId: string;
-}) {
-  return {
-    confidence: input.fact.confidence,
-    dataJson: jsonValue(input.fact),
-    extractionRunId: input.extractionRunId,
-    factType: input.fact.factType,
-    matterDocumentId: input.fact.sourceDocumentId,
-    matterId: input.matterId,
-    sourcePagesJson: jsonValue(input.fact.sourcePages),
-    sourceQuote: input.fact.sourceQuote,
-    stepId: input.stepId,
-    workflowRunId: input.workflowRunId,
-  };
+  return "FAILED" as const;
 }
 
 export async function runChronologyExtraction(
@@ -87,12 +61,6 @@ export async function runChronologyExtraction(
   const errors: string[] = [];
   let provider: string | null = null;
   let model: string | null = null;
-
-  await context.prisma.extractedFact.deleteMany({
-    where: {
-      extractionRunId: context.extractionRunId,
-    },
-  });
 
   for (const window of windows) {
     try {
@@ -126,20 +94,6 @@ export async function runChronologyExtraction(
     }
   }
 
-  if (facts.length > 0) {
-    await context.prisma.extractedFact.createMany({
-      data: facts.map((fact) =>
-        factCreateInput({
-          extractionRunId: context.extractionRunId,
-          fact,
-          matterId: context.matterId,
-          stepId: context.stepId,
-          workflowRunId: context.workflowRunId,
-        }),
-      ),
-    });
-  }
-
   const status = statusForResult({
     extractedFactCount: facts.length,
     failedWindowCount: errors.length,
@@ -151,6 +105,7 @@ export async function runChronologyExtraction(
     error: errors[0] ?? null,
     extractedFactCount: facts.length,
     extractionWindowCount: windows.length,
+    facts,
     factsByType,
     failedWindowCount: errors.length,
     model,

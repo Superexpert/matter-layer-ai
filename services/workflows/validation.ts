@@ -22,6 +22,7 @@ export function isWorkflowStepDefinition(
     typeof value.type === "string" &&
     typeof value.name === "string" &&
     isObjectRecord(value.parameters) &&
+    (value.autorun === undefined || typeof value.autorun === "boolean") &&
     (value.description === undefined || typeof value.description === "string")
   );
 }

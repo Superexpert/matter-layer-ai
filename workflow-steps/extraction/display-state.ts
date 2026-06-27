@@ -1,9 +1,13 @@
-import { MatterDocumentRepresentationStatus } from "@prisma/client";
-
 export type ExtractionRepresentationDisplayState = {
   error: string | null;
   representationStatus: "Failed" | "Not started" | "Processing" | "Ready";
 };
+
+export type ExtractionRepresentationPersistenceStatus =
+  | "FAILED"
+  | "PENDING"
+  | "PROCESSING"
+  | "READY";
 
 export function isObsoleteRepresentationInfrastructureError(
   error: string | null | undefined,
@@ -22,11 +26,11 @@ export function isObsoleteRepresentationInfrastructureError(
 }
 
 export function extractionRepresentationDisplayState(
-  status: MatterDocumentRepresentationStatus | null | undefined,
+  status: ExtractionRepresentationPersistenceStatus | null | undefined,
   error: string | null | undefined,
 ): ExtractionRepresentationDisplayState {
   if (
-    status === MatterDocumentRepresentationStatus.FAILED &&
+    status === "FAILED" &&
     isObsoleteRepresentationInfrastructureError(error)
   ) {
     return {
@@ -35,21 +39,21 @@ export function extractionRepresentationDisplayState(
     };
   }
 
-  if (status === MatterDocumentRepresentationStatus.READY) {
+  if (status === "READY") {
     return {
       error: null,
       representationStatus: "Ready",
     };
   }
 
-  if (status === MatterDocumentRepresentationStatus.PROCESSING) {
+  if (status === "PROCESSING") {
     return {
       error: null,
       representationStatus: "Processing",
     };
   }
 
-  if (status === MatterDocumentRepresentationStatus.FAILED) {
+  if (status === "FAILED") {
     return {
       error: error ?? null,
       representationStatus: "Failed",

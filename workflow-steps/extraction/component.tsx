@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import {
@@ -8,6 +8,8 @@ import {
   type ExtractionStepOutput,
 } from "./schema";
 import type { ExtractionStepState } from "./server";
+import { suggestedActionForError } from "./errors";
+import { headingForOutputError, summaryForOutput } from "./display-copy";
 
 type ExtractionStepComponentProps = {
   matterId: string;
@@ -15,6 +17,7 @@ type ExtractionStepComponentProps = {
   step: WorkflowStepDefinition;
   workflowDefinitionId: string;
   workflowRunId: string;
+  onReturnToInputStep?: (inputStepId: string) => void;
   loadStepState: (input: {
     matterId: string;
     step: WorkflowStepDefinition;
@@ -22,6 +25,7 @@ type ExtractionStepComponentProps = {
     workflowRunId: string;
   }) => Promise<ExtractionStepState>;
   runStep: (input: {
+    executionMode?: "autorun" | "manual";
     matterId: string;
     step: WorkflowStepDefinition;
     workflowDefinitionId: string;
@@ -29,26 +33,11 @@ type ExtractionStepComponentProps = {
   }) => Promise<ExtractionStepOutput>;
 };
 
-function summaryForOutput(output: ExtractionStepOutput | null) {
-  if (!output) {
-    return "Selected documents have not been prepared yet.";
-  }
-
-  if (output.status === "completed") {
-    return `Extracted ${output.extractedFactCount} fact${output.extractedFactCount === 1 ? "" : "s"} and generated ${output.collapsedEventCount} chronology event${output.collapsedEventCount === 1 ? "" : "s"} from ${output.readyRepresentationCount} document${output.readyRepresentationCount === 1 ? "" : "s"}.`;
-  }
-
-  if (output.status === "partial_failed") {
-    return `Partial extraction: ${output.extractedFactCount} fact${output.extractedFactCount === 1 ? "" : "s"} extracted and ${output.collapsedEventCount} chronology event${output.collapsedEventCount === 1 ? "" : "s"} generated; ${output.failedRepresentationCount} document${output.failedRepresentationCount === 1 ? "" : "s"} or window(s) could not be processed.`;
-  }
-
-  return "Selected documents could not be prepared.";
-}
-
 export function ExtractionStepComponent({
   loadStepState,
   matterId,
   onComplete,
+  onReturnToInputStep,
   runStep,
   step,
   workflowDefinitionId,
@@ -62,6 +51,8 @@ export function ExtractionStepComponent({
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const autorunStartedKeyRef = useRef<string | null>(null);
+  const autorunAdvancedRunIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
@@ -105,12 +96,13 @@ export function ExtractionStepComponent({
     };
   }, [loadStepState, matterId, step, workflowDefinitionId, workflowRunId]);
 
-  async function prepareDocuments() {
+  const prepareDocuments = useCallback(async (executionMode: "autorun" | "manual" = "manual") => {
     setIsRunning(true);
     setErrorMessage("");
 
     try {
       const output = await runStep({
+        executionMode,
         matterId,
         step,
         workflowDefinitionId,
@@ -127,10 +119,11 @@ export function ExtractionStepComponent({
         ...nextState,
         latestOutput: output,
       });
-
-      if (output.status === "failed") {
-        setErrorMessage(summaryForOutput(output));
+      if (executionMode === "autorun" && output.status === "completed") {
+        autorunAdvancedRunIdRef.current = output.extractionRunId;
+        onComplete(output);
       }
+
     } catch (error) {
       setErrorMessage(
         error instanceof Error && error.message.trim()
@@ -140,13 +133,108 @@ export function ExtractionStepComponent({
     } finally {
       setIsRunning(false);
     }
-  }
+  }, [
+    loadStepState,
+    matterId,
+    onComplete,
+    runStep,
+    step,
+    workflowDefinitionId,
+    workflowRunId,
+  ]);
 
   const latestOutput = state?.latestOutput ?? null;
-  const canContinue =
-    latestOutput?.status === "completed" ||
-    (latestOutput?.status === "partial_failed" &&
-      latestOutput.extractedFactCount > 0);
+  const outputError = latestOutput?.error ?? null;
+  const suggestedAction = suggestedActionForError(outputError);
+  const canContinue = latestOutput?.status === "completed";
+  const shouldShowRunButton =
+    !step.autorun ||
+    latestOutput?.status === "failed" ||
+    latestOutput?.status === "partial_failed";
+
+  useEffect(() => {
+    if (!step.autorun || isLoading || isRunning || !state?.documents.length) {
+      return;
+    }
+
+    if (latestOutput?.status === "completed") {
+      if (autorunAdvancedRunIdRef.current !== latestOutput.extractionRunId) {
+        autorunAdvancedRunIdRef.current = latestOutput.extractionRunId;
+        onComplete(latestOutput);
+      }
+
+      return;
+    }
+
+    if (
+      latestOutput?.status === "failed" ||
+      latestOutput?.status === "partial_failed" ||
+      latestOutput?.status === "running"
+    ) {
+      return;
+    }
+
+    const autorunKey = `${workflowRunId}:${step.id}`;
+
+    if (autorunStartedKeyRef.current === autorunKey) {
+      return;
+    }
+
+    autorunStartedKeyRef.current = autorunKey;
+    void prepareDocuments("autorun");
+  }, [
+    isLoading,
+    isRunning,
+    latestOutput,
+    onComplete,
+    prepareDocuments,
+    state?.documents.length,
+    step.autorun,
+    step.id,
+    workflowRunId,
+  ]);
+
+  useEffect(() => {
+    if (latestOutput?.status !== "running") {
+      return;
+    }
+
+    let isCurrent = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const nextState = await loadStepState({
+          matterId,
+          step,
+          workflowDefinitionId,
+          workflowRunId,
+        });
+
+        if (isCurrent) {
+          setState(nextState);
+        }
+      } catch (error) {
+        if (isCurrent) {
+          setErrorMessage(
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : "Matter Layer could not refresh the extraction step.",
+          );
+        }
+      }
+    }, 1500);
+
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    latestOutput?.status,
+    loadStepState,
+    matterId,
+    step,
+    workflowDefinitionId,
+    workflowRunId,
+  ]);
 
   return (
     <section className="grid gap-5" data-testid="extraction-step">
@@ -223,8 +311,41 @@ export function ExtractionStepComponent({
           Preparation status
         </h3>
         <p className="mt-2 text-sm leading-6 text-[#74677F]">
-          {isRunning ? "Preparing selected documents..." : summaryForOutput(latestOutput)}
+          {isRunning || (step.autorun && !latestOutput)
+            ? "Preparing selected documents..."
+            : summaryForOutput(latestOutput)}
         </p>
+        {outputError ? (
+          <div
+            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"
+            data-testid="extraction-structured-error"
+          >
+            <p className="font-semibold">
+              {headingForOutputError(latestOutput)}
+            </p>
+            <p className="mt-1">{outputError.userMessage}</p>
+            {outputError.documentErrors?.length ? (
+              <div className="mt-3">
+                <p className="font-semibold">Files that need attention:</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {outputError.documentErrors.map((documentError) => (
+                    <li key={`${documentError.matterDocumentId}-${documentError.code}`}>
+                      <span className="font-medium">
+                        {documentError.fileName ?? documentError.matterDocumentId}:
+                      </span>{" "}
+                      {documentError.userMessage}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {suggestedAction ? (
+              <p className="mt-3" data-testid="extraction-suggested-action">
+                {suggestedAction}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {latestOutput ? (
           <div className="mt-2 grid gap-1 text-xs leading-5 text-[#74677F]">
             <p>
@@ -253,17 +374,27 @@ export function ExtractionStepComponent({
       ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <button
-          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
-          data-testid="extraction-run-button"
-          disabled={isLoading || isRunning || !state?.documents.length}
-          onClick={() => {
-            void prepareDocuments();
-          }}
-          type="button"
-        >
-          {isRunning ? "Extracting..." : "Extract chronology facts"}
-        </button>
+        {shouldShowRunButton ? (
+          <button
+            className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+            data-testid="extraction-run-button"
+            disabled={isLoading || isRunning || !state?.documents.length}
+            onClick={() => {
+              void prepareDocuments("manual");
+            }}
+            type="button"
+          >
+            {isRunning
+              ? "Extracting..."
+              : step.autorun
+                ? "Retry extraction"
+                : latestOutput?.status === "failed" || latestOutput?.status === "partial_failed"
+                  ? "Try preparing again"
+                  : "Extract chronology facts"}
+          </button>
+        ) : (
+          <div />
+        )}
         <button
           className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
           data-testid="extraction-continue"
@@ -278,6 +409,16 @@ export function ExtractionStepComponent({
           Continue
         </button>
       </div>
+      {latestOutput?.status === "failed" && onReturnToInputStep ? (
+        <button
+          className="justify-self-start text-sm font-semibold text-[#5F4B76] underline-offset-4 hover:underline"
+          data-testid="extraction-return-to-input-step"
+          onClick={() => onReturnToInputStep(config.inputStepId)}
+          type="button"
+        >
+          Return to Select source documents
+        </button>
+      ) : null}
     </section>
   );
 }

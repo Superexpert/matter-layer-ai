@@ -60,11 +60,6 @@ async function cleanupMatter(matterId: string) {
       matterId,
     },
   });
-  await prisma.collapsedChronologyEvent.deleteMany({
-    where: {
-      matterId,
-    },
-  });
   await prisma.workflowRunStepFile.deleteMany({
     where: {
       workflowRun: {
@@ -77,11 +72,6 @@ async function cleanupMatter(matterId: string) {
       workflowRun: {
         matterId,
       },
-    },
-  });
-  await prisma.extractedFact.deleteMany({
-    where: {
-      matterId,
     },
   });
   await prisma.workflowExtractionRun.deleteMany({
@@ -416,23 +406,18 @@ test("extraction step prepares TXT and PDF representations and persists output",
       selectedDocumentCount: 2,
     });
 
-    const collapsedEvents = await prisma.collapsedChronologyEvent.findMany({
-      orderBy: {
-        sortKey: "asc",
-      },
-      where: {
-        extractionRunId: output.extractionRunId,
-      },
-    });
-
-    expect(collapsedEvents).toHaveLength(2);
-    expect(collapsedEvents[0]).toMatchObject({
+    expect(output.collapsedEvents).toHaveLength(2);
+    expect(output.collapsedEvents[0]).toMatchObject({
       date: "2024-01-12",
-      matterId: matter.id,
-      stepId: extractionStep.id,
-      workflowRunId,
     });
-    expect(collapsedEvents[0].sourcesJson).toEqual([
+    expect(output.collapsedEvents[0]).toMatchObject({
+      sources: [
+        expect.objectContaining({
+          sourceFileName: "notes.txt",
+        }),
+      ],
+    });
+    expect(output.collapsedEvents[0].sources).toEqual([
       expect.objectContaining({
         sourceFileName: "notes.txt",
       }),
@@ -460,22 +445,13 @@ test("extraction step prepares TXT and PDF representations and persists output",
       sourceDocumentCount: 2,
     });
 
-    const extractedFacts = await prisma.extractedFact.findMany({
-      orderBy: {
-        factType: "asc",
-      },
-      where: {
-        extractionRunId: output.extractionRunId,
-      },
-    });
-
-    expect(extractedFacts).toHaveLength(4);
-    expect(extractedFacts.map((fact) => fact.matterDocumentId).sort()).toEqual(
+    expect(output.facts).toHaveLength(4);
+    expect(output.facts.map((fact) => fact.sourceDocumentId).sort()).toEqual(
       [pdfDocument.id, pdfDocument.id, textDocument.id, textDocument.id].sort(),
     );
     expect(
-      extractedFacts.find((fact) => fact.matterDocumentId === pdfDocument.id)
-        ?.sourcePagesJson,
+      output.facts.find((fact) => fact.sourceDocumentId === pdfDocument.id)
+        ?.sourcePages,
     ).toEqual([1, 2]);
 
     const representations = await prisma.matterDocumentRepresentation.findMany({
@@ -654,19 +630,14 @@ test("failed AI windows produce partial and failed extraction runs", async () =>
       extractedFactCount: 0,
       status: "failed",
     });
-    await expect(
-      prisma.extractedFact.findMany({
-        where: {
-          extractionRunId: failedOutput.extractionRunId,
-        },
-      }),
-    ).resolves.toHaveLength(0);
+    expect(failedOutput.facts).toHaveLength(0);
+    expect(failedOutput.collapsedEvents).toHaveLength(0);
   } finally {
     await cleanupMatter(matter.id);
   }
 });
 
-test("extraction step rejects cross-matter selected document IDs", async () => {
+test("extraction step stores structured errors for cross-matter selected document IDs", async () => {
   const { matter, user } = await createUserAndMatter();
   const otherMatter = await prisma.matter.create({
     data: {
@@ -701,14 +672,38 @@ test("extraction step rejects cross-matter selected document IDs", async () => {
       },
     });
 
-    await expect(
-      runExtractionStep({
-        matterId: matter.id,
-        step: extractionStep,
-        workflowDefinitionId: "chronology",
-        workflowRunId,
-      }),
-    ).rejects.toThrow("Every selected document must belong to the workflow run matter.");
+    const output = await runExtractionStep({
+      matterId: matter.id,
+      step: extractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+    const persistedOutput = await prisma.workflowRunStepOutput.findUnique({
+      where: {
+        workflowRunId_stepId: {
+          stepId: extractionStep.id,
+          workflowRunId,
+        },
+      },
+    });
+
+    expect(output).toMatchObject({
+      error: {
+        code: "DOCUMENT_ACCESS_DENIED",
+        documentErrors: [
+          {
+            matterDocumentId: otherDocument.id,
+            userMessage: "This document is not available in the current matter.",
+          },
+        ],
+        userMessage:
+          "Matter Layer could not prepare the selected documents because one or more files are not available in this matter.",
+      },
+      failedDocumentIds: [otherDocument.id],
+      schemaVersion: 1,
+      status: "failed",
+    });
+    expect(persistedOutput?.outputJson).toMatchObject(output);
   } finally {
     await cleanupMatter(matter.id);
     await cleanupMatter(otherMatter.id);

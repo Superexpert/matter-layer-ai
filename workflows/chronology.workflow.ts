@@ -23,6 +23,7 @@ export const chronologyDefinition: WorkflowDefinition = {
       type: "fileSelector",
     },
     {
+      autorun: true,
       description: "Convert the selected documents into AI-readable Markdown for chronology extraction.",
       id: "extract-chronology",
       name: "Prepare source documents",

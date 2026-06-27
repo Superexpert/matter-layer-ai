@@ -40,6 +40,7 @@ export type WorkflowStepDefinition = {
   type: string;
   name: string;
   description?: string;
+  autorun?: boolean;
   parameters: Record<string, unknown>;
 };
 

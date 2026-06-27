@@ -35,8 +35,10 @@ function step(
   name: string,
   description: string,
   parameters: Record<string, unknown> = {},
+  options: Pick<WorkflowStepDefinition, "autorun"> = {},
 ): WorkflowStepDefinition {
   return {
+    ...options,
     description,
     id,
     name,
@@ -246,6 +248,9 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
             inputStepId: "select-files",
             profile: "chronology",
             representationType: "MARKDOWN",
+          },
+          {
+            autorun: true,
           },
         ),
         step(

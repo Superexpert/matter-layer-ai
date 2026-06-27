@@ -311,12 +311,6 @@ describe("chronology prompts and parser", () => {
 describe("chronology extraction runner", () => {
   it("does not send unsupported temperature parameters to the AI provider", async () => {
     let aiRequest: unknown;
-    const prisma = {
-      extractedFact: {
-        createMany: async () => ({ count: 1 }),
-        deleteMany: async () => ({ count: 0 }),
-      },
-    };
 
     const result = await runChronologyExtraction({
       aiService: {
@@ -331,9 +325,6 @@ describe("chronology extraction runner", () => {
           };
         },
       },
-      extractionRunId: "extraction_run_123",
-      matterId: "matter_123",
-      prisma: prisma as never,
       readyDocuments: [
         {
           fileName: "Police Report.pdf",
@@ -345,11 +336,10 @@ describe("chronology extraction runner", () => {
           ].join("\n\n"),
         },
       ],
-      stepId: "extract-chronology",
-      workflowRunId: "workflow_run_123",
     });
 
     expect(result.extractedFactCount).toBe(1);
+    expect(result.facts).toHaveLength(1);
     expect(aiRequest).toMatchObject({
       maxOutputTokens: 6000,
     });

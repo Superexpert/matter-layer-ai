@@ -36,8 +36,17 @@ export const extractionOutputSchema: WorkflowSchema = {
     collapsedEventCount: {
       type: "integer",
     },
+    collapsedEvents: {
+      items: {
+        type: "object",
+      },
+      type: "array",
+    },
     extractionRunId: {
       type: "string",
+    },
+    error: {
+      type: ["object", "null"],
     },
     extractedFactCount: {
       type: "integer",
@@ -48,13 +57,35 @@ export const extractionOutputSchema: WorkflowSchema = {
     failedRepresentationCount: {
       type: "integer",
     },
+    failedDocumentIds: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+    },
+    preparedDocumentIds: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+    },
     factsByType: {
       type: "object",
+    },
+    facts: {
+      items: {
+        type: "object",
+      },
+      type: "array",
     },
     profile: {
       type: "string",
     },
     readyRepresentationCount: {
+      type: "integer",
+    },
+    schemaVersion: {
+      const: 1,
       type: "integer",
     },
     selectedMatterDocumentIds: {
@@ -64,20 +95,26 @@ export const extractionOutputSchema: WorkflowSchema = {
       type: "array",
     },
     status: {
-      enum: ["completed", "failed", "partial_failed"],
+      enum: ["completed", "failed", "partial_failed", "running"],
       type: "string",
     },
   },
   required: [
     "chronologyArtifactId",
     "collapsedEventCount",
+    "collapsedEvents",
     "extractedFactCount",
     "extractionWindowCount",
     "extractionRunId",
+    "error",
+    "facts",
     "factsByType",
+    "failedDocumentIds",
     "failedRepresentationCount",
+    "preparedDocumentIds",
     "profile",
     "readyRepresentationCount",
+    "schemaVersion",
     "selectedMatterDocumentIds",
     "status",
   ],

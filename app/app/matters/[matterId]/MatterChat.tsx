@@ -946,6 +946,26 @@ export function MatterChat({
     ]);
   }
 
+  function returnToWorkflowStep(stepId: string) {
+    if (!activeWorkflow) {
+      throw new Error("Returning to a workflow step requires an active workflow.");
+    }
+
+    const targetStep = activeWorkflow.workflowDefinition.steps.find(
+      (step) => step.id === stepId,
+    );
+
+    if (!targetStep) {
+      throw new Error(`Workflow step was not found: ${stepId}`);
+    }
+
+    setActiveWorkflow({
+      ...activeWorkflow,
+      activeStepId: targetStep.id,
+      completed: false,
+    });
+  }
+
   function completeDocumentEditorStep(output: DocumentEditorStepOutput) {
     if (!activeWorkflow || !activeWorkflowStep) {
       throw new Error("Completing a document editor step requires an active workflow step.");
@@ -1688,6 +1708,7 @@ export function MatterChat({
                     loadStepState={loadExtractionStepStateAction}
                     matterId={matterId}
                     onComplete={completeExtractionStep}
+                    onReturnToInputStep={returnToWorkflowStep}
                     runStep={runExtractionStepAction}
                     step={activeWorkflowStep}
                     workflowDefinitionId={activeWorkflow.workflowDefinition.id}

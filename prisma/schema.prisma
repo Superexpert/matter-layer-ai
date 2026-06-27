@@ -59,8 +59,6 @@ model Matter {
   id                        String                     @id @default(cuid())
   name                      String
   documents                 MatterDocument[]
-  extractedFacts            ExtractedFact[]
-  collapsedChronologyEvents CollapsedChronologyEvent[]
   workflowArtifacts         WorkflowArtifact[]
   workflowRuns              WorkflowRun[]
   extractionRuns            WorkflowExtractionRun[]
@@ -141,7 +139,6 @@ model MatterDocument {
   matter             Matter                         @relation(fields: [matterId], references: [id], onDelete: Cascade)
   uploadedByUser     User                           @relation("MatterDocumentUploadedBy", fields: [uploadedByUserId], references: [id])
   content            MatterDocumentContent?
-  extractedFacts     ExtractedFact[]
   representations    MatterDocumentRepresentation[]
   stepFileSelections WorkflowRunStepFile[]
   createdAt          DateTime                       @default(now())
@@ -208,56 +205,26 @@ model WorkflowRunStepOutput {
 }
 
 model WorkflowExtractionRun {
-  id                        String                      @id @default(cuid())
-  workflowRunId             String
-  stepId                    String
-  matterId                  String
-  profile                   String
-  representationType        String                      @default("MARKDOWN")
-  status                    WorkflowExtractionRunStatus @default(PENDING)
-  selectedDocumentIdsJson   Json?
-  metadataJson              Json?
-  error                     String?
-  startedAt                 DateTime?
-  completedAt               DateTime?
-  workflowRun               WorkflowRun                 @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
-  matter                    Matter                      @relation(fields: [matterId], references: [id], onDelete: Cascade)
-  collapsedChronologyEvents CollapsedChronologyEvent[]
-  extractedFacts            ExtractedFact[]
-  createdAt                 DateTime                    @default(now())
-  updatedAt                 DateTime                    @updatedAt
+  id                      String                      @id @default(cuid())
+  workflowRunId           String
+  stepId                  String
+  matterId                String
+  profile                 String
+  representationType      String                      @default("MARKDOWN")
+  status                  WorkflowExtractionRunStatus @default(PENDING)
+  selectedDocumentIdsJson Json?
+  metadataJson            Json?
+  error                   String?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  workflowRun             WorkflowRun                 @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  matter                  Matter                      @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
 
   @@index([workflowRunId])
   @@index([matterId])
   @@index([status])
-}
-
-model CollapsedChronologyEvent {
-  id                String                @id @default(cuid())
-  extractionRunId   String
-  workflowRunId     String
-  stepId            String
-  matterId          String
-  date              String?
-  dateText          String?
-  isApproximateDate Boolean               @default(false)
-  sortKey           String?
-  title             String?
-  summary           String
-  actorsJson        Json?
-  sourceFactsJson   Json?
-  sourcesJson       Json?
-  confidence        String?
-  extractionRun     WorkflowExtractionRun @relation(fields: [extractionRunId], references: [id], onDelete: Cascade)
-  matter            Matter                @relation(fields: [matterId], references: [id], onDelete: Cascade)
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-
-  @@index([extractionRunId])
-  @@index([workflowRunId])
-  @@index([matterId])
-  @@index([date])
-  @@index([sortKey])
 }
 
 model WorkflowArtifact {
@@ -309,31 +276,6 @@ model WorkflowArtifactRevision {
   @@index([matterId])
   @@index([stepId])
   @@index([createdByUserId])
-}
-
-model ExtractedFact {
-  id               String                @id @default(cuid())
-  extractionRunId  String
-  workflowRunId    String
-  stepId           String
-  matterId         String
-  matterDocumentId String
-  factType         String
-  dataJson         Json
-  sourcePagesJson  Json?
-  sourceQuote      String?
-  confidence       String?
-  extractionRun    WorkflowExtractionRun @relation(fields: [extractionRunId], references: [id], onDelete: Cascade)
-  matter           Matter                @relation(fields: [matterId], references: [id], onDelete: Cascade)
-  document         MatterDocument        @relation(fields: [matterDocumentId], references: [id], onDelete: Cascade)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-
-  @@index([extractionRunId])
-  @@index([workflowRunId])
-  @@index([matterId])
-  @@index([matterDocumentId])
-  @@index([factType])
 }
 
 model WorkflowRunStepFile {
