@@ -33,6 +33,19 @@ export const chronologyDefinition: WorkflowDefinition = {
       },
       type: "extraction",
     },
+    {
+      description: "Review and edit the generated chronology.",
+      id: "review-chronology",
+      name: "Review chronology",
+      parameters: {
+        artifactOutputKey: "chronologyArtifactId",
+        contentType: "MARKDOWN",
+        editor: "tiptap",
+        inputStepId: "extract-chronology",
+        saveMode: "revision",
+      },
+      type: "documentEditor",
+    },
   ],
 };
 

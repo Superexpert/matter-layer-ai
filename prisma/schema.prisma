@@ -51,28 +51,38 @@ enum WorkflowExtractionRunStatus {
   PARTIAL_FAILED
 }
 
+enum WorkflowArtifactType {
+  MARKDOWN
+}
+
 model Matter {
-  id             String                  @id @default(cuid())
-  name           String
-  documents      MatterDocument[]
-  workflowRuns   WorkflowRun[]
-  extractionRuns WorkflowExtractionRun[]
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id                        String                     @id @default(cuid())
+  name                      String
+  documents                 MatterDocument[]
+  extractedFacts            ExtractedFact[]
+  collapsedChronologyEvents CollapsedChronologyEvent[]
+  workflowArtifacts         WorkflowArtifact[]
+  workflowRuns              WorkflowRun[]
+  extractionRuns            WorkflowExtractionRun[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  workflowArtifactRevisions WorkflowArtifactRevision[]
 }
 
 model User {
-  id                String                @id @default(cuid())
-  email             String                @unique
+  id                String                     @id @default(cuid())
+  email             String                     @unique
   name              String?
   image             String?
-  role              UserRole              @default(USER)
-  createdWorkflows  Workflow[]            @relation("WorkflowCreatedBy")
-  updatedWorkflows  Workflow[]            @relation("WorkflowUpdatedBy")
-  uploadedDocuments MatterDocument[]      @relation("MatterDocumentUploadedBy")
-  selectedStepFiles WorkflowRunStepFile[] @relation("WorkflowRunStepFileSelectedBy")
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  role              UserRole                   @default(USER)
+  createdWorkflows  Workflow[]                 @relation("WorkflowCreatedBy")
+  updatedWorkflows  Workflow[]                 @relation("WorkflowUpdatedBy")
+  uploadedDocuments MatterDocument[]           @relation("MatterDocumentUploadedBy")
+  reviewedArtifacts WorkflowArtifact[]         @relation("WorkflowArtifactReviewedBy")
+  selectedStepFiles WorkflowRunStepFile[]      @relation("WorkflowRunStepFileSelectedBy")
+  artifactRevisions WorkflowArtifactRevision[] @relation("WorkflowArtifactRevisionCreatedBy")
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
 }
 
 model AppSettings {
@@ -131,6 +141,7 @@ model MatterDocument {
   matter             Matter                         @relation(fields: [matterId], references: [id], onDelete: Cascade)
   uploadedByUser     User                           @relation("MatterDocumentUploadedBy", fields: [uploadedByUserId], references: [id])
   content            MatterDocumentContent?
+  extractedFacts     ExtractedFact[]
   representations    MatterDocumentRepresentation[]
   stepFileSelections WorkflowRunStepFile[]
   createdAt          DateTime                       @default(now())
@@ -167,16 +178,18 @@ model MatterDocumentRepresentation {
 }
 
 model WorkflowRun {
-  id                   String                  @id
+  id                   String                     @id
   matterId             String
   workflowDefinitionId String
-  status               WorkflowRunStatus       @default(running)
-  matter               Matter                  @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  status               WorkflowRunStatus          @default(running)
+  matter               Matter                     @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  artifacts            WorkflowArtifact[]
+  artifactRevisions    WorkflowArtifactRevision[]
   extractionRuns       WorkflowExtractionRun[]
   stepOutputs          WorkflowRunStepOutput[]
   selectedFiles        WorkflowRunStepFile[]
-  createdAt            DateTime                @default(now())
-  updatedAt            DateTime                @updatedAt
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
 
   @@index([matterId])
 }
@@ -195,26 +208,132 @@ model WorkflowRunStepOutput {
 }
 
 model WorkflowExtractionRun {
-  id                      String                      @id @default(cuid())
-  workflowRunId           String
-  stepId                  String
-  matterId                String
-  profile                 String
-  representationType      String                      @default("MARKDOWN")
-  status                  WorkflowExtractionRunStatus @default(PENDING)
-  selectedDocumentIdsJson Json?
-  metadataJson            Json?
-  error                   String?
-  startedAt               DateTime?
-  completedAt             DateTime?
-  workflowRun             WorkflowRun                 @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
-  matter                  Matter                      @relation(fields: [matterId], references: [id], onDelete: Cascade)
-  createdAt               DateTime                    @default(now())
-  updatedAt               DateTime                    @updatedAt
+  id                        String                      @id @default(cuid())
+  workflowRunId             String
+  stepId                    String
+  matterId                  String
+  profile                   String
+  representationType        String                      @default("MARKDOWN")
+  status                    WorkflowExtractionRunStatus @default(PENDING)
+  selectedDocumentIdsJson   Json?
+  metadataJson              Json?
+  error                     String?
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  workflowRun               WorkflowRun                 @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  matter                    Matter                      @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  collapsedChronologyEvents CollapsedChronologyEvent[]
+  extractedFacts            ExtractedFact[]
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
 
   @@index([workflowRunId])
   @@index([matterId])
   @@index([status])
+}
+
+model CollapsedChronologyEvent {
+  id                String                @id @default(cuid())
+  extractionRunId   String
+  workflowRunId     String
+  stepId            String
+  matterId          String
+  date              String?
+  dateText          String?
+  isApproximateDate Boolean               @default(false)
+  sortKey           String?
+  title             String?
+  summary           String
+  actorsJson        Json?
+  sourceFactsJson   Json?
+  sourcesJson       Json?
+  confidence        String?
+  extractionRun     WorkflowExtractionRun @relation(fields: [extractionRunId], references: [id], onDelete: Cascade)
+  matter            Matter                @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([extractionRunId])
+  @@index([workflowRunId])
+  @@index([matterId])
+  @@index([date])
+  @@index([sortKey])
+}
+
+model WorkflowArtifact {
+  id                String                     @id @default(cuid())
+  workflowRunId     String
+  stepId            String
+  matterId          String
+  type              WorkflowArtifactType
+  title             String
+  content           String?
+  metadataJson      Json?
+  currentRevisionId String?
+  reviewedAt        DateTime?
+  reviewedByUserId  String?
+  workflowRun       WorkflowRun                @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  matter            Matter                     @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  reviewedBy        User?                      @relation("WorkflowArtifactReviewedBy", fields: [reviewedByUserId], references: [id])
+  revisions         WorkflowArtifactRevision[] @relation("WorkflowArtifactRevisionArtifact")
+  currentRevision   WorkflowArtifactRevision?  @relation("WorkflowArtifactCurrentRevision", fields: [currentRevisionId], references: [id])
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@index([workflowRunId])
+  @@index([matterId])
+  @@index([stepId])
+  @@index([type])
+  @@index([currentRevisionId])
+  @@index([reviewedByUserId])
+}
+
+model WorkflowArtifactRevision {
+  id              String             @id @default(cuid())
+  artifactId      String
+  workflowRunId   String
+  stepId          String
+  matterId        String
+  content         String
+  editorJson      Json?
+  createdByUserId String?
+  artifact        WorkflowArtifact   @relation("WorkflowArtifactRevisionArtifact", fields: [artifactId], references: [id], onDelete: Cascade)
+  currentFor      WorkflowArtifact[] @relation("WorkflowArtifactCurrentRevision")
+  workflowRun     WorkflowRun        @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  matter          Matter             @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  createdBy       User?              @relation("WorkflowArtifactRevisionCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime           @default(now())
+
+  @@index([artifactId])
+  @@index([workflowRunId])
+  @@index([matterId])
+  @@index([stepId])
+  @@index([createdByUserId])
+}
+
+model ExtractedFact {
+  id               String                @id @default(cuid())
+  extractionRunId  String
+  workflowRunId    String
+  stepId           String
+  matterId         String
+  matterDocumentId String
+  factType         String
+  dataJson         Json
+  sourcePagesJson  Json?
+  sourceQuote      String?
+  confidence       String?
+  extractionRun    WorkflowExtractionRun @relation(fields: [extractionRunId], references: [id], onDelete: Cascade)
+  matter           Matter                @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  document         MatterDocument        @relation(fields: [matterDocumentId], references: [id], onDelete: Cascade)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([extractionRunId])
+  @@index([workflowRunId])
+  @@index([matterId])
+  @@index([matterDocumentId])
+  @@index([factType])
 }
 
 model WorkflowRunStepFile {

@@ -249,28 +249,16 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
           },
         ),
         step(
-          "generate-chronology",
-          "ai",
-          "Generate Chronology",
-          "Generate an ordered chronology from the extracted events.",
-          {
-            outputMode: "documentDraft",
-            systemPrompt: "Generate a concise legal chronology from extracted events.",
-          },
-        ),
-        step(
           "review-chronology",
           "documentEditor",
           "Review Chronology",
           "Review and edit the chronology.",
-        ),
-        step(
-          "save-chronology",
-          "saveDocument",
-          "Save Chronology",
-          "Save the reviewed chronology to the matter.",
           {
-            format: "docx",
+            artifactOutputKey: "chronologyArtifactId",
+            contentType: "MARKDOWN",
+            editor: "tiptap",
+            inputStepId: "extract-events",
+            saveMode: "revision",
           },
         ),
       ],

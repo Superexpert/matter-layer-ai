@@ -30,11 +30,26 @@ export const extractionOutputSchema: WorkflowSchema = {
   additionalProperties: false,
   description: "Prepared representation counts and extraction run id.",
   properties: {
+    chronologyArtifactId: {
+      type: ["string", "null"],
+    },
+    collapsedEventCount: {
+      type: "integer",
+    },
     extractionRunId: {
       type: "string",
     },
+    extractedFactCount: {
+      type: "integer",
+    },
+    extractionWindowCount: {
+      type: "integer",
+    },
     failedRepresentationCount: {
       type: "integer",
+    },
+    factsByType: {
+      type: "object",
     },
     profile: {
       type: "string",
@@ -54,7 +69,12 @@ export const extractionOutputSchema: WorkflowSchema = {
     },
   },
   required: [
+    "chronologyArtifactId",
+    "collapsedEventCount",
+    "extractedFactCount",
+    "extractionWindowCount",
     "extractionRunId",
+    "factsByType",
     "failedRepresentationCount",
     "profile",
     "readyRepresentationCount",

@@ -315,7 +315,7 @@ test("text-native PDFs convert to page-aware Markdown", async () => {
     expect(representation.content).toContain("First page text");
     expect(representation.content).toContain("Second page text");
     expect(representation.metadataJson).toMatchObject({
-      converter: "pdf-parse",
+      converter: "pdfjs-dist",
       ocrRequired: false,
       pageBoundaries: true,
       pageCount: 2,
@@ -345,7 +345,7 @@ test("image-only PDFs and unsupported MIME types fail gracefully", async () => {
     expect(failedPdf.status).toBe(MatterDocumentRepresentationStatus.FAILED);
     expect(failedPdf.error).toContain("OCR is not implemented yet");
     expect(failedPdf.metadataJson).toMatchObject({
-      converter: "pdf-parse",
+      converter: "pdfjs-dist",
       ocrRequired: true,
       pageBoundaries: true,
       pageCount: 1,

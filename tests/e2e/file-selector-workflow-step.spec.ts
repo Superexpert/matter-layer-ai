@@ -29,6 +29,24 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     "Requires DATABASE_URL and a migrated PostgreSQL database.",
   );
 
+  const previousTestAIResponse = process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
+  process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE = JSON.stringify({
+    facts: [
+      {
+        actors: ["Test Lawyer"],
+        confidence: "high",
+        date: "2024-01-12",
+        dateText: "January 12, 2024",
+        eventSummary: "Uploaded chronology source was reviewed.",
+        factType: "dated_event",
+        isApproximateDate: false,
+        sourceDocumentId: "placeholder",
+        sourceFileName: "placeholder",
+        sourcePages: [],
+        sourceQuote: "uploaded chronology source",
+      },
+    ],
+  });
   const server = await startNextTestServer({ port: 3221 });
   const user = await prisma.user.upsert({
     create: {
@@ -129,7 +147,7 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     );
     await page.getByTestId("extraction-run-button").click();
     await expect(page.getByTestId("extraction-summary")).toContainText(
-      "2 documents ready for extraction.",
+      "Extracted",
     );
     await expect(page.getByTestId("extraction-continue")).toBeEnabled();
 
@@ -230,6 +248,11 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
         },
       },
     });
+    await prisma.extractedFact.deleteMany({
+      where: {
+        matterId: matter.id,
+      },
+    });
     await prisma.workflowExtractionRun.deleteMany({
       where: {
         matterId: matter.id,
@@ -250,6 +273,11 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
         id: matter.id,
       },
     });
+    if (previousTestAIResponse === undefined) {
+      delete process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
+    } else {
+      process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE = previousTestAIResponse;
+    }
     await server.stop();
   }
 });

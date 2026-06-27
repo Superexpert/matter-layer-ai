@@ -6,6 +6,7 @@ import {
 } from "./types";
 import { extractionStep } from "@/workflow-steps/extraction/definition";
 import { fileSelectorStep } from "@/workflow-steps/file-selector/definition";
+import { documentEditorStep } from "@/workflow-steps/document-editor/definition";
 
 function placeholderExecute(): never {
   throw new Error("Workflow execution is not implemented yet.");
@@ -73,11 +74,7 @@ export const workflowStepRegistry: Record<WorkflowStepType, WorkflowStepRegistra
     "Decision",
     "Branch workflow behavior based on structured conditions.",
   ),
-  documentEditor: register(
-    "documentEditor",
-    "Document Editor",
-    "Let the user review and edit a generated document.",
-  ),
+  documentEditor: documentEditorStep,
   extraction: extractionStep,
   fileSelector: fileSelectorStep,
   form: register(

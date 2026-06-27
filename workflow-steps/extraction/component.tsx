@@ -35,11 +35,11 @@ function summaryForOutput(output: ExtractionStepOutput | null) {
   }
 
   if (output.status === "completed") {
-    return `${output.readyRepresentationCount} document${output.readyRepresentationCount === 1 ? "" : "s"} ready for extraction.`;
+    return `Extracted ${output.extractedFactCount} fact${output.extractedFactCount === 1 ? "" : "s"} and generated ${output.collapsedEventCount} chronology event${output.collapsedEventCount === 1 ? "" : "s"} from ${output.readyRepresentationCount} document${output.readyRepresentationCount === 1 ? "" : "s"}.`;
   }
 
   if (output.status === "partial_failed") {
-    return `${output.failedRepresentationCount} document${output.failedRepresentationCount === 1 ? "" : "s"} could not be prepared.`;
+    return `Partial extraction: ${output.extractedFactCount} fact${output.extractedFactCount === 1 ? "" : "s"} extracted and ${output.collapsedEventCount} chronology event${output.collapsedEventCount === 1 ? "" : "s"} generated; ${output.failedRepresentationCount} document${output.failedRepresentationCount === 1 ? "" : "s"} or window(s) could not be processed.`;
   }
 
   return "Selected documents could not be prepared.";
@@ -128,7 +128,7 @@ export function ExtractionStepComponent({
         latestOutput: output,
       });
 
-      if (output.status !== "completed") {
+      if (output.status === "failed") {
         setErrorMessage(summaryForOutput(output));
       }
     } catch (error) {
@@ -143,7 +143,10 @@ export function ExtractionStepComponent({
   }
 
   const latestOutput = state?.latestOutput ?? null;
-  const canContinue = latestOutput?.status === "completed";
+  const canContinue =
+    latestOutput?.status === "completed" ||
+    (latestOutput?.status === "partial_failed" &&
+      latestOutput.extractedFactCount > 0);
 
   return (
     <section className="grid gap-5" data-testid="extraction-step">
@@ -222,6 +225,21 @@ export function ExtractionStepComponent({
         <p className="mt-2 text-sm leading-6 text-[#74677F]">
           {isRunning ? "Preparing selected documents..." : summaryForOutput(latestOutput)}
         </p>
+        {latestOutput ? (
+          <div className="mt-2 grid gap-1 text-xs leading-5 text-[#74677F]">
+            <p>
+              {Object.entries(latestOutput.factsByType)
+                .filter(([, count]) => count > 0)
+                .map(([factType, count]) => `${count} ${factType.replace(/_/g, " ")}`)
+                .join(", ") || "No chronology facts extracted yet."}
+            </p>
+            {latestOutput.chronologyArtifactId ? (
+              <p data-testid="chronology-artifact-created">
+                Chronology draft generated.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {errorMessage ? (
@@ -244,7 +262,7 @@ export function ExtractionStepComponent({
           }}
           type="button"
         >
-          {isRunning ? "Preparing..." : "Prepare source documents"}
+          {isRunning ? "Extracting..." : "Extract chronology facts"}
         </button>
         <button
           className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"

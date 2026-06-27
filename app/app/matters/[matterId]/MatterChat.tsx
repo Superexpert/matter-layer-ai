@@ -22,6 +22,8 @@ import {
 } from "@/services/workflows";
 import { ExtractionStepComponent } from "@/workflow-steps/extraction/component";
 import type { ExtractionStepOutput } from "@/workflow-steps/extraction/schema";
+import { DocumentEditorStepComponent } from "@/workflow-steps/document-editor/component";
+import type { DocumentEditorStepOutput } from "@/workflow-steps/document-editor/schema";
 import { FileSelectorStepComponent } from "@/workflow-steps/file-selector/component";
 import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/schema";
 
@@ -29,8 +31,10 @@ import {
   deleteWorkflowAction,
   duplicateWorkflowAction,
   loadExtractionStepStateAction,
+  loadDocumentEditorStepStateAction,
   loadFileSelectorStepStateAction,
   runExtractionStepAction,
+  saveDocumentEditorArtifactAction,
   saveCustomWorkflowAction,
   saveFileSelectorSelectionAction,
   uploadFileSelectorFilesAction,
@@ -942,6 +946,36 @@ export function MatterChat({
     ]);
   }
 
+  function completeDocumentEditorStep(output: DocumentEditorStepOutput) {
+    if (!activeWorkflow || !activeWorkflowStep) {
+      throw new Error("Completing a document editor step requires an active workflow step.");
+    }
+
+    const currentStepIndex = activeWorkflow.workflowDefinition.steps.findIndex(
+      (step) => step.id === activeWorkflowStep.id,
+    );
+    const nextStep = activeWorkflow.workflowDefinition.steps[currentStepIndex + 1];
+    const nextStepOutputs = {
+      ...activeWorkflow.stepOutputs,
+      [activeWorkflowStep.id]: output,
+    };
+
+    setActiveWorkflow({
+      ...activeWorkflow,
+      activeStepId: nextStep?.id ?? activeWorkflow.activeStepId,
+      completed: !nextStep,
+      stepOutputs: nextStepOutputs,
+    });
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createWorkflowMessage(
+        nextStep
+          ? `Reviewed document saved. Next step: ${nextStep.name}.`
+          : "Reviewed document saved. Workflow complete.",
+      ),
+    ]);
+  }
+
   async function submitMessage(messageOverride?: string) {
     const content = (messageOverride ?? draftMessage).trim();
 
@@ -1655,6 +1689,18 @@ export function MatterChat({
                     matterId={matterId}
                     onComplete={completeExtractionStep}
                     runStep={runExtractionStepAction}
+                    step={activeWorkflowStep}
+                    workflowDefinitionId={activeWorkflow.workflowDefinition.id}
+                    workflowRunId={activeWorkflow.workflowRunId}
+                  />
+                ) : selectedTab === "Workflows" &&
+                  activeWorkflow &&
+                  activeWorkflowStep?.type === "documentEditor" ? (
+                  <DocumentEditorStepComponent
+                    loadStepState={loadDocumentEditorStepStateAction}
+                    matterId={matterId}
+                    onComplete={completeDocumentEditorStep}
+                    saveArtifact={saveDocumentEditorArtifactAction}
                     step={activeWorkflowStep}
                     workflowDefinitionId={activeWorkflow.workflowDefinition.id}
                     workflowRunId={activeWorkflow.workflowRunId}

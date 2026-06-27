@@ -11,6 +11,10 @@ import {
   loadExtractionStepState,
   runExtractionStep,
 } from "@/workflow-steps/extraction/server";
+import {
+  loadDocumentEditorStepState,
+  saveDocumentEditorArtifact,
+} from "@/workflow-steps/document-editor/server";
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import {
   loadFileSelectorStepState,
@@ -101,4 +105,32 @@ export async function runExtractionStepAction(input: {
   await requireCurrentUser();
 
   return runExtractionStep(input);
+}
+
+export async function loadDocumentEditorStepStateAction(input: {
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  await requireCurrentUser();
+
+  return loadDocumentEditorStepState(input);
+}
+
+export async function saveDocumentEditorArtifactAction(input: {
+  artifactId: string;
+  contentMarkdown: string;
+  editorJson?: unknown;
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  const currentUser = await requireCurrentUser();
+
+  return saveDocumentEditorArtifact({
+    ...input,
+    userId: currentUser.id,
+  });
 }

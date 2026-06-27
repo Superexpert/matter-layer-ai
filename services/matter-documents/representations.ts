@@ -7,9 +7,9 @@ import {
   type MatterDocumentRepresentation,
 } from "@prisma/client";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 
 import { prisma } from "@/lib/prisma";
+import { extractPdfPages } from "./pdfjs";
 import { readMatterDocumentFile } from "./storage";
 
 const DOCX_MIME_TYPE =
@@ -160,30 +160,19 @@ async function convertPdfToMarkdown(input: {
   fileName: string;
   mimeType: string;
 }): Promise<GeneratedMarkdownRepresentation> {
-  const parser = new PDFParse({
-    data: input.bytes,
-  });
-
   try {
-    const info = await parser.getInfo();
-    const pageCount = info.total;
-    const pageTexts: string[] = [];
+    const { pageCount, pageTexts } = await extractPdfPages(input.bytes);
+    const cleanedPageTexts = pageTexts.map(cleanPdfPageText);
 
-    for (let page = 1; page <= pageCount; page += 1) {
-      const pageText = await parser.getText({
-        partial: [page],
-      });
-
-      pageTexts.push(cleanPdfPageText(pageText.text));
-    }
-
-    const hasExtractableText = pageTexts.some((pageText) => pageText.length > 0);
+    const hasExtractableText = cleanedPageTexts.some(
+      (pageText) => pageText.length > 0,
+    );
 
     if (!hasExtractableText) {
       throw new MatterDocumentRepresentationConversionError(
         "No extractable text was found in this PDF. OCR is not implemented yet.",
         metadata({
-          converter: "pdf-parse",
+          converter: "pdfjs-dist",
           ocrRequired: true,
           pageBoundaries: true,
           pageCount,
@@ -199,12 +188,12 @@ async function convertPdfToMarkdown(input: {
           fileName: input.fileName,
           type: input.mimeType,
         }),
-        ...pageTexts.map((pageText, index) =>
+        ...cleanedPageTexts.map((pageText, index) =>
           [pageMarker(index + 1), pageText].join("\n\n"),
         ),
       ].join("\n\n"),
       metadataJson: metadata({
-        converter: "pdf-parse",
+        converter: "pdfjs-dist",
         ocrRequired: false,
         pageBoundaries: true,
         pageCount,
@@ -213,8 +202,6 @@ async function convertPdfToMarkdown(input: {
     };
   } catch (error) {
     throw error;
-  } finally {
-    await parser.destroy();
   }
 }
 

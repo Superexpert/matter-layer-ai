@@ -25,7 +25,7 @@ export const WORKFLOW_BUILDER_SYSTEM_PROMPT = [
   "- decision: routes based on conditions",
   "",
   "Default workflow patterns to adapt:",
-  "- Chronology: fileSelector, extraction, ai, documentEditor, saveDocument",
+  "- Chronology: fileSelector, extraction, documentEditor",
   "- Client matter update: fileSelector, extraction, ai, documentEditor, saveDocument",
   "- Form-driven document generation: form, ai, documentEditor, saveDocument",
   "- Routing workflow: form, decision, runWorkflow",

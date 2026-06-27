@@ -17,7 +17,12 @@ export type ExtractionStepOutputStatus =
   | "partial_failed";
 
 export type ExtractionStepOutput = {
+  chronologyArtifactId: string | null;
+  collapsedEventCount: number;
+  extractedFactCount: number;
+  extractionWindowCount: number;
   extractionRunId: string;
+  factsByType: Record<string, number>;
   failedRepresentationCount: number;
   profile: ExtractionProfile;
   readyRepresentationCount: number;

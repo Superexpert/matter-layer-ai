@@ -53,6 +53,13 @@ async function cleanupMatters(matterIds: string[]) {
       },
     },
   });
+  await prisma.extractedFact.deleteMany({
+    where: {
+      matterId: {
+        in: matterIds,
+      },
+    },
+  });
   await prisma.workflowExtractionRun.deleteMany({
     where: {
       matterId: {
