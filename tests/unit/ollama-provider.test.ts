@@ -72,6 +72,89 @@ describe("OllamaProvider", () => {
     });
   });
 
+  it("passes Ollama JSON mode for JSON object requests", async () => {
+    const capturedRequests: unknown[] = [];
+    const provider = new OllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetch: async (_url, init) => {
+        capturedRequests.push(JSON.parse(String(init?.body)));
+
+        return new Response(
+          JSON.stringify({
+            message: {
+              content: "{\"facts\":[]}",
+            },
+          }),
+        );
+      },
+      model: "gemma3:4b",
+    });
+
+    await provider.generateText({
+      messages: [
+        {
+          content: "Return JSON.",
+          role: "user",
+        },
+      ],
+      responseFormat: {
+        type: "json_object",
+      },
+    });
+
+    expect(capturedRequests[0]).toMatchObject({
+      format: "json",
+      stream: false,
+    });
+  });
+
+  it("passes Ollama schema format for schema-constrained requests", async () => {
+    const capturedRequests: unknown[] = [];
+    const schema = {
+      properties: {
+        facts: {
+          type: "array",
+        },
+      },
+      required: ["facts"],
+      type: "object",
+    };
+    const provider = new OllamaProvider({
+      baseUrl: "http://localhost:11434",
+      fetch: async (_url, init) => {
+        capturedRequests.push(JSON.parse(String(init?.body)));
+
+        return new Response(
+          JSON.stringify({
+            message: {
+              content: "{\"facts\":[]}",
+            },
+          }),
+        );
+      },
+      model: "gemma3:4b",
+    });
+
+    await provider.generateText({
+      messages: [
+        {
+          content: "Return JSON.",
+          role: "user",
+        },
+      ],
+      responseFormat: {
+        name: "chronology_extraction",
+        schema,
+        type: "json_schema",
+      },
+    });
+
+    expect(capturedRequests[0]).toMatchObject({
+      format: schema,
+      stream: false,
+    });
+  });
+
   it("streams newline-delimited JSON chunks", async () => {
     const encoder = new TextEncoder();
     const provider = new OllamaProvider({
@@ -136,4 +219,3 @@ describe("OllamaProvider", () => {
     expect(provider.name).toBe("ollama");
   });
 });
-

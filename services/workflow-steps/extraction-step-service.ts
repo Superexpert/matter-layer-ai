@@ -44,6 +44,7 @@ import {
 } from "@/workflow-steps/extraction/schema";
 import {
   documentRepresentationError,
+  EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE,
   extractionProviderError,
   extractionStepErrorForDocuments,
   safeUnknownExtractionError,
@@ -1871,8 +1872,7 @@ async function executeExtractionStep(
     });
 
     if (documentProfileResult.status !== "COMPLETED") {
-      const userMessage =
-        "The extraction provider could not process this document.";
+      const userMessage = EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE;
       progressItems = updateProgressItem(progressItems, matterDocumentId, {
         error: {
           code: "EXTRACTION_PROVIDER_FAILED",
@@ -1905,7 +1905,11 @@ async function executeExtractionStep(
         matterDocumentId,
         message: documentProfileResult.error ??
           "The extraction provider failed for this document.",
-        userMessage: documentProfileResult.errorUserMessage ?? userMessage,
+        userMessage:
+          documentProfileResult.errorCode?.startsWith("AI_PROVIDER_") &&
+          documentProfileResult.errorUserMessage
+            ? documentProfileResult.errorUserMessage
+            : userMessage,
       };
       await persistRunningProgress({
         currentItemLabel: readyDocument.fileName,

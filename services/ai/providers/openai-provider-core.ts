@@ -20,6 +20,18 @@ type OpenAIResponseRequest = {
   max_output_tokens?: number;
   model: string;
   store: false;
+  text?: {
+    format:
+      | {
+          type: "json_object";
+        }
+      | {
+          name: string;
+          schema: Record<string, unknown>;
+          strict: true;
+          type: "json_schema";
+        };
+  };
   temperature?: number;
 };
 
@@ -60,7 +72,7 @@ function buildOpenAIResponseRequest(
   request: AIRequest,
   model: string,
 ): OpenAIResponseRequest {
-  return {
+  const responseRequest: OpenAIResponseRequest = {
     input: request.messages.map((message) => ({
       content: message.content,
       role: message.role,
@@ -74,6 +86,25 @@ function buildOpenAIResponseRequest(
     store: false,
     temperature: request.temperature,
   };
+
+  if (request.responseFormat?.type === "json_schema" && request.responseFormat.schema) {
+    responseRequest.text = {
+      format: {
+        name: request.responseFormat.name ?? "structured_response",
+        schema: request.responseFormat.schema,
+        strict: true,
+        type: "json_schema",
+      },
+    };
+  } else if (request.responseFormat?.type === "json_object") {
+    responseRequest.text = {
+      format: {
+        type: "json_object",
+      },
+    };
+  }
+
+  return responseRequest;
 }
 
 function isOpenAITextDeltaEvent(

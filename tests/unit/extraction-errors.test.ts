@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { summaryForOutput } from "../../workflow-steps/extraction/display-copy";
 import {
   documentRepresentationError,
+  EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE,
+  INVALID_JSON_PROVIDER_USER_MESSAGE,
   extractionProviderError,
   extractionStepErrorForDocuments,
   suggestedActionForError,
@@ -142,6 +144,46 @@ describe("extraction step errors", () => {
     expect(error.userMessage).not.toContain("service.ts");
     expect(error.userMessage).not.toContain(" at ");
     expect(summaryForOutput(output)).toBe(error.userMessage);
+  });
+
+  it("maps invalid JSON provider output to a safe user-facing message", () => {
+    const rawError =
+      "Window 1 for 02_Supplemental_Report_Officer_Benton.pdf: Extraction response must be valid JSON.";
+    const error = extractionStepErrorForDocuments({
+      documentErrors: [
+        {
+          code: "EXTRACTION_PROVIDER_FAILED",
+          fileName: "02_Supplemental_Report_Officer_Benton.pdf",
+          matterDocumentId: "doc_json_failed",
+          message: rawError,
+          userMessage: EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE,
+        },
+      ],
+      partial: true,
+    });
+    const output = outputWith({
+      error,
+      failedDocumentIds: ["doc_json_failed"],
+      preparedDocumentIds: ["doc_ready"],
+      status: "partial_failed",
+    });
+
+    expect(error?.documentErrors?.[0]?.message).toBe(rawError);
+    expect(error?.documentErrors?.[0]?.userMessage).toBe(
+      "Matter Layer could not extract facts from this document.",
+    );
+    expect(error?.userMessage).toBe(INVALID_JSON_PROVIDER_USER_MESSAGE);
+    expect(error?.userMessage).not.toContain("Window 1");
+    expect(error?.userMessage).not.toContain("valid JSON");
+    expect(summaryForOutput(output)).toBe(INVALID_JSON_PROVIDER_USER_MESSAGE);
+  });
+
+  it("preserves invalid JSON diagnostics on provider errors while using safe display text", () => {
+    const rawError = "Extraction response must be valid JSON.";
+    const error = extractionProviderError(rawError);
+
+    expect(error.message).toBe(rawError);
+    expect(error.userMessage).toBe(INVALID_JSON_PROVIDER_USER_MESSAGE);
   });
 
   it("surfaces classified AI provider errors with safe user-facing text", () => {

@@ -10,6 +10,11 @@ export type AIRequest = {
   model?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  responseFormat?: {
+    name?: string;
+    schema?: Record<string, unknown>;
+    type: "json_object" | "json_schema";
+  };
 };
 
 export type AIResponse = {

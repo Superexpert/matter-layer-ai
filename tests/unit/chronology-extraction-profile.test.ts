@@ -388,8 +388,11 @@ describe("chronology extraction runner", () => {
     });
     expect(aiRequest).toMatchObject({
       maxOutputTokens: 6000,
+      responseFormat: {
+        name: "chronology_extraction",
+        type: "json_schema",
+      },
     });
     expect(aiRequest).not.toHaveProperty("temperature");
   });
 });
-

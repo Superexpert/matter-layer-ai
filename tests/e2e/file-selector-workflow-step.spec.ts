@@ -185,10 +185,28 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     await expect(page.getByTestId("extraction-document-list")).toContainText(
       "uploaded-source.txt",
     );
-    await page.getByTestId("extraction-run-button").click();
-    await expect(page.getByTestId("extraction-summary")).toContainText(
-      "Extracted",
+    await expect(page.getByTestId("extraction-document-list")).not.toContainText(
+      "text/plain",
     );
+    await expect(page.getByTestId("extraction-step")).not.toContainText(
+      "Active Workflow",
+    );
+    await expect(page.getByTestId("extraction-summary")).toHaveCount(0);
+    await expect(page.getByTestId("extraction-step")).not.toContainText(
+      "Preparation status",
+    );
+    await page.getByTestId("extraction-run-button").click();
+    await expect(
+      page.getByTestId(`extraction-document-status-${existingDocument.id}`),
+    ).toContainText(
+      "Prepared",
+    );
+    await expect(page.getByTestId("extraction-document-list")).not.toContainText(
+      "Window 1 of 1",
+    );
+    await expect(
+      page.getByTestId(`extraction-document-message-${existingDocument.id}`),
+    ).toHaveCount(0);
     await expect(page.getByTestId("extraction-continue")).toBeEnabled();
 
     const persistedSelections = await prisma.workflowRunStepFile.findMany({

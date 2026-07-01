@@ -16,6 +16,7 @@ type OllamaChatMessage = {
 };
 
 type OllamaChatRequest = {
+  format?: "json" | Record<string, unknown>;
   messages: OllamaChatMessage[];
   model: string;
   options?: {
@@ -64,7 +65,7 @@ function buildOllamaChatRequest(
     options.num_predict = request.maxOutputTokens;
   }
 
-  return {
+  const chatRequest: OllamaChatRequest = {
     messages: request.messages.map((message) => ({
       content: message.content,
       role: message.role,
@@ -73,6 +74,14 @@ function buildOllamaChatRequest(
     options: Object.keys(options).length > 0 ? options : undefined,
     stream,
   };
+
+  if (request.responseFormat?.type === "json_schema" && request.responseFormat.schema) {
+    chatRequest.format = request.responseFormat.schema;
+  } else if (request.responseFormat?.type === "json_object") {
+    chatRequest.format = "json";
+  }
+
+  return chatRequest;
 }
 
 function ollamaChatUrl(baseUrl: string) {
@@ -245,4 +254,3 @@ export class OllamaProvider implements AIProvider {
 }
 
 export type { OllamaProviderConfig };
-

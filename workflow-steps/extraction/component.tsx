@@ -9,14 +9,11 @@ import {
 } from "./schema";
 import type { ExtractionStepState } from "./server";
 import { suggestedActionForError } from "./errors";
-import { headingForOutputError, summaryForOutput } from "./display-copy";
-import type { WorkflowActivityEvent } from "@/services/workflows/workflow-activity-service";
 import type {
-  WorkflowStepProgress,
   WorkflowStepProgressItem,
 } from "@/services/workflows/workflow-step-progress";
 import type { WorkflowStepDocumentError } from "@/services/workflows/workflow-step-errors";
-import { formatSourcePages } from "./source-format";
+import { headingForOutputError } from "./display-copy";
 
 type ExtractionStepComponentProps = {
   matterId: string;
@@ -88,70 +85,6 @@ function progressBadgeClass(status: WorkflowStepProgressItem["status"]) {
   return "border-[#CFC5DA] bg-[#FBFAFC] text-[#4B3861]";
 }
 
-function progressBarWidth(progress: WorkflowStepProgress | null | undefined) {
-  if (typeof progress?.percentComplete === "number") {
-    return `${Math.min(100, Math.max(0, progress.percentComplete))}%`;
-  }
-
-  if (
-    typeof progress?.completedItems === "number" &&
-    typeof progress.totalItems === "number" &&
-    progress.totalItems > 0
-  ) {
-    return `${Math.round((progress.completedItems / progress.totalItems) * 100)}%`;
-  }
-
-  return "35%";
-}
-
-function activeProgressPosition(progress: WorkflowStepProgress | null | undefined) {
-  const currentItemId = progress?.currentItemId;
-  const items = progress?.items ?? [];
-
-  if (!currentItemId || items.length === 0) {
-    return null;
-  }
-
-  const currentIndex = items.findIndex((item) => item.id === currentItemId);
-
-  if (currentIndex < 0) {
-    return null;
-  }
-
-  return {
-    current: currentIndex + 1,
-    total: items.length,
-  };
-}
-
-function activityLevelClass(level: WorkflowActivityEvent["level"]) {
-  if (level === "error") {
-    return "text-red-700";
-  }
-
-  if (level === "warning") {
-    return "text-amber-700";
-  }
-
-  if (level === "success") {
-    return "text-emerald-700";
-  }
-
-  if (level === "debug") {
-    return "text-[#74677F]";
-  }
-
-  return "text-[#211B27]";
-}
-
-function formatActivityTimestamp(timestamp: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(timestamp));
-}
-
 function debugWorkflowActivityUi(message: string, metadata: Record<string, unknown> = {}) {
   if (process.env.NODE_ENV !== "development") {
     return;
@@ -160,36 +93,51 @@ function debugWorkflowActivityUi(message: string, metadata: Record<string, unkno
   console.info(`[workflow:activity-ui] ${message}`, metadata);
 }
 
-function documentErrorDetail(error: WorkflowStepDocumentError | null | undefined) {
-  const message = error?.message.trim();
-  const userMessage = error?.userMessage.trim();
+function isTechnicalProgressMessage(message: string) {
+  return /\bWindow\s+\d+\s+of\s+\d+\b/i.test(message) ||
+    /\bpage\s+\d+\b/i.test(message);
+}
 
-  if (!message || message === userMessage) {
+function documentRowMessage(input: {
+  documentError: string | null | undefined;
+  outputError: WorkflowStepDocumentError | null | undefined;
+  progressItem: WorkflowStepProgressItem | null | undefined;
+  statusLabel: string;
+  stepAutorun: boolean;
+}) {
+  const errorMessage =
+    input.progressItem?.error?.userMessage ??
+    input.outputError?.userMessage ??
+    input.documentError;
+
+  if (errorMessage) {
+    return errorMessage;
+  }
+
+  const message = input.progressItem?.message?.trim();
+
+  if (!message) {
+    return input.stepAutorun && !input.progressItem ? "Waiting to prepare" : null;
+  }
+
+  const statusLabel = input.statusLabel.trim().toLowerCase();
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    normalizedMessage === statusLabel ||
+    normalizedMessage === "prepared" ||
+    normalizedMessage === "queued" ||
+    normalizedMessage === "waiting" ||
+    normalizedMessage === "waiting to prepare" ||
+    normalizedMessage === "preparing" ||
+    normalizedMessage === "converting" ||
+    normalizedMessage === "extracting facts" ||
+    isTechnicalProgressMessage(message)
+  ) {
     return null;
   }
 
   return message;
-}
-
-function factDisplayDate(fact: ExtractionStepOutput["facts"][number]) {
-  return typeof fact.dateText === "string"
-    ? fact.dateText
-    : typeof fact.date === "string"
-      ? fact.date
-      : "Undated";
-}
-
-function factSourceLabel(fact: ExtractionStepOutput["facts"][number]) {
-  const sourcePages = Array.isArray(fact.sourcePages)
-    ? fact.sourcePages.filter(
-        (page): page is number => typeof page === "number",
-      )
-    : [];
-  const sourceFileName =
-    typeof fact.sourceFileName === "string" ? fact.sourceFileName : "Source";
-  const pages = formatSourcePages(sourcePages);
-
-  return pages ? `${sourceFileName}, ${pages}` : sourceFileName;
 }
 
 function localRunningOutput(input: {
@@ -256,11 +204,8 @@ export function ExtractionStepComponent({
   const [isRunning, setIsRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [sawRunningOutput, setSawRunningOutput] = useState(false);
-  const [lastActivityPoll, setLastActivityPoll] = useState<string | null>(null);
-  const [emptyActivityPollCount, setEmptyActivityPollCount] = useState(0);
   const autorunStartedKeyRef = useRef<string | null>(null);
   const autorunAdvancedRunIdRef = useRef<string | null>(null);
-  const activityEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
@@ -283,11 +228,6 @@ export function ExtractionStepComponent({
           setState(nextState);
           if (nextState.latestOutput?.status === "running") {
             setSawRunningOutput(true);
-            if (nextState.activityEvents.length > 0) {
-              setEmptyActivityPollCount(0);
-            }
-          } else {
-            setEmptyActivityPollCount(0);
           }
         }
       } catch (error) {
@@ -316,7 +256,6 @@ export function ExtractionStepComponent({
     setIsRunning(true);
     setErrorMessage("");
     setSawRunningOutput(true);
-    setEmptyActivityPollCount(0);
     const currentDocuments = state?.documents ?? [];
 
     if (currentDocuments.length > 0) {
@@ -365,9 +304,6 @@ export function ExtractionStepComponent({
           latestOutput: nextState.latestOutput ?? output,
         };
       });
-      if (nextState.latestOutput?.status !== "running" || nextState.activityEvents.length > 0) {
-        setEmptyActivityPollCount(0);
-      }
       if (executionMode === "autorun" && output.status === "completed") {
         autorunAdvancedRunIdRef.current = output.extractionRunId;
         window.setTimeout(() => {
@@ -397,18 +333,13 @@ export function ExtractionStepComponent({
   ]);
 
   const latestOutput = state?.latestOutput ?? null;
-  const activityEvents = state?.activityEvents ?? [];
   const progress = latestOutput?.progress ?? null;
   const progressItemsByDocumentId = useMemo(() => {
     return new Map(
       (progress?.items ?? []).map((item) => [item.id, item]),
     );
   }, [progress?.items]);
-  const activeProgress = activeProgressPosition(progress);
   const outputError = latestOutput?.error ?? null;
-  const extractionWarnings = latestOutput?.extractionWarnings ?? [];
-  const datedFacts = (latestOutput?.facts ?? []).filter((fact) => fact.date);
-  const undatedFacts = (latestOutput?.facts ?? []).filter((fact) => !fact.date);
   const documentErrorsByDocumentId = useMemo(() => {
     return new Map(
       (outputError?.documentErrors ?? []).map((documentError) => [
@@ -419,14 +350,6 @@ export function ExtractionStepComponent({
   }, [outputError?.documentErrors]);
   const suggestedAction = suggestedActionForError(outputError);
   const canContinue = latestOutput?.status === "completed";
-  const activityDiagnosticVisible =
-    latestOutput?.status === "running" &&
-    activityEvents.length === 0 &&
-    emptyActivityPollCount >= 6;
-  const isShowingCompletionHold =
-    step.autorun &&
-    latestOutput?.status === "completed" &&
-    sawRunningOutput;
   const shouldShowRunButton =
     !step.autorun ||
     latestOutput?.status === "failed" ||
@@ -507,7 +430,6 @@ export function ExtractionStepComponent({
         });
 
         if (isCurrent) {
-          setLastActivityPoll(new Date().toISOString());
           debugWorkflowActivityUi("received events", {
             eventCount: nextState.activityEvents.length,
             latestEvent: nextState.activityEvents.at(-1)?.code ?? null,
@@ -517,13 +439,6 @@ export function ExtractionStepComponent({
           setState(nextState);
           if (nextState.latestOutput?.status === "running") {
             setSawRunningOutput(true);
-            if (nextState.activityEvents.length === 0) {
-              setEmptyActivityPollCount((currentCount) => currentCount + 1);
-            } else {
-              setEmptyActivityPollCount(0);
-            }
-          } else {
-            setEmptyActivityPollCount(0);
           }
         }
       } catch (error) {
@@ -557,23 +472,10 @@ export function ExtractionStepComponent({
     workflowRunId,
   ]);
 
-  useEffect(() => {
-    if (latestOutput?.status !== "running") {
-      return;
-    }
-
-    activityEndRef.current?.scrollIntoView({
-      block: "nearest",
-    });
-  }, [activityEvents.length, latestOutput?.status]);
-
   return (
     <section className="grid gap-5" data-testid="extraction-step">
       <div>
-        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
-          Active Workflow
-        </p>
-        <h2 className="mt-2 text-lg font-semibold text-[#211B27]">
+        <h2 className="text-lg font-semibold text-[#211B27]">
           {step.name}
         </h2>
         {step.description ? (
@@ -603,13 +505,13 @@ export function ExtractionStepComponent({
               const documentStatusLabel =
                 progressItemLabel(progressItem) ??
                 (step.autorun ? "Queued" : document.representationStatus);
-              const documentMessage =
-                progressItem?.error?.userMessage ??
-                outputDocumentError?.userMessage ??
-                progressItem?.message ??
-                document.error ??
-                (step.autorun ? "Waiting to prepare" : null);
-              const detailedDocumentMessage = documentErrorDetail(outputDocumentError);
+              const documentMessage = documentRowMessage({
+                documentError: document.error,
+                outputError: outputDocumentError,
+                progressItem,
+                statusLabel: documentStatusLabel,
+                stepAutorun: Boolean(step.autorun),
+              });
 
               return (
                 <div
@@ -621,9 +523,6 @@ export function ExtractionStepComponent({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-[#211B27]">
                         {document.fileName}
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-[#74677F]">
-                        {document.mimeType}
                       </p>
                     </div>
                     <span
@@ -639,14 +538,6 @@ export function ExtractionStepComponent({
                       data-testid={`extraction-document-message-${document.id}`}
                     >
                       {documentMessage}
-                    </p>
-                  ) : null}
-                  {detailedDocumentMessage ? (
-                    <p
-                      className="mt-1 text-xs leading-5 text-red-700"
-                      data-testid={`extraction-document-error-detail-${document.id}`}
-                    >
-                      Details: {detailedDocumentMessage}
                     </p>
                   ) : null}
                   {progressItem?.status === "running" ? (
@@ -673,266 +564,39 @@ export function ExtractionStepComponent({
         )}
       </div>
 
-      <div
-        className="rounded-xl border border-[#E3DEEA] bg-[#FBFAFC] p-4"
-        data-testid="extraction-summary"
-      >
-        <h3 className="text-base font-semibold text-[#211B27]">
-          Preparation status
-        </h3>
-        <p className="mt-2 text-sm leading-6 text-[#74677F]">
-          {isShowingCompletionHold
-            ? "All documents prepared. Moving to Review chronology..."
-            : isRunning || (step.autorun && !latestOutput)
-            ? "Preparing selected documents..."
-            : summaryForOutput(latestOutput)}
-        </p>
-        {progress?.currentItemLabel ? (
-          <div
-            className="mt-3 rounded-lg border border-[#E3DEEA] bg-white px-4 py-3"
-            data-testid="extraction-active-document"
-          >
-            <p className="text-sm font-semibold text-[#211B27]">
-              {activeProgress
-                ? `Processing ${activeProgress.current} of ${activeProgress.total}: ${progress.currentItemLabel}`
-                : `Processing: ${progress.currentItemLabel}`}
-            </p>
-            {progress.currentItemMessage ? (
-              <p className="mt-1 text-sm leading-5 text-[#74677F]">
-                {progress.currentItemMessage}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {progress || isRunning || (step.autorun && !latestOutput) ? (
-          <div className="mt-3" data-testid="extraction-global-progress">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-5 text-[#74677F]">
-              <span>
-                {typeof progress?.completedItems === "number" &&
-                typeof progress.totalItems === "number"
-                  ? `${progress.completedItems} of ${progress.totalItems} documents processed`
-                  : "Preparing documents"}
-              </span>
-              {progress?.currentItemLabel ? (
-                <span className="truncate">
-                  Current: {progress.currentItemLabel}
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E3DEEA]">
-              <div
-                className="h-full rounded-full bg-[#5F4B76] transition-all"
-                data-testid="extraction-global-progress-bar"
-                style={{
-                  width: progressBarWidth(progress),
-                }}
-              />
-            </div>
-          </div>
-        ) : null}
-        {outputError ? (
-          <div
-            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"
-            data-testid="extraction-structured-error"
-          >
-            <p className="font-semibold">
-              {headingForOutputError(latestOutput)}
-            </p>
-            <p className="mt-1">{outputError.userMessage}</p>
-            {outputError.documentErrors?.length ? (
-              <div className="mt-3">
-                <p className="font-semibold">Files that need attention:</p>
-                <ul className="mt-1 list-disc pl-5">
-                  {outputError.documentErrors.map((documentError) => (
-                    <li key={`${documentError.matterDocumentId}-${documentError.code}`}>
-                      <span className="font-medium">
-                        {documentError.fileName ?? documentError.matterDocumentId}:
-                      </span>{" "}
-                      {documentError.userMessage}
-                      {documentErrorDetail(documentError) ? (
-                        <span className="block text-xs leading-5 text-amber-900">
-                          Details: {documentErrorDetail(documentError)}
-                        </span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {suggestedAction ? (
-              <p className="mt-3" data-testid="extraction-suggested-action">
-                {suggestedAction}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {!outputError && extractionWarnings.length > 0 ? (
-          <div
-            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"
-            data-testid="extraction-warning-summary"
-          >
-            <p className="font-semibold">
-              Matter Layer extracted facts with non-standard labels.
-            </p>
-            <p className="mt-1">
-              The AI provider used some labels or shapes that were preserved for
-              review instead of rejected.
-            </p>
-            <details className="mt-2">
-              <summary className="cursor-pointer font-semibold">
-                Warning details
-              </summary>
-              <ul className="mt-1 list-disc pl-5 text-xs leading-5">
-                {extractionWarnings.slice(0, 12).map((warning, index) => (
-                  <li key={`${warning.code}-${index}`}>{warning.message}</li>
-                ))}
-              </ul>
-            </details>
-          </div>
-        ) : null}
-        {latestOutput ? (
-          <div className="mt-2 grid gap-1 text-xs leading-5 text-[#74677F]">
-            <p>
-              {Object.entries(latestOutput.factsByType)
-                .filter(([, count]) => count > 0)
-                .map(([factType, count]) => `${count} ${factType.replace(/_/g, " ")}`)
-                .join(", ") || "No chronology facts extracted yet."}
-            </p>
-            {latestOutput.chronologyArtifactId ? (
-              <p data-testid="chronology-artifact-created">
-                Chronology draft generated.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {latestOutput?.facts.length ? (
-          <div
-            className="mt-4 rounded-lg border border-[#E3DEEA] bg-white"
-            data-testid="chronology-facts-preview"
-          >
-            <div className="border-b border-[#E3DEEA] px-4 py-3">
-              <h4 className="text-sm font-semibold text-[#211B27]">
-                Extracted chronology facts
-              </h4>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-xs leading-5">
-                <thead className="bg-[#FBFAFC] text-[#74677F]">
-                  <tr>
-                    <th className="px-4 py-2 font-semibold">Date</th>
-                    <th className="px-4 py-2 font-semibold">Fact</th>
-                    <th className="px-4 py-2 font-semibold">People</th>
-                    <th className="px-4 py-2 font-semibold">Organizations</th>
-                    <th className="px-4 py-2 font-semibold">Source</th>
-                    <th className="px-4 py-2 font-semibold">Warnings</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#E3DEEA]">
-                  {[...datedFacts, ...undatedFacts].map((fact, index) => (
-                    <tr key={typeof fact.id === "string" ? fact.id : index}>
-                      <td className="whitespace-nowrap px-4 py-2 text-[#211B27]">
-                        {factDisplayDate(fact)}
-                      </td>
-                      <td className="min-w-72 px-4 py-2 text-[#211B27]">
-                        {typeof fact.summary === "string" ? fact.summary : ""}
-                      </td>
-                      <td className="px-4 py-2 text-[#74677F]">
-                        {Array.isArray(fact.people)
-                          ? fact.people.filter((person) => typeof person === "string").join(", ") ||
-                            "None listed"
-                          : "None listed"}
-                      </td>
-                      <td className="px-4 py-2 text-[#74677F]">
-                        {Array.isArray(fact.organizations)
-                          ? fact.organizations
-                              .filter((organization) => typeof organization === "string")
-                              .join(", ") || "None listed"
-                          : "None listed"}
-                      </td>
-                      <td className="px-4 py-2 text-[#74677F]">
-                        {factSourceLabel(fact)}
-                      </td>
-                      <td className="px-4 py-2 text-[#74677F]">
-                        {Array.isArray(fact.warnings) ? fact.warnings.length : ""}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : null}
+      {outputError ? (
         <div
-          className="mt-4 rounded-lg border border-[#E3DEEA] bg-white"
-          data-testid="extraction-activity-log"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"
+          data-testid="extraction-structured-error"
         >
-          <div className="border-b border-[#E3DEEA] px-4 py-3">
-            <h4 className="text-sm font-semibold text-[#211B27]">
-              Activity
-            </h4>
-          </div>
-          <div className="max-h-64 overflow-y-auto px-4 py-3">
-            {activityEvents.length ? (
-              <ol className="grid gap-2">
-                {activityEvents.map((event) => (
-                  <li
-                    className="grid grid-cols-[4.75rem_1fr] gap-3 text-xs leading-5"
-                    data-testid={`extraction-activity-${event.code}`}
-                    key={event.id}
-                  >
-                    <time className="text-[#74677F]">
-                      {formatActivityTimestamp(event.timestamp)}
-                    </time>
-                    <span className={activityLevelClass(event.level)}>
-                      {event.message}
+          <p className="font-semibold">
+            {headingForOutputError(latestOutput)}
+          </p>
+          <p className="mt-1">{outputError.userMessage}</p>
+          {outputError.documentErrors?.length ? (
+            <div className="mt-3">
+              <p className="font-semibold">Files that need attention:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {outputError.documentErrors.map((documentError) => (
+                  <li key={`${documentError.matterDocumentId}-${documentError.code}`}>
+                    <span className="font-medium">
+                      {documentError.fileName ?? documentError.matterDocumentId}
                     </span>
+                    {documentError.userMessage !== outputError.userMessage ? (
+                      <>: {documentError.userMessage}</>
+                    ) : null}
                   </li>
                 ))}
-              </ol>
-            ) : (
-              <div className="grid gap-2">
-                <p className="text-sm leading-6 text-[#74677F]">
-                  Waiting for workflow activity...
-                </p>
-                {activityDiagnosticVisible ? (
-                  <div
-                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"
-                    data-testid="extraction-activity-diagnostic"
-                  >
-                    <p className="font-semibold">
-                      Matter Layer thinks this step is running, but no activity events have been received yet.
-                    </p>
-                    <p className="mt-1">
-                      This usually means the step is blocked before emitting activity, or the activity polling endpoint is not returning events.
-                    </p>
-                    {process.env.NODE_ENV === "development" ? (
-                      <dl className="mt-2 grid gap-1">
-                        <div>
-                          <dt className="inline font-semibold">workflowRunId: </dt>
-                          <dd className="inline">{workflowRunId}</dd>
-                        </div>
-                        <div>
-                          <dt className="inline font-semibold">stepId: </dt>
-                          <dd className="inline">{step.id}</dd>
-                        </div>
-                        <div>
-                          <dt className="inline font-semibold">last poll: </dt>
-                          <dd className="inline">{lastActivityPoll ?? "not yet"}</dd>
-                        </div>
-                        <div>
-                          <dt className="inline font-semibold">activity events returned: </dt>
-                          <dd className="inline">0</dd>
-                        </div>
-                      </dl>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            )}
-            <div ref={activityEndRef} />
-          </div>
+              </ul>
+            </div>
+          ) : null}
+          {suggestedAction ? (
+            <p className="mt-3" data-testid="extraction-suggested-action">
+              {suggestedAction}
+            </p>
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
       {errorMessage ? (
         <p

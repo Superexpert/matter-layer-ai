@@ -2,6 +2,11 @@ export type ExtractionAIService = {
   generateText: (request: {
     maxOutputTokens?: number;
     messages: Array<{ content: string; role: "assistant" | "system" | "user" }>;
+    responseFormat?: {
+      name?: string;
+      schema?: Record<string, unknown>;
+      type: "json_object" | "json_schema";
+    };
     temperature?: number;
   }) => Promise<{
     content: string;
@@ -141,5 +146,11 @@ export type ExtractionProfile<TItem = unknown> = {
     items: TItem[];
     runResult: ExtractionProfileRunResult<TItem>;
   }) => ExtractionProfilePostprocessResult;
+  responseFormat?: {
+    name?: string;
+    schema?: Record<string, unknown>;
+    type: "json_object" | "json_schema";
+  };
+  jsonRepairInstructions?: string;
   systemPrompt: string;
 };

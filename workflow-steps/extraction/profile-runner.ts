@@ -3,6 +3,7 @@ import {
   createAIProviderTimeoutError,
 } from "@/services/ai/provider-errors";
 
+import { JsonModelOutputParseError } from "./json-output";
 import { createMarkdownWindows } from "./markdown-windowing";
 import type {
   ExtractionModelParseResult,
@@ -159,6 +160,28 @@ function parseWindowOutput<TItem>(
   });
 }
 
+function repairPrompt(input: {
+  invalidContent: string;
+  parseError: JsonModelOutputParseError;
+  profile: ExtractionProfile<unknown>;
+}) {
+  return [
+    "Return only valid JSON.",
+    "Do not include Markdown.",
+    "Do not include explanation.",
+    "Match the required schema exactly.",
+    "",
+    "Required schema:",
+    input.profile.jsonRepairInstructions ?? "Return the exact JSON shape requested by the extraction prompt.",
+    "",
+    "The previous response could not be parsed as JSON.",
+    `Parse diagnostics: ${JSON.stringify(input.parseError.diagnostics)}`,
+    "",
+    "Previous response:",
+    input.invalidContent.slice(0, 20_000),
+  ].join("\n");
+}
+
 export async function runExtractionProfile<TItem>(
   profile: ExtractionProfile<TItem>,
   context: ExtractionProfileContext,
@@ -175,6 +198,7 @@ export async function runExtractionProfile<TItem>(
   const errors: string[] = [];
   const warnings: ExtractionProfileRunResult<TItem>["warnings"] = [];
   const providerErrors: ReturnType<typeof classifyAIProviderError>[] = [];
+  const errorCodes: string[] = [];
   let itemCountsByType: Record<string, number> = {};
   let provider: string | null = null;
   let model: string | null = null;
@@ -213,7 +237,7 @@ export async function runExtractionProfile<TItem>(
     });
 
     try {
-      const response = await withAIWindowMonitoring({
+      let response = await withAIWindowMonitoring({
         heartbeatMs: aiHeartbeatMs,
         onHeartbeat: (elapsedMs) =>
           context.onWindowProgress?.({
@@ -243,11 +267,85 @@ export async function runExtractionProfile<TItem>(
               role: "user",
             },
           ],
+          responseFormat: profile.responseFormat,
         }),
         timeoutMs: aiCallTimeoutMs,
         windowDescription,
       });
-      const parsed = parseWindowOutput(profile, response.content, window);
+      let parsed: ExtractionModelParseResult<TItem>;
+
+      try {
+        parsed = parseWindowOutput(profile, response.content, window);
+      } catch (error) {
+        if (!(error instanceof JsonModelOutputParseError)) {
+          console.error("[extraction:ai-window] model output schema validation failed", {
+            ...windowDescription,
+            errorMessage: conciseError(error),
+          });
+          throw error;
+        }
+
+        console.error("[extraction:ai-window] model output JSON parse failed", {
+          ...windowDescription,
+          diagnostics: error.diagnostics,
+          retrying: Boolean(profile.jsonRepairInstructions),
+        });
+
+        if (!profile.jsonRepairInstructions) {
+          throw error;
+        }
+
+        const repairResponse = await withAIWindowMonitoring({
+          heartbeatMs: aiHeartbeatMs,
+          onHeartbeat: (elapsedMs) =>
+            context.onWindowProgress?.({
+              documentId: window.documentId,
+              elapsedMs,
+              failedWindowCount: errors.length,
+              fileName: window.fileName,
+              markdownCharacterCount: window.markdown.length,
+              pageEnd: window.pageEnd,
+              pageStart: window.pageStart,
+              promptCharacterCount,
+              status: "waiting",
+              timeoutMs: aiCallTimeoutMs,
+              windowCount: windows.length,
+              windowIndex: window.windowIndex + 1,
+            }),
+          profileLabel: `${profile.id} JSON repair`,
+          promise: context.aiService.generateText({
+            maxOutputTokens: profile.maxOutputTokens ?? 6000,
+            messages: [
+              {
+                content: "You repair extraction JSON. Return only valid JSON.",
+                role: "system",
+              },
+              {
+                content: repairPrompt({
+                  invalidContent: response.content,
+                  parseError: error,
+                  profile: profile as ExtractionProfile<unknown>,
+                }),
+                role: "user",
+              },
+            ],
+            responseFormat: profile.responseFormat,
+          }),
+          timeoutMs: aiCallTimeoutMs,
+          windowDescription: {
+            ...windowDescription,
+            retry: "json_repair",
+          },
+        });
+
+        response = repairResponse;
+        parsed = parseWindowOutput(profile, repairResponse.content, window);
+        console.info("[extraction:ai-window] model output JSON repair succeeded", {
+          ...windowDescription,
+          diagnostics: error.diagnostics,
+        });
+      }
+
       warnings.push(...parsed.warnings);
       items.push(...parsed.items);
       itemCountsByType = mergeItemCounts(itemCountsByType, parsed.itemCountsByType);
@@ -271,15 +369,18 @@ export async function runExtractionProfile<TItem>(
         windowIndex: window.windowIndex + 1,
       });
     } catch (error) {
+      const parseError = error instanceof JsonModelOutputParseError ? error : null;
       const providerError = classifyAIProviderError(error);
       const errorMessage = conciseError(providerError);
 
       errors.push(
         `Window ${window.windowIndex + 1} for ${window.fileName}: ${errorMessage}`,
       );
+      errorCodes.push(parseError ? "EXTRACTION_JSON_PARSE_FAILED" : providerError.code);
       providerErrors.push(providerError);
       console.error("[extraction:ai-window] extraction window failed", {
         ...windowDescription,
+        diagnostics: parseError?.diagnostics,
         errorCode: providerError.code,
         errorMessage,
         errorProvider: providerError.provider,
@@ -289,7 +390,7 @@ export async function runExtractionProfile<TItem>(
       await context.onWindowProgress?.({
         documentId: window.documentId,
         error: errorMessage,
-        errorCode: providerError.code,
+        errorCode: parseError ? "EXTRACTION_JSON_PARSE_FAILED" : providerError.code,
         errorProvider: providerError.provider,
         errorStatus: providerError.status,
         errorUserMessage: providerError.userMessage,
@@ -306,7 +407,7 @@ export async function runExtractionProfile<TItem>(
 
   return {
     error: errors[0] ?? null,
-    errorCode: providerErrors[0]?.code ?? null,
+    errorCode: errorCodes[0] ?? null,
     errorProvider: providerErrors[0]?.provider ?? null,
     errorStatus: providerErrors[0]?.status ?? null,
     errorUserMessage: providerErrors[0]?.userMessage ?? null,

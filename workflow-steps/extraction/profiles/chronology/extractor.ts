@@ -20,6 +20,88 @@ export type ChronologyExtractionResult = ExtractionProfileRunResult<ChronologyFa
   factsByType: Record<string, number>;
 };
 
+const chronologyFactJsonSchema = {
+  additionalProperties: false,
+  properties: {
+    facts: {
+      items: {
+        additionalProperties: true,
+        properties: {
+          confidence: {
+            type: ["string", "null"],
+          },
+          date: {
+            type: ["string", "null"],
+          },
+          dateText: {
+            type: ["string", "null"],
+          },
+          labels: {
+            items: {
+              type: "string",
+            },
+            type: "array",
+          },
+          organizations: {
+            items: {
+              type: "string",
+            },
+            type: "array",
+          },
+          people: {
+            items: {
+              type: "string",
+            },
+            type: "array",
+          },
+          sourceDocumentId: {
+            type: "string",
+          },
+          sourceFileName: {
+            type: "string",
+          },
+          sourcePages: {
+            items: {
+              type: "number",
+            },
+            type: "array",
+          },
+          sourceQuote: {
+            type: "string",
+          },
+          summary: {
+            type: "string",
+          },
+        },
+        required: [
+          "date",
+          "dateText",
+          "summary",
+          "people",
+          "organizations",
+          "sourceDocumentId",
+          "sourceFileName",
+          "sourcePages",
+          "sourceQuote",
+          "confidence",
+        ],
+        type: "object",
+      },
+      type: "array",
+    },
+  },
+  required: ["facts"],
+  type: "object",
+} satisfies Record<string, unknown>;
+
+const chronologyJsonRepairInstructions = [
+  "Return a JSON object with exactly this top-level shape:",
+  "{\"facts\":[{\"date\":\"YYYY-MM-DD|null\",\"dateText\":\"source date text|null\",\"summary\":\"what happened\",\"people\":[\"person names\"],\"organizations\":[\"organization names\"],\"sourceDocumentId\":\"document id\",\"sourceFileName\":\"file name\",\"sourcePages\":[1],\"sourceQuote\":\"exact supporting quote\",\"confidence\":\"high|medium|low|unknown\",\"labels\":[\"optional labels\"]}]}",
+  "Use null for unknown dates.",
+  "Use empty arrays for people, organizations, or labels when none are listed.",
+  "Every fact must include sourceDocumentId, sourceFileName, sourcePages, and sourceQuote.",
+].join("\n");
+
 export const chronologyRunnerProfile = {
   buildUserPrompt: buildChronologyUserPrompt,
   createWindows: createChronologyMarkdownWindows,
@@ -27,6 +109,7 @@ export const chronologyRunnerProfile = {
   id: "chronology",
   itemLabel: "chronology fact",
   itemPluralLabel: "chronology facts",
+  jsonRepairInstructions: chronologyJsonRepairInstructions,
   label: "Chronology",
   maxOutputTokens: 6000,
   parseModelOutput: (content: string, context) => {
@@ -46,6 +129,11 @@ export const chronologyRunnerProfile = {
       items: facts,
       warnings: parsed.warnings,
     };
+  },
+  responseFormat: {
+    name: "chronology_extraction",
+    schema: chronologyFactJsonSchema,
+    type: "json_schema",
   },
   systemPrompt: chronologySystemPrompt,
 } satisfies ExtractionProfile<ChronologyFact>;

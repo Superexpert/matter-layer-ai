@@ -26,6 +26,8 @@ export const EXTRACTION_ERROR_ACTIONS: Record<string, string> = {
     "Try re-uploading the document or regenerating document representations from the Documents tab.",
   EXTRACTION_PROVIDER_FAILED:
     "Try running preparation again. If the problem continues, check the configured AI provider.",
+  EXTRACTION_JSON_PARSE_FAILED:
+    "Try running preparation again. If this continues, ask an admin to review the configured AI provider or model.",
   INTERNAL_ERROR:
     "Try running the preparation step again. If the problem continues, check the server logs for details.",
   PARTIAL_DOCUMENT_PREPARATION_FAILED:
@@ -40,6 +42,20 @@ export function suggestedActionForError(error: WorkflowStepError | null | undefi
   }
 
   return EXTRACTION_ERROR_ACTIONS[error.code] ?? EXTRACTION_ERROR_ACTIONS.INTERNAL_ERROR;
+}
+
+export const INVALID_JSON_PROVIDER_USER_MESSAGE =
+  "The AI provider returned a response Matter Layer could not read. Try preparation again. If this continues, ask an admin to review the configured AI provider or model.";
+
+export const EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE =
+  "Matter Layer could not extract facts from this document.";
+
+export function userMessageForExtractionProviderError(message: string | null | undefined) {
+  if (message?.includes("Extraction response must be valid JSON.")) {
+    return INVALID_JSON_PROVIDER_USER_MESSAGE;
+  }
+
+  return "Matter Layer prepared the documents, but the extraction provider could not process one or more document windows.";
 }
 
 export function safeUnknownExtractionError(error: unknown): WorkflowStepError {
@@ -103,6 +119,13 @@ export function extractionStepErrorForDocuments(input: {
     ? firstCode
     : "DOCUMENT_PREPARATION_FAILED";
   const firstUserMessage = input.documentErrors[0]?.userMessage;
+  const providerUserMessage =
+    commonCode === "EXTRACTION_PROVIDER_FAILED" ||
+    commonCode === "EXTRACTION_JSON_PARSE_FAILED"
+    ? userMessageForExtractionProviderError(
+        input.documentErrors.find((error) => error.message)?.message,
+      )
+    : null;
 
   if (input.partial) {
     return {
@@ -111,17 +134,19 @@ export function extractionStepErrorForDocuments(input: {
         : "PARTIAL_DOCUMENT_PREPARATION_FAILED",
       documentErrors: input.documentErrors,
       message: "Some selected documents could not be prepared.",
-      userMessage: isAIProviderErrorCode(commonCode) && firstUserMessage
+      userMessage: providerUserMessage ??
+        (isAIProviderErrorCode(commonCode) && firstUserMessage
         ? firstUserMessage
-        : "Some selected documents were prepared, but one or more files could not be converted into AI-readable Markdown.",
+        : "Some selected documents were prepared, but one or more files could not be converted into AI-readable Markdown."),
     };
   }
   const userMessage =
-    isAIProviderErrorCode(commonCode) && firstUserMessage
+    providerUserMessage ??
+    (isAIProviderErrorCode(commonCode) && firstUserMessage
       ? firstUserMessage
     : commonCode === "EXTRACTION_PROVIDER_FAILED"
       ? "Matter Layer prepared the documents, but the extraction provider could not process one or more files."
-      : "Matter Layer could not prepare the selected documents because one or more files could not be converted into AI-readable Markdown.";
+      : "Matter Layer could not prepare the selected documents because one or more files could not be converted into AI-readable Markdown.");
 
   return {
     code: commonCode,
@@ -139,7 +164,6 @@ export function extractionProviderError(message: string): WorkflowStepError {
   return {
     code: "EXTRACTION_PROVIDER_FAILED",
     message,
-    userMessage:
-      "Matter Layer prepared the documents, but the extraction provider could not process one or more document windows.",
+    userMessage: userMessageForExtractionProviderError(message),
   };
 }
