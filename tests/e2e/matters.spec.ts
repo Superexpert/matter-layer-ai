@@ -62,11 +62,11 @@ test("authenticated user can create a matter", async ({ page }) => {
     );
     await expect(page.getByTestId("logout-button")).toBeVisible();
     await expect(page.getByTestId("matter-selector")).toHaveCount(0);
-    await expect(page.getByTestId("matter-breadcrumb")).toContainText("Home");
+    await expect(page.getByTestId("matter-breadcrumb")).toContainText("Matters");
     await expect(page.getByTestId("breadcrumb-current-matter")).toContainText(
       matterName,
     );
-    await expect(page.getByText("Selected matter")).toHaveCount(0);
+    await expect(page.getByText("Selected matter", { exact: true })).toHaveCount(0);
     await expect(page.getByTestId("matter-context-panel")).toContainText(
       matterName,
     );
@@ -76,6 +76,9 @@ test("authenticated user can create a matter", async ({ page }) => {
     );
     await expect(page.getByTestId("matter-tab-chat")).toBeVisible();
     await expect(page.getByTestId("matter-tab-documents")).toBeVisible();
+    await expect(
+      page.getByTestId("matter-tabs").getByRole("button"),
+    ).toHaveText(["Workflows", "Chat", "Documents"]);
     const matterLayerBox = await page
       .getByTestId("matter-workspace-header")
       .getByRole("link", { name: "Matter Layer" })
@@ -83,22 +86,26 @@ test("authenticated user can create a matter", async ({ page }) => {
     const breadcrumbHomeBox = await page
       .getByTestId("breadcrumb-home")
       .boundingBox();
-    const chatTabBox = await page.getByTestId("matter-tab-chat").boundingBox();
+    const workflowsTabBox = await page
+      .getByTestId("matter-tab-workflows")
+      .boundingBox();
     const chatPanelBox = await page
       .getByTestId("chat-workspace-panel")
       .boundingBox();
 
     expect(matterLayerBox).not.toBeNull();
     expect(breadcrumbHomeBox).not.toBeNull();
-    expect(chatTabBox).not.toBeNull();
+    expect(workflowsTabBox).not.toBeNull();
     expect(chatPanelBox).not.toBeNull();
     expect(Math.abs(matterLayerBox!.x - breadcrumbHomeBox!.x)).toBeLessThanOrEqual(
       1,
     );
-    expect(Math.abs(breadcrumbHomeBox!.x - chatTabBox!.x)).toBeLessThanOrEqual(
+    expect(
+      Math.abs(breadcrumbHomeBox!.x - workflowsTabBox!.x),
+    ).toBeLessThanOrEqual(1);
+    expect(Math.abs(workflowsTabBox!.x - chatPanelBox!.x)).toBeLessThanOrEqual(
       1,
     );
-    expect(Math.abs(chatTabBox!.x - chatPanelBox!.x)).toBeLessThanOrEqual(1);
     await expect(page.getByText("Ask Matter Layer")).toHaveCount(0);
     await expect(
       page.getByText(
@@ -194,6 +201,15 @@ test("authenticated user can create a matter", async ({ page }) => {
       "none",
     );
     await expect(page.getByTestId("send-message-button")).toBeVisible();
+
+    await page.getByTestId("matter-tab-documents").click();
+    await expect(page.getByTestId("matter-tab-documents")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("documents-empty-state")).toContainText(
+      "Documents",
+    );
 
     await page.getByTestId("matter-tab-workflows").click();
     await expect(page.getByTestId("matter-tab-workflows")).toHaveAttribute(

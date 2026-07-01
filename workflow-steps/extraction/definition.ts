@@ -30,6 +30,9 @@ export const extractionOutputSchema: WorkflowSchema = {
   additionalProperties: false,
   description: "Prepared representation counts and extraction run id.",
   properties: {
+    artifactReferences: {
+      type: "object",
+    },
     chronologyArtifactId: {
       type: ["string", "null"],
     },
@@ -37,6 +40,12 @@ export const extractionOutputSchema: WorkflowSchema = {
       type: "integer",
     },
     collapsedEvents: {
+      items: {
+        type: "object",
+      },
+      type: "array",
+    },
+    documentResults: {
       items: {
         type: "object",
       },
@@ -81,6 +90,9 @@ export const extractionOutputSchema: WorkflowSchema = {
     profile: {
       type: "string",
     },
+    profileOutput: {
+      type: ["object", "array", "string", "number", "boolean", "null"],
+    },
     progress: {
       type: ["object", "null"],
     },
@@ -104,8 +116,10 @@ export const extractionOutputSchema: WorkflowSchema = {
   },
   required: [
     "chronologyArtifactId",
+    "artifactReferences",
     "collapsedEventCount",
     "collapsedEvents",
+    "documentResults",
     "extractedFactCount",
     "extractionWindowCount",
     "extractionRunId",
@@ -116,6 +130,7 @@ export const extractionOutputSchema: WorkflowSchema = {
     "failedRepresentationCount",
     "preparedDocumentIds",
     "profile",
+    "profileOutput",
     "progress",
     "readyRepresentationCount",
     "schemaVersion",

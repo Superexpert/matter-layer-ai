@@ -13,7 +13,9 @@ application-level provider storage even when that account-level setting is not
 available.
 
 Configure the active provider from `/app/admin` after signing in as an Admin.
-The selected provider, model, and API key are stored in the app database.
+The selected provider and model are stored in the app database. Cloud providers
+store an API key. Ollama Local stores the internal Ollama server URL and does
+not require an API key.
 
 Admin setup:
 
@@ -21,7 +23,12 @@ Admin setup:
 2. Open `/app/admin`.
 3. Select the AI provider.
 4. Select the model.
-5. Enter the provider API key and save settings.
+5. For cloud providers, enter the provider API key. For Ollama Local, enter the
+   internal Ollama server URL and refresh installed models.
+6. Save settings.
 
 The Anthropic `sonnet-4` model option is a Matter Layer alias that resolves to
 Anthropic's current Claude API model ID `claude-sonnet-4-6`.
+
+For intranet deployments, Ollama Local defaults to `http://localhost:11434`.
+Use a different internal URL only when Ollama runs on another server.

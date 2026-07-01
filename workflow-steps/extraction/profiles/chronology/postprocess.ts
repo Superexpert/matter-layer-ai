@@ -1,6 +1,6 @@
 import { generateChronologyMarkdown } from "./chronology-artifact";
 import { collapseChronologyFacts } from "./collapse";
-import type { ChronologyFact } from "./schema";
+import { sortChronologyFacts, type ChronologyFact } from "./schema";
 
 export type ChronologyFactOutput = ChronologyFact & {
   id: string;
@@ -31,7 +31,8 @@ export function chronologyEventId(index: number) {
 export function buildChronologyPostprocessResult(
   facts: ChronologyFact[],
 ): ChronologyPostprocessResult {
-  const factsWithIds = facts.map((fact, index) => ({
+  const sortedFacts = sortChronologyFacts(facts);
+  const factsWithIds = sortedFacts.map((fact, index) => ({
     ...fact,
     id: chronologyFactId(index),
   }));

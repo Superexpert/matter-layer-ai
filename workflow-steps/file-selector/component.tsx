@@ -41,26 +41,6 @@ type FileSelectorStepComponentProps = {
   onComplete: (output: FileSelectorStepOutput) => void;
 };
 
-function formatFileSize(size: number) {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-
-  if (size < 1024 * 1024) {
-    return `${Math.round(size / 1024)} KB`;
-  }
-
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function selectedSummary(count: number) {
-  if (count === 0) {
-    return "No documents selected.";
-  }
-
-  return `${count} document${count === 1 ? "" : "s"} selected.`;
-}
-
 export function FileSelectorStepComponent({
   loadStepState,
   matterId,
@@ -260,10 +240,7 @@ export function FileSelectorStepComponent({
   return (
     <section className="grid gap-5" data-testid="file-selector-step">
       <div>
-        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
-          Active Workflow
-        </p>
-        <h2 className="mt-2 text-lg font-semibold text-[#211B27]">
+        <h2 className="text-lg font-semibold text-[#211B27]">
           {step.name}
         </h2>
         {step.description ? (
@@ -328,9 +305,6 @@ export function FileSelectorStepComponent({
                   <span className="block truncate text-sm font-semibold text-[#211B27]">
                     {document.fileName}
                   </span>
-                  <span className="mt-1 block text-xs leading-5 text-[#74677F]">
-                    {document.mimeType} - {formatFileSize(document.size)}
-                  </span>
                 </span>
               </label>
             ))}
@@ -345,34 +319,13 @@ export function FileSelectorStepComponent({
         )}
       </div>
 
-      <div
-        className="rounded-xl border border-[#E3DEEA] bg-[#FBFAFC] p-4"
-        data-testid="file-selector-summary"
-      >
-        <h3 className="text-base font-semibold text-[#211B27]">
-          Selected documents
-        </h3>
-        <p className="mt-2 text-sm leading-6 text-[#74677F]">
-          {selectedSummary(selectedMatterDocumentIds.length)}
-        </p>
-        {selectedMatterDocumentIds.length ? (
-          <ul className="mt-3 grid gap-1 text-sm leading-6 text-[#211B27]">
-            {documents
-              .filter((document) => selectedDocumentIdSet.has(document.id))
-              .map((document) => (
-                <li key={document.id}>{document.fileName}</li>
-              ))}
-          </ul>
-        ) : null}
-      </div>
-
-      {errorMessage || validationError ? (
+      {errorMessage ? (
         <p
           className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
           data-testid="file-selector-validation"
           role="alert"
         >
-          {errorMessage || validationError}
+          {errorMessage}
         </p>
       ) : null}
 

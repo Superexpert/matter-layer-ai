@@ -374,7 +374,7 @@ test("autorun starts extraction in the background and exposes activity for the a
     await waitForCondition(async () => {
       const startedEvent = await prisma.workflowRunStepActivity.findFirst({
         where: {
-          code: "chronology.prepare.started",
+          code: "extraction.prepare.started",
           stepId: autorunExtractionStep.id,
           workflowRunId,
         },
@@ -394,7 +394,7 @@ test("autorun starts extraction in the background and exposes activity for the a
     });
 
     expect(activityEvents[0]).toMatchObject({
-      code: "chronology.prepare.started",
+      code: "extraction.prepare.started",
       stepId: autorunExtractionStep.id,
       workflowRunId,
     });
@@ -407,7 +407,7 @@ test("autorun starts extraction in the background and exposes activity for the a
     });
 
     expect(state.activityEvents.map((event) => event.code)).toContain(
-      "chronology.prepare.started",
+      "extraction.prepare.started",
     );
 
     await waitForCondition(async () => {
@@ -521,10 +521,9 @@ test("extraction step prepares TXT and PDF representations and persists output",
     expect(output).toMatchObject({
       collapsedEventCount: 2,
       failedRepresentationCount: 0,
-      extractedFactCount: 4,
+      extractedFactCount: 2,
       factsByType: {
-        dated_event: 2,
-        person: 2,
+        chronology_fact: 2,
       },
       profile: "chronology",
       readyRepresentationCount: 2,
@@ -550,12 +549,13 @@ test("extraction step prepares TXT and PDF representations and persists output",
     expect(extractionRun.metadataJson).toMatchObject({
       aiModel: "mock-model",
       aiProvider: "mock",
-      extractedFactCount: 4,
       collapsedEventCount: 2,
-      chronologyArtifactId: output.chronologyArtifactId,
-      factsByType: {
-        dated_event: 2,
-        person: 2,
+      artifactReferences: {
+        chronologyArtifactId: output.chronologyArtifactId,
+      },
+      itemCount: 2,
+      itemCountsByType: {
+        chronology_fact: 2,
       },
       selectedDocumentCount: 2,
     });
@@ -594,7 +594,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
     expect(artifact.content).toContain("report.pdf, pp. 1-2");
     expect(artifact.metadataJson).toMatchObject({
       collapsedEventCount: 2,
-      generatedFromFactCount: 4,
+      generatedFromFactCount: 2,
       profile: "chronology",
       sourceDocumentCount: 2,
     });
@@ -610,30 +610,30 @@ test("extraction step prepares TXT and PDF representations and persists output",
     });
     const activityCodes = activityEvents.map((event) => event.code);
 
-    expect(activityCodes).toContain("chronology.prepare.started");
-    expect(activityCodes).toContain("chronology.prepare.selected_documents_loaded");
-    expect(activityCodes.filter((code) => code === "chronology.prepare.document_started")).toHaveLength(2);
-    expect(activityCodes).toContain("chronology.prepare.representation_lookup_started");
-    expect(activityCodes).toContain("chronology.prepare.extraction_started");
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_started");
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_completed");
-    expect(activityCodes).toContain("chronology.prepare.extraction_completed");
-    expect(activityCodes).toContain("chronology.prepare.document_completed");
-    expect(activityCodes).toContain("chronology.prepare.completed");
-    expect(activityCodes).toContain("chronology.prepare.moving_to_review");
+    expect(activityCodes).toContain("extraction.prepare.started");
+    expect(activityCodes).toContain("extraction.prepare.selected_documents_loaded");
+    expect(activityCodes.filter((code) => code === "extraction.prepare.document_started")).toHaveLength(2);
+    expect(activityCodes).toContain("extraction.prepare.representation_lookup_started");
+    expect(activityCodes).toContain("extraction.prepare.extraction_started");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_started");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_completed");
+    expect(activityCodes).toContain("extraction.prepare.extraction_completed");
+    expect(activityCodes).toContain("extraction.prepare.document_completed");
+    expect(activityCodes).toContain("extraction.prepare.completed");
+    expect(activityCodes).toContain("extraction.prepare.artifacts_created");
     expect(
       activityEvents.some((event) =>
         event.message.includes("Extracted") &&
-        event.message.includes("candidate chronology facts"),
+        event.message.includes("candidate chronology fact"),
       ),
     ).toBe(true);
     expect(
       activityEvents.some((event) => event.documentName === "report.pdf"),
     ).toBe(true);
 
-    expect(output.facts).toHaveLength(4);
+    expect(output.facts).toHaveLength(2);
     expect(output.facts.map((fact) => fact.sourceDocumentId).sort()).toEqual(
-      [pdfDocument.id, pdfDocument.id, textDocument.id, textDocument.id].sort(),
+      [pdfDocument.id, textDocument.id].sort(),
     );
     expect(
       output.facts.find((fact) => fact.sourceDocumentId === pdfDocument.id)
@@ -674,11 +674,10 @@ test("extraction step prepares TXT and PDF representations and persists output",
     expect(stepOutput.outputJson).toMatchObject({
       chronologyArtifactId: output.chronologyArtifactId,
       collapsedEventCount: 2,
-      extractedFactCount: 4,
+      extractedFactCount: 2,
       extractionRunId: output.extractionRunId,
       factsByType: {
-        dated_event: 2,
-        person: 2,
+        chronology_fact: 2,
       },
       readyRepresentationCount: 2,
       status: "completed",
@@ -769,8 +768,6 @@ test("chronology extraction runs documents with bounded parallelism and preserve
     expect(output.status).toBe("completed");
     expect(output.facts.map((fact) => fact.sourceDocumentId)).toEqual([
       firstDocument.id,
-      firstDocument.id,
-      secondDocument.id,
       secondDocument.id,
     ]);
   } finally {
@@ -944,15 +941,15 @@ test("window extraction activity exposes per-window progress and failures", asyn
     });
     const activityCodes = activityEvents.map((event) => event.code);
     const startedWindow = activityEvents.find(
-      (event) => event.code === "chronology.prepare.extraction_window_started",
+      (event) => event.code === "extraction.prepare.extraction_window_started",
     );
     const failedWindow = activityEvents.find(
-      (event) => event.code === "chronology.prepare.extraction_window_failed",
+      (event) => event.code === "extraction.prepare.extraction_window_failed",
     );
 
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_started");
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_failed");
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_completed");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_started");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_failed");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_completed");
     expect(startedWindow?.message).toContain("Window 1 of");
     expect(startedWindow?.metadataJson).toMatchObject({
       windowIndex: 1,
@@ -1026,15 +1023,15 @@ test("hung AI window calls time out and persist failed output", async () => {
     });
     const activityCodes = activityEvents.map((event) => event.code);
     const waitingWindow = activityEvents.find(
-      (event) => event.code === "chronology.prepare.extraction_window_waiting",
+      (event) => event.code === "extraction.prepare.extraction_window_waiting",
     );
     const failedWindow = activityEvents.find(
-      (event) => event.code === "chronology.prepare.extraction_window_failed",
+      (event) => event.code === "extraction.prepare.extraction_window_failed",
     );
 
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_started");
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_waiting");
-    expect(activityCodes).toContain("chronology.prepare.extraction_window_failed");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_started");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_waiting");
+    expect(activityCodes).toContain("extraction.prepare.extraction_window_failed");
     expect(waitingWindow?.message).toContain("Still waiting for the AI provider");
     expect(waitingWindow?.metadataJson).toMatchObject({
       timeoutMs: 75,
@@ -1138,7 +1135,7 @@ test("unexpected autorun extraction errors persist a failed output instead of st
     });
     expect(state.latestOutput?.progress?.status).toBe("failed");
     expect(state.activityEvents.at(-1)).toMatchObject({
-      code: "chronology.prepare.failed",
+      code: "extraction.prepare.failed",
       level: "error",
     });
 
@@ -1243,10 +1240,10 @@ test("extraction step stores structured errors for cross-matter selected documen
     ).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          code: "chronology.prepare.started",
+          code: "extraction.prepare.started",
         }),
         expect.objectContaining({
-          code: "chronology.prepare.failed",
+          code: "extraction.prepare.failed",
           level: "error",
         }),
       ]),

@@ -1,8 +1,9 @@
 import { chronologyExtractionProfile } from "./chronology";
+import type { ExtractionProfile } from "../types";
 
-export const extractionProfiles = {
-  chronology: chronologyExtractionProfile,
-} as const;
+export const extractionProfiles: Record<string, ExtractionProfile<unknown>> = {
+  chronology: chronologyExtractionProfile as ExtractionProfile<unknown>,
+};
 
 export function getExtractionProfile(profileId: string) {
   const profile = extractionProfiles[profileId as keyof typeof extractionProfiles];

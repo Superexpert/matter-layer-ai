@@ -174,6 +174,7 @@ test("AnthropicProvider.streamText yields text deltas and final response", async
 test("provider selection returns Anthropic from database-style settings", () => {
   const provider = createAIProviderFromSettings({
     apiKey: "test-anthropic-api-key",
+    baseUrl: null,
     model: "sonnet-4",
     provider: "anthropic",
   });

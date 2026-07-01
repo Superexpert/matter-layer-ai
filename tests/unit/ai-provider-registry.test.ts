@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getAIProviderRegistration,
   isRegisteredAIModel,
+  OLLAMA_DEFAULT_BASE_URL,
 } from "@/services/ai/provider-registry";
 
 describe("AI provider registry", () => {
@@ -31,5 +32,18 @@ describe("AI provider registry", () => {
     expect(isRegisteredAIModel("openai", "gpt-5.5")).toBe(true);
     expect(isRegisteredAIModel("openai", "gpt-5.5-mini")).toBe(true);
     expect(isRegisteredAIModel("openai", "gpt-5.4-mini")).toBe(true);
+  });
+
+  it("registers Ollama Local with dynamic installed model names", () => {
+    const ollama = getAIProviderRegistration("ollama");
+
+    expect(ollama).toMatchObject({
+      defaultBaseUrl: OLLAMA_DEFAULT_BASE_URL,
+      name: "Ollama Local",
+      requiresApiKey: false,
+      supportsDynamicModels: true,
+    });
+    expect(isRegisteredAIModel("ollama", "gemma3:4b")).toBe(true);
+    expect(isRegisteredAIModel("ollama", "")).toBe(false);
   });
 });

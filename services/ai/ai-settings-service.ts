@@ -10,6 +10,8 @@ import {
   isRegisteredAIProvider,
   type AIProviderId,
 } from "./provider-registry";
+import { normalizeOllamaBaseUrl } from "./providers/ollama-base-url";
+import { testOllamaModel } from "./providers/ollama-setup";
 
 const APP_SETTINGS_ID = "app";
 
@@ -21,13 +23,15 @@ export type AIProviderConfigSummary = {
   modelLabel: string;
   hasApiKey: boolean;
   apiKeyMasked: string | null;
+  baseUrl: string | null;
   isActive: boolean;
 };
 
 export type ConfiguredAISettings = {
   provider: AIProviderId;
   model: string;
-  apiKey: string;
+  apiKey: string | null;
+  baseUrl: string | null;
 };
 
 export class AISettingsConfigurationError extends Error {
@@ -91,6 +95,14 @@ function validateProviderAndModel(provider: string, model: string) {
   return provider;
 }
 
+function providerRequiresApiKey(provider: AIProviderId) {
+  return getAIProviderRegistration(provider)?.requiresApiKey ?? true;
+}
+
+function providerRequiresBaseUrl(provider: AIProviderId) {
+  return provider === "ollama";
+}
+
 async function backfillLegacyAISettingsIfNeeded() {
   const existingConfigCount = await prisma.aiProviderConfig.count();
 
@@ -124,6 +136,7 @@ async function backfillLegacyAISettingsIfNeeded() {
   await prisma.aiProviderConfig.create({
     data: {
       apiKey,
+      baseUrl: null,
       isActive: true,
       model,
       provider,
@@ -156,7 +169,8 @@ export async function listAIProviderConfigs(): Promise<
 
     return {
       apiKeyMasked: maskApiKey(config.apiKey),
-      hasApiKey: Boolean(config.apiKey.trim()),
+      baseUrl: config.baseUrl?.trim() || null,
+      hasApiKey: Boolean(config.apiKey?.trim()),
       id: config.id,
       isActive: config.isActive,
       model: config.model,
@@ -178,9 +192,10 @@ export async function getConfiguredAISettings(): Promise<ConfiguredAISettings> {
 
   const provider = activeConfig?.provider.trim();
   const model = activeConfig?.model.trim();
-  const apiKey = activeConfig?.apiKey.trim();
+  const apiKey = activeConfig?.apiKey?.trim() ?? "";
+  const baseUrl = activeConfig?.baseUrl?.trim() ?? "";
 
-  if (!provider || !model || !apiKey) {
+  if (!provider || !model) {
     throw new AISettingsConfigurationError(
       "AI provider settings have not been configured.",
     );
@@ -198,8 +213,21 @@ export async function getConfiguredAISettings(): Promise<ConfiguredAISettings> {
     );
   }
 
+  if (providerRequiresApiKey(provider) && !apiKey) {
+    throw new AISettingsConfigurationError(
+      "AI provider settings have not been configured.",
+    );
+  }
+
+  if (providerRequiresBaseUrl(provider) && !baseUrl) {
+    throw new AISettingsConfigurationError(
+      "AI provider settings have not been configured.",
+    );
+  }
+
   return {
-    apiKey: decodeApiKey(apiKey),
+    apiKey: apiKey ? decodeApiKey(apiKey) : null,
+    baseUrl: baseUrl || null,
     model,
     provider,
   };
@@ -221,10 +249,39 @@ export async function createAIProviderConfig(formData: FormData) {
   const provider = normalizeValue(formData.get("aiProvider"));
   const model = normalizeValue(formData.get("aiModel"));
   const apiKey = normalizeValue(formData.get("aiApiKey"));
+  const rawBaseUrl = normalizeValue(formData.get("ollamaBaseUrl"));
   const registeredProvider = validateProviderAndModel(provider, model);
+  const providerRegistration = getAIProviderRegistration(registeredProvider);
+  let baseUrl: string | null = null;
+  let encodedApiKey: string | null = null;
 
-  if (!apiKey) {
+  if (providerRegistration?.requiresApiKey && !apiKey) {
     throw new AISettingsConfigurationError("An API key is required.");
+  }
+
+  if (providerRegistration?.requiresApiKey) {
+    encodedApiKey = encodeApiKey(apiKey);
+  }
+
+  if (registeredProvider === "ollama") {
+    try {
+      baseUrl = normalizeOllamaBaseUrl(rawBaseUrl);
+    } catch (error) {
+      throw new AISettingsConfigurationError(
+        error instanceof Error
+          ? error.message
+          : "Ollama server URL must be valid.",
+      );
+    }
+
+    const testResult = await testOllamaModel({
+      baseUrl,
+      model,
+    });
+
+    if (!testResult.ok) {
+      throw new AISettingsConfigurationError(testResult.error);
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -235,7 +292,8 @@ export async function createAIProviderConfig(formData: FormData) {
     });
     await tx.aiProviderConfig.create({
       data: {
-        apiKey: encodeApiKey(apiKey),
+        apiKey: encodedApiKey,
+        baseUrl,
         isActive: true,
         model,
         provider: registeredProvider,
@@ -261,6 +319,7 @@ export async function activateAIProviderConfig(formData: FormData) {
     const config = await tx.aiProviderConfig.findUnique({
       select: {
         apiKey: true,
+        baseUrl: true,
         id: true,
         model: true,
         provider: true,
@@ -274,10 +333,17 @@ export async function activateAIProviderConfig(formData: FormData) {
       throw new AISettingsConfigurationError("AI provider config was not found.");
     }
 
-    validateProviderAndModel(config.provider, config.model);
+    const registeredProvider = validateProviderAndModel(
+      config.provider,
+      config.model,
+    );
 
-    if (!config.apiKey.trim()) {
+    if (providerRequiresApiKey(registeredProvider) && !config.apiKey?.trim()) {
       throw new AISettingsConfigurationError("An API key is required.");
+    }
+
+    if (providerRequiresBaseUrl(registeredProvider) && !config.baseUrl?.trim()) {
+      throw new AISettingsConfigurationError("Ollama server URL is required.");
     }
 
     await tx.aiProviderConfig.updateMany({

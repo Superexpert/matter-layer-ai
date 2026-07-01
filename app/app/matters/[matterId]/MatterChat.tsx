@@ -87,7 +87,10 @@ type ActiveWorkflowState = {
   workflowDefinition: WorkflowDefinition;
 };
 
-type MatterTab = "Chat" | "Workflows" | "Documents";
+type MatterTab = "Workflows" | "Chat" | "Documents";
+
+const MATTER_TABS = ["Workflows", "Chat", "Documents"] satisfies MatterTab[];
+const DEFAULT_MATTER_TAB = "Workflows" satisfies MatterTab;
 
 const actionCards = [
   {
@@ -250,7 +253,7 @@ export function MatterChat({
   workflowDefinitions: initialWorkflowDefinitions,
 }: MatterChatProps) {
   const router = useRouter();
-  const [selectedTab, setSelectedTab] = useState<MatterTab>("Workflows");
+  const [selectedTab, setSelectedTab] = useState<MatterTab>(DEFAULT_MATTER_TAB);
   const [draftMessage, setDraftMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeWorkflow, setActiveWorkflow] =
@@ -1154,7 +1157,7 @@ export function MatterChat({
                 data-testid="breadcrumb-home"
                 href="/app/matters"
               >
-                Home
+                Matters
               </Link>
             </li>
             <li aria-hidden="true" className="text-[#A79AB4]">
@@ -1177,7 +1180,7 @@ export function MatterChat({
         data-testid="matter-tabs"
       >
         <AppContainer className="flex h-11 items-center">
-          {(["Chat", "Workflows", "Documents"] satisfies MatterTab[]).map((tab, index) => (
+          {MATTER_TABS.map((tab, index) => (
             <button
               aria-current={tab === selectedTab ? "page" : undefined}
               className={
@@ -1929,10 +1932,7 @@ export function MatterChat({
             </div>
           ) : (
             <div data-testid="active-workflow-canvas">
-              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
-                Active Workflow
-              </p>
-              <h2 className="mt-2 text-base font-semibold text-[#211B27]">
+              <h2 className="text-base font-semibold text-[#211B27]">
                 {activeWorkflow.workflowDefinition.name}
               </h2>
               <p className="mt-1 text-sm leading-6 text-[#74677F]">

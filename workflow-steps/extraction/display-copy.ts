@@ -6,7 +6,9 @@ export function summaryForOutput(output: ExtractionStepOutput | null) {
   }
 
   if (output.status === "completed") {
-    return `Extracted ${output.extractedFactCount} fact${output.extractedFactCount === 1 ? "" : "s"} and generated ${output.collapsedEventCount} chronology event${output.collapsedEventCount === 1 ? "" : "s"} from ${output.readyRepresentationCount} document${output.readyRepresentationCount === 1 ? "" : "s"}.`;
+    const artifactCount = Object.values(output.artifactReferences).filter(Boolean).length;
+
+    return `Extracted ${output.extractedFactCount} item${output.extractedFactCount === 1 ? "" : "s"} from ${output.readyRepresentationCount} document${output.readyRepresentationCount === 1 ? "" : "s"}${artifactCount > 0 ? ` and generated ${artifactCount} artifact${artifactCount === 1 ? "" : "s"}` : ""}.`;
   }
 
   if (output.status === "running") {
@@ -19,7 +21,7 @@ export function summaryForOutput(output: ExtractionStepOutput | null) {
     }
 
     return output.error?.userMessage ??
-      `Partial extraction: ${output.extractedFactCount} fact${output.extractedFactCount === 1 ? "" : "s"} extracted and ${output.collapsedEventCount} chronology event${output.collapsedEventCount === 1 ? "" : "s"} generated; ${output.failedRepresentationCount} document${output.failedRepresentationCount === 1 ? "" : "s"} or window(s) could not be processed.`;
+      `Partial extraction: ${output.extractedFactCount} item${output.extractedFactCount === 1 ? "" : "s"} extracted; ${output.failedRepresentationCount} document${output.failedRepresentationCount === 1 ? "" : "s"} or window(s) could not be processed.`;
   }
 
   return output.error?.userMessage ??

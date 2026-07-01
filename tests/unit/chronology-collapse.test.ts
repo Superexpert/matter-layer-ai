@@ -1,22 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { generateChronologyMarkdown, formatSourcePages } from "../../workflow-steps/extraction/profiles/chronology/chronology-artifact";
+import {
+  formatSourcePages,
+  generateChronologyMarkdown,
+} from "../../workflow-steps/extraction/profiles/chronology/chronology-artifact";
 import { collapseChronologyFacts } from "../../workflow-steps/extraction/profiles/chronology/collapse";
 import type { ChronologyFact } from "../../workflow-steps/extraction/profiles/chronology/schema";
 
-function datedFact(overrides: Partial<Extract<ChronologyFact, { factType: "dated_event" }>> = {}) {
+function datedFact(overrides: Partial<ChronologyFact> = {}) {
+  const date = overrides.date ?? "2024-01-12";
+
   return {
-    actors: ["Officer Smith", "Defendant"],
     confidence: "high",
-    date: "2024-01-12",
-    dateText: "January 12, 2024",
-    eventSummary: "Officer Smith stopped the defendant near Congress Avenue.",
-    factType: "dated_event",
+    date,
+    dateText: overrides.dateText ?? "January 12, 2024",
+    factType: "chronology_fact",
     isApproximateDate: false,
+    labels: [],
+    organizations: [],
+    people: ["Officer Smith", "Defendant"],
+    sortDate: date,
     sourceDocumentId: "doc_1",
     sourceFileName: "Police Report.pdf",
     sourcePages: [1],
     sourceQuote: "Officer Smith stopped the defendant near Congress Avenue.",
+    summary: "Officer Smith stopped the defendant near Congress Avenue.",
+    warnings: [],
     ...overrides,
   } satisfies ChronologyFact;
 }
@@ -29,7 +38,7 @@ function inputFact(id: string, fact: ChronologyFact) {
 }
 
 describe("chronology collapse", () => {
-  it("collapses exact duplicate dated events and preserves multiple sources", () => {
+  it("collapses exact duplicate dated facts and preserves multiple sources", () => {
     const events = collapseChronologyFacts([
       inputFact("fact_1", datedFact()),
       inputFact("fact_2", datedFact({
@@ -48,51 +57,50 @@ describe("chronology collapse", () => {
     expect(events[0].sources).toHaveLength(2);
   });
 
-  it("collapses highly similar dated events with same date and overlapping actors", () => {
+  it("collapses highly similar dated facts with same date and overlapping people", () => {
     const events = collapseChronologyFacts([
       inputFact("fact_1", datedFact()),
       inputFact("fact_2", datedFact({
-        eventSummary: "Officer Smith conducted a traffic stop of the defendant near Congress Avenue.",
         sourceQuote: "Officer Smith conducted a traffic stop near Congress Avenue.",
+        summary: "Officer Smith conducted a traffic stop of the defendant near Congress Avenue.",
       })),
     ]);
 
     expect(events).toHaveLength(1);
   });
 
-  it("does not collapse distinct events merely because they occur on the same day", () => {
+  it("does not collapse distinct facts merely because they occur on the same day", () => {
     const events = collapseChronologyFacts([
       inputFact("fact_1", datedFact({
-        eventSummary: "Officer Smith stopped the defendant near Congress Avenue.",
+        summary: "Officer Smith stopped the defendant near Congress Avenue.",
       })),
       inputFact("fact_2", datedFact({
-        eventSummary: "Officer Smith arrested the defendant at the county jail.",
         sourceQuote: "Officer Smith arrested the defendant at the county jail.",
+        summary: "Officer Smith arrested the defendant at the county jail.",
       })),
     ]);
 
     expect(events).toHaveLength(2);
   });
 
-  it("handles undated events conservatively", () => {
-    const undated = {
-      actors: ["Plaintiff"],
-      confidence: "medium",
-      dateClues: "",
-      eventSummary: "Plaintiff reported prior back pain.",
-      factType: "undated_event",
-      sourceDocumentId: "doc_1",
+  it("handles undated facts conservatively", () => {
+    const undated = datedFact({
+      date: null,
+      dateText: null,
+      people: ["Plaintiff"],
+      sortDate: null,
       sourceFileName: "Medical Records.pdf",
       sourcePages: [4],
       sourceQuote: "Prior back pain was noted.",
-    } satisfies ChronologyFact;
+      summary: "Plaintiff reported prior back pain.",
+    });
 
     const events = collapseChronologyFacts([
       inputFact("fact_1", undated),
       inputFact("fact_2", {
         ...undated,
-        eventSummary: "Plaintiff mentioned old back symptoms.",
         sourceQuote: "Old back symptoms were mentioned.",
+        summary: "Plaintiff mentioned old back symptoms.",
       }),
     ]);
 
@@ -111,30 +119,21 @@ describe("chronology collapse", () => {
     });
   });
 
-  it("includes meaningful document dates and omits generic document dates", () => {
-    const baseDocumentDate = {
-      confidence: "medium",
-      date: "2024-02-03",
-      dateRole: "document_date",
-      dateText: "February 3, 2024",
-      factType: "document_date",
-      sourceDocumentId: "doc_1",
-      sourceFileName: "Filing.pdf",
-      sourcePages: [1],
-      sourceQuote: "Dated February 3, 2024",
-    } satisfies ChronologyFact;
-
+  it("sorts undated facts after dated facts", () => {
     const events = collapseChronologyFacts([
-      inputFact("generic", baseDocumentDate),
-      inputFact("filing", {
-        ...baseDocumentDate,
-        dateRole: "filing_date",
-        sourceQuote: "Filed February 3, 2024",
-      }),
+      inputFact("undated", datedFact({
+        date: null,
+        dateText: null,
+        sortDate: null,
+        summary: "The defendant reported prior symptoms.",
+      })),
+      inputFact("dated", datedFact()),
     ]);
 
-    expect(events).toHaveLength(1);
-    expect(events[0].summary).toContain("filing date");
+    expect(events.map((event) => event.sourceFactIds[0])).toEqual([
+      "dated",
+      "undated",
+    ]);
   });
 });
 
@@ -169,3 +168,4 @@ describe("chronology Markdown artifact", () => {
     expect(markdown).not.toContain("Unsupported unsourced event.");
   });
 });
+

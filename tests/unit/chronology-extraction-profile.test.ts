@@ -1,14 +1,31 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChronologyUserPrompt, chronologySystemPrompt } from "../../workflow-steps/extraction/profiles/chronology/prompts";
+import {
+  buildChronologyUserPrompt,
+  chronologySystemPrompt,
+} from "../../workflow-steps/extraction/profiles/chronology/prompts";
 import {
   parseChronologyExtractionOutput,
+  sortChronologyFacts,
   validateChronologyFact,
 } from "../../workflow-steps/extraction/profiles/chronology/schema";
 import { runChronologyExtraction } from "../../workflow-steps/extraction/profiles/chronology/extractor";
 import { createChronologyMarkdownWindows } from "../../workflow-steps/extraction/profiles/chronology/windowing";
 
-const validDatedEvent = {
+const simpleDatedFact = {
+  confidence: "high",
+  date: "2024-03-03",
+  dateText: "March 3, 2024",
+  organizations: [],
+  people: ["Officer Alvarez", "John Smith"],
+  sourceDocumentId: "doc_123",
+  sourceFileName: "Incident Report.pdf",
+  sourcePages: [1],
+  sourceQuote: "On March 3, 2024, I observed the vehicle drift...",
+  summary: "Officer Alvarez stopped John Smith for unsafe lane movement.",
+};
+
+const legacyDatedEvent = {
   actors: ["Officer Smith", "Defendant"],
   confidence: "high",
   date: "2024-01-12",
@@ -23,23 +40,28 @@ const validDatedEvent = {
 };
 
 describe("chronology fact schemas", () => {
-  it("accept valid facts", () => {
-    expect(validateChronologyFact(validDatedEvent)).toMatchObject(validDatedEvent);
+  it("accepts simple dated chronology facts", () => {
+    expect(validateChronologyFact(simpleDatedFact)).toMatchObject({
+      date: "2024-03-03",
+      factType: "chronology_fact",
+      people: ["Officer Alvarez", "John Smith"],
+      sortDate: "2024-03-03",
+      summary: "Officer Alvarez stopped John Smith for unsafe lane movement.",
+    });
   });
 
-  it("reject invalid facts", () => {
-    expect(() =>
-      validateChronologyFact({
-        ...validDatedEvent,
-        date: "January 12",
-      }),
-    ).toThrow("YYYY-MM-DD");
-    expect(() =>
-      validateChronologyFact({
-        ...validDatedEvent,
-        factType: "deadline",
-      }),
-    ).toThrow("factType");
+  it("maps actor and eventSummary synonyms from older output", () => {
+    expect(validateChronologyFact(legacyDatedEvent)).toMatchObject({
+      date: "2024-01-12",
+      factType: "chronology_fact",
+      people: ["Officer Smith", "Defendant"],
+      summary: "Officer Smith stopped the defendant near Congress Avenue.",
+      warnings: expect.arrayContaining([
+        expect.objectContaining({
+          code: "mapped_legacy_fact_type",
+        }),
+      ]),
+    });
   });
 });
 
@@ -113,7 +135,7 @@ describe("chronology Markdown windowing", () => {
 });
 
 describe("chronology prompts and parser", () => {
-  it("includes document id, file name, page markers, and JSON-only instructions", () => {
+  it("asks for sourced chronology facts, not entity taxonomy records", () => {
     const prompt = buildChronologyUserPrompt({
       documentId: "doc_123",
       fileName: "Police Report.pdf",
@@ -123,188 +145,208 @@ describe("chronology prompts and parser", () => {
       windowIndex: 0,
     });
 
-    expect(chronologySystemPrompt).toContain("Return one raw JSON object only");
+    expect(chronologySystemPrompt).toContain("chronology facts");
     expect(prompt).toContain("matterDocumentId: doc_123");
     expect(prompt).toContain("sourceFileName: Police Report.pdf");
-    expect(prompt).toContain('<!-- ml:page {"page":1} -->');
     expect(prompt).toContain('"facts"');
+    expect(prompt).toContain("Do not return standalone person");
   });
 
-  it("parses valid JSON", () => {
+  it("parses valid JSON and Markdown code fences", () => {
     expect(
       parseChronologyExtractionOutput(JSON.stringify({
-        facts: [validDatedEvent],
+        facts: [simpleDatedFact],
       })),
     ).toMatchObject({
-      facts: [validDatedEvent],
+      facts: [
+        {
+          date: "2024-03-03",
+          factType: "chronology_fact",
+        },
+      ],
     });
-  });
 
-  it("parses JSON wrapped in a Markdown code fence", () => {
     expect(
       parseChronologyExtractionOutput([
         "```json",
         JSON.stringify({
-          facts: [validDatedEvent],
+          facts: [simpleDatedFact],
         }),
         "```",
       ].join("\n")),
     ).toMatchObject({
-      facts: [validDatedEvent],
-    });
-  });
-
-  it("normalizes common full AI date strings before validation", () => {
-    expect(
-      parseChronologyExtractionOutput(JSON.stringify({
-        facts: [
-          {
-            ...validDatedEvent,
-            date: "January 12, 2024",
-          },
-          {
-            ...validDatedEvent,
-            date: "1/12/2024",
-            factType: "document_date",
-            dateRole: "document_date",
-          },
-        ],
-      })),
-    ).toMatchObject({
       facts: [
         {
-          date: "2024-01-12",
-        },
-        {
-          date: "2024-01-12",
+          summary: simpleDatedFact.summary,
         },
       ],
     });
   });
 
-  it("normalizes common AI organization type labels before validation", () => {
+  it("normalizes date, confidence, people, and source page shapes", () => {
     expect(
       parseChronologyExtractionOutput(JSON.stringify({
         facts: [
           {
-            confidence: "high",
-            factType: "organization",
-            name: "Austin Police Department",
-            organizationType: "Police Department",
+            confidence: "certain",
+            date: "March 4, 2024",
+            dateText: "March 4, 2024",
+            people: "Officer Alvarez",
             sourceDocumentId: "doc_123",
             sourceFileName: "Police Report.pdf",
-            sourcePages: [1],
-            sourceQuote: "Austin Police Department incident report",
+            sourcePages: "3",
+            sourceQuote: "I prepared this report...",
+            summary: "Officer Alvarez prepared the report.",
           },
         ],
       })),
     ).toMatchObject({
       facts: [
         {
-          organizationType: "law_enforcement",
+          confidence: "high",
+          date: "2024-03-04",
+          people: ["Officer Alvarez"],
+          sourcePages: [3],
+          warnings: expect.arrayContaining([
+            expect.objectContaining({
+              code: "coerced_people",
+            }),
+            expect.objectContaining({
+              code: "normalized_source_pages",
+            }),
+          ]),
         },
       ],
     });
   });
 
-  it("defaults missing AI confidence values to low", () => {
-    const factWithoutConfidence: Partial<typeof validDatedEvent> = {
-      ...validDatedEvent,
-    };
-    delete factWithoutConfidence.confidence;
-
-    expect(
-      parseChronologyExtractionOutput(JSON.stringify({
-        facts: [
-          factWithoutConfidence,
-          {
-            ...validDatedEvent,
-            confidence: "",
-          },
-        ],
-      })),
-    ).toMatchObject({
+  it("accepts Gemma-style role and dateRole values without enum failures", () => {
+    const result = parseChronologyExtractionOutput(JSON.stringify({
       facts: [
         {
-          confidence: "low",
-        },
-        {
-          confidence: "low",
-        },
-      ],
-    });
-  });
-
-  it("normalizes common AI source page shapes before validation", () => {
-    const factWithoutSourcePages: Partial<typeof validDatedEvent> = {
-      ...validDatedEvent,
-    };
-    delete factWithoutSourcePages.sourcePages;
-
-    expect(
-      parseChronologyExtractionOutput(JSON.stringify({
-        facts: [
-          factWithoutSourcePages,
-          {
-            ...validDatedEvent,
-            sourcePages: [],
-          },
-          {
-            ...validDatedEvent,
-            sourcePages: 1,
-          },
-          {
-            ...validDatedEvent,
-            sourcePages: "2",
-          },
-          {
-            ...validDatedEvent,
-            sourcePages: "3-4",
-          },
-          {
-            ...validDatedEvent,
-            sourcePages: ["5", 6],
-          },
-        ],
-      })),
-    ).toMatchObject({
-      facts: [
-        {
-          sourcePages: [],
-        },
-        {
-          sourcePages: [],
-        },
-        {
-          sourcePages: [1],
-        },
-        {
+          actors: ["John Smith", "Officer Alvarez"],
+          confidence: "strong",
+          date: "2024-03-03",
+          dateRole: "incident_date",
+          dateText: "March 3, 2024",
+          eventSummary: "John Smith was arrested after the traffic stop.",
+          factType: "dated_event",
+          role: "driver / arrestee",
+          sourceDocumentId: "doc_123",
+          sourceFileName: "Warning Citation.pdf",
           sourcePages: [2],
-        },
-        {
-          sourcePages: [3, 4],
-        },
-        {
-          sourcePages: [5, 6],
+          sourceQuote: "Smith was placed under arrest...",
         },
       ],
+    }));
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]).toMatchObject({
+      factType: "chronology_fact",
+      labels: expect.arrayContaining(["driver", "arrestee", "incident_date"]),
+      people: ["John Smith", "Officer Alvarez"],
+      raw: expect.objectContaining({
+        role: "driver / arrestee",
+      }),
     });
+    expect(result.warnings.map((item) => item.code)).toEqual(
+      expect.arrayContaining([
+        "mapped_legacy_fact_type",
+        "normalized_open_role",
+        "preserved_open_date_role",
+      ]),
+    );
   });
 
-  it("rejects malformed JSON and facts missing source fields", () => {
-    expect(() => parseChronologyExtractionOutput("{bad json")).toThrow(
-      "valid JSON",
+  it("rejects one unusable fact without failing the document when another fact is usable", () => {
+    const result = parseChronologyExtractionOutput(JSON.stringify({
+      facts: [
+        simpleDatedFact,
+        {
+          date: "2024-03-03",
+          summary: "The vehicle was stopped.",
+        },
+      ],
+    }));
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "rejected_unusable_fact",
+        }),
+      ]),
     );
+  });
+
+  it("fails when all facts are unusable", () => {
     expect(() =>
       parseChronologyExtractionOutput(JSON.stringify({
         facts: [
           {
-            ...validDatedEvent,
-            sourceQuote: "",
+            date: "2024-03-03",
+            summary: "The vehicle was stopped.",
           },
         ],
       })),
-    ).toThrow("sourceQuote");
+    ).toThrow("No usable chronology facts");
+  });
+
+  it("sorts dated facts ascending and places undated facts last", () => {
+    const result = parseChronologyExtractionOutput(JSON.stringify({
+      facts: [
+        {
+          ...simpleDatedFact,
+          date: null,
+          dateText: null,
+          summary: "John Smith said he had been driving earlier.",
+        },
+        {
+          ...simpleDatedFact,
+          date: "2024-03-05",
+          dateText: "March 5, 2024",
+          summary: "The report was submitted.",
+        },
+        simpleDatedFact,
+      ],
+    }));
+
+    expect(result.facts.map((fact) => fact.summary)).toEqual([
+      "Officer Alvarez stopped John Smith for unsafe lane movement.",
+      "The report was submitted.",
+      "John Smith said he had been driving earlier.",
+    ]);
+    expect(sortChronologyFacts(result.facts).map((fact) => fact.summary)).toEqual(
+      result.facts.map((fact) => fact.summary),
+    );
+  });
+
+  it("ignores standalone person and organization records", () => {
+    const result = parseChronologyExtractionOutput(JSON.stringify({
+      facts: [
+        {
+          aliases: "Alvarez",
+          factType: "person",
+          name: "Officer Alvarez",
+          role: "officer",
+          sourceDocumentId: "doc_123",
+          sourceFileName: "Police Report.pdf",
+          sourcePages: [1],
+          sourceQuote: "Officer Alvarez stated...",
+        },
+        simpleDatedFact,
+      ],
+    }));
+
+    expect(result.facts).toHaveLength(1);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "rejected_unusable_fact",
+          message: expect.stringContaining("Ignored standalone entity fact"),
+        }),
+      ]),
+    );
   });
 });
 
@@ -318,7 +360,7 @@ describe("chronology extraction runner", () => {
           aiRequest = request;
           return {
             content: JSON.stringify({
-              facts: [validDatedEvent],
+              facts: [legacyDatedEvent],
             }),
             model: "gpt-5-mini",
             provider: "openai",
@@ -340,9 +382,14 @@ describe("chronology extraction runner", () => {
 
     expect(result.extractedFactCount).toBe(1);
     expect(result.facts).toHaveLength(1);
+    expect(result.facts[0]).toMatchObject({
+      factType: "chronology_fact",
+      summary: "Officer Smith stopped the defendant near Congress Avenue.",
+    });
     expect(aiRequest).toMatchObject({
       maxOutputTokens: 6000,
     });
     expect(aiRequest).not.toHaveProperty("temperature");
   });
 });
+

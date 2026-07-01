@@ -1,9 +1,6 @@
-import type {
-  ChronologyCollapsedEventOutput,
-  ChronologyFactOutput,
-} from "./profiles/chronology/postprocess";
 import type { WorkflowStepError } from "@/services/workflows/workflow-step-errors";
 import type { WorkflowStepProgress } from "@/services/workflows/workflow-step-progress";
+import type { ExtractionWarning } from "./types";
 
 export const EXTRACTION_REPRESENTATION_TYPES = ["MARKDOWN"] as const;
 export const EXTRACTION_PROFILES = ["chronology"] as const;
@@ -25,19 +22,23 @@ export type ExtractionStepOutputStatus =
   | "running";
 
 export type ExtractionStepOutput = {
+  artifactReferences: Record<string, string | null>;
   chronologyArtifactId: string | null;
   collapsedEventCount: number;
-  collapsedEvents: ChronologyCollapsedEventOutput[];
+  collapsedEvents: Array<Record<string, unknown>>;
+  documentResults: Array<Record<string, unknown>>;
   extractedFactCount: number;
+  extractionWarnings: ExtractionWarning[];
   extractionWindowCount: number;
   extractionRunId: string;
   error: WorkflowStepError | null;
-  facts: ChronologyFactOutput[];
+  facts: Array<Record<string, unknown>>;
   factsByType: Record<string, number>;
   failedDocumentIds: string[];
   failedRepresentationCount: number;
   preparedDocumentIds: string[];
   profile: ExtractionProfile;
+  profileOutput: unknown;
   progress: WorkflowStepProgress | null;
   readyRepresentationCount: number;
   schemaVersion: 1;

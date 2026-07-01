@@ -96,7 +96,8 @@ model AiProviderConfig {
   id        String   @id @default(cuid())
   provider  String
   model     String
-  apiKey    String
+  apiKey    String?
+  baseUrl   String?
   isActive  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

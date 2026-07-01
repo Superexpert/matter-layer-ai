@@ -99,15 +99,26 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
       "existing-source.txt",
     );
     await expect(page.getByTestId("file-selector-continue")).toBeDisabled();
-    await expect(page.getByTestId("file-selector-validation")).toContainText(
+    await expect(page.getByTestId("file-selector-validation")).toHaveCount(0);
+    await expect(page.getByTestId("file-selector-step")).not.toContainText(
       "Select at least 1 file.",
     );
 
     await page
       .getByTestId(`file-selector-checkbox-${existingDocument.id}`)
       .check();
-    await expect(page.getByTestId("file-selector-summary")).toContainText(
-      "1 document selected.",
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${existingDocument.id}`),
+    ).toBeChecked();
+    await expect(page.getByTestId("file-selector-continue")).toBeEnabled();
+    await expect(page.getByTestId("file-selector-step")).not.toContainText(
+      "Selected documents",
+    );
+    await expect(page.getByTestId("file-selector-step")).not.toContainText(
+      "Active Workflow",
+    );
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Active Workflow",
     );
 
     await page
@@ -120,8 +131,37 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     await expect(page.getByTestId("file-selector-document-list")).toContainText(
       "uploaded-source.txt",
     );
-    await expect(page.getByTestId("file-selector-summary")).toContainText(
-      "2 documents selected.",
+    const uploadedDocumentRow = page
+      .getByTestId("file-selector-document-list")
+      .locator("label")
+      .filter({
+        hasText: "uploaded-source.txt",
+      });
+    await expect(
+      uploadedDocumentRow.getByRole("checkbox"),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${existingDocument.id}`),
+    ).toBeChecked();
+
+    await page
+      .getByTestId(`file-selector-checkbox-${existingDocument.id}`)
+      .uncheck();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${existingDocument.id}`),
+    ).not.toBeChecked();
+    await page
+      .getByTestId(`file-selector-checkbox-${existingDocument.id}`)
+      .check();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${existingDocument.id}`),
+    ).toBeChecked();
+    await expect(
+      uploadedDocumentRow.getByRole("checkbox"),
+    ).toBeChecked();
+    await expect(page.getByTestId("file-selector-continue")).toBeEnabled();
+    await expect(page.getByTestId("file-selector-step")).not.toContainText(
+      "Selected documents",
     );
 
     await page

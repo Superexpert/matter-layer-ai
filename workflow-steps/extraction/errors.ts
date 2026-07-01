@@ -119,8 +119,8 @@ export function extractionStepErrorForDocuments(input: {
   const userMessage =
     isAIProviderErrorCode(commonCode) && firstUserMessage
       ? firstUserMessage
-      : commonCode === "EXTRACTION_PROVIDER_FAILED"
-      ? "Matter Layer prepared the documents, but the chronology extraction provider could not process one or more files."
+    : commonCode === "EXTRACTION_PROVIDER_FAILED"
+      ? "Matter Layer prepared the documents, but the extraction provider could not process one or more files."
       : "Matter Layer could not prepare the selected documents because one or more files could not be converted into AI-readable Markdown.";
 
   return {
@@ -140,6 +140,6 @@ export function extractionProviderError(message: string): WorkflowStepError {
     code: "EXTRACTION_PROVIDER_FAILED",
     message,
     userMessage:
-      "Matter Layer prepared the documents, but the chronology extraction provider could not process one or more document windows.",
+      "Matter Layer prepared the documents, but the extraction provider could not process one or more document windows.",
   };
 }

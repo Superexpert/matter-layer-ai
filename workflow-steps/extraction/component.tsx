@@ -15,6 +15,8 @@ import type {
   WorkflowStepProgress,
   WorkflowStepProgressItem,
 } from "@/services/workflows/workflow-step-progress";
+import type { WorkflowStepDocumentError } from "@/services/workflows/workflow-step-errors";
+import { formatSourcePages } from "./source-format";
 
 type ExtractionStepComponentProps = {
   matterId: string;
@@ -158,18 +160,53 @@ function debugWorkflowActivityUi(message: string, metadata: Record<string, unkno
   console.info(`[workflow:activity-ui] ${message}`, metadata);
 }
 
+function documentErrorDetail(error: WorkflowStepDocumentError | null | undefined) {
+  const message = error?.message.trim();
+  const userMessage = error?.userMessage.trim();
+
+  if (!message || message === userMessage) {
+    return null;
+  }
+
+  return message;
+}
+
+function factDisplayDate(fact: ExtractionStepOutput["facts"][number]) {
+  return typeof fact.dateText === "string"
+    ? fact.dateText
+    : typeof fact.date === "string"
+      ? fact.date
+      : "Undated";
+}
+
+function factSourceLabel(fact: ExtractionStepOutput["facts"][number]) {
+  const sourcePages = Array.isArray(fact.sourcePages)
+    ? fact.sourcePages.filter(
+        (page): page is number => typeof page === "number",
+      )
+    : [];
+  const sourceFileName =
+    typeof fact.sourceFileName === "string" ? fact.sourceFileName : "Source";
+  const pages = formatSourcePages(sourcePages);
+
+  return pages ? `${sourceFileName}, ${pages}` : sourceFileName;
+}
+
 function localRunningOutput(input: {
   documents: ExtractionStepState["documents"];
   profile: ExtractionStepOutput["profile"];
   workflowRunId: string;
 }): ExtractionStepOutput {
   return {
+    artifactReferences: {},
     chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
+    documentResults: [],
     error: null,
     extractedFactCount: 0,
     extractionRunId: `local-running-${input.workflowRunId}`,
+    extractionWarnings: [],
     extractionWindowCount: 0,
     facts: [],
     factsByType: {},
@@ -177,6 +214,7 @@ function localRunningOutput(input: {
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
     profile: input.profile,
+    profileOutput: null,
     progress: {
       completedItems: 0,
       items: input.documents.map((document) => ({
@@ -368,6 +406,17 @@ export function ExtractionStepComponent({
   }, [progress?.items]);
   const activeProgress = activeProgressPosition(progress);
   const outputError = latestOutput?.error ?? null;
+  const extractionWarnings = latestOutput?.extractionWarnings ?? [];
+  const datedFacts = (latestOutput?.facts ?? []).filter((fact) => fact.date);
+  const undatedFacts = (latestOutput?.facts ?? []).filter((fact) => !fact.date);
+  const documentErrorsByDocumentId = useMemo(() => {
+    return new Map(
+      (outputError?.documentErrors ?? []).map((documentError) => [
+        documentError.matterDocumentId,
+        documentError,
+      ]),
+    );
+  }, [outputError?.documentErrors]);
   const suggestedAction = suggestedActionForError(outputError);
   const canContinue = latestOutput?.status === "completed";
   const activityDiagnosticVisible =
@@ -550,14 +599,17 @@ export function ExtractionStepComponent({
           <div className="mt-4 grid gap-2" data-testid="extraction-document-list">
             {state.documents.map((document) => {
               const progressItem = progressItemsByDocumentId.get(document.id);
+              const outputDocumentError = documentErrorsByDocumentId.get(document.id);
               const documentStatusLabel =
                 progressItemLabel(progressItem) ??
                 (step.autorun ? "Queued" : document.representationStatus);
               const documentMessage =
                 progressItem?.error?.userMessage ??
+                outputDocumentError?.userMessage ??
                 progressItem?.message ??
                 document.error ??
                 (step.autorun ? "Waiting to prepare" : null);
+              const detailedDocumentMessage = documentErrorDetail(outputDocumentError);
 
               return (
                 <div
@@ -587,6 +639,14 @@ export function ExtractionStepComponent({
                       data-testid={`extraction-document-message-${document.id}`}
                     >
                       {documentMessage}
+                    </p>
+                  ) : null}
+                  {detailedDocumentMessage ? (
+                    <p
+                      className="mt-1 text-xs leading-5 text-red-700"
+                      data-testid={`extraction-document-error-detail-${document.id}`}
+                    >
+                      Details: {detailedDocumentMessage}
                     </p>
                   ) : null}
                   {progressItem?.status === "running" ? (
@@ -689,6 +749,11 @@ export function ExtractionStepComponent({
                         {documentError.fileName ?? documentError.matterDocumentId}:
                       </span>{" "}
                       {documentError.userMessage}
+                      {documentErrorDetail(documentError) ? (
+                        <span className="block text-xs leading-5 text-amber-900">
+                          Details: {documentErrorDetail(documentError)}
+                        </span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -699,6 +764,30 @@ export function ExtractionStepComponent({
                 {suggestedAction}
               </p>
             ) : null}
+          </div>
+        ) : null}
+        {!outputError && extractionWarnings.length > 0 ? (
+          <div
+            className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"
+            data-testid="extraction-warning-summary"
+          >
+            <p className="font-semibold">
+              Matter Layer extracted facts with non-standard labels.
+            </p>
+            <p className="mt-1">
+              The AI provider used some labels or shapes that were preserved for
+              review instead of rejected.
+            </p>
+            <details className="mt-2">
+              <summary className="cursor-pointer font-semibold">
+                Warning details
+              </summary>
+              <ul className="mt-1 list-disc pl-5 text-xs leading-5">
+                {extractionWarnings.slice(0, 12).map((warning, index) => (
+                  <li key={`${warning.code}-${index}`}>{warning.message}</li>
+                ))}
+              </ul>
+            </details>
           </div>
         ) : null}
         {latestOutput ? (
@@ -714,6 +803,63 @@ export function ExtractionStepComponent({
                 Chronology draft generated.
               </p>
             ) : null}
+          </div>
+        ) : null}
+        {latestOutput?.facts.length ? (
+          <div
+            className="mt-4 rounded-lg border border-[#E3DEEA] bg-white"
+            data-testid="chronology-facts-preview"
+          >
+            <div className="border-b border-[#E3DEEA] px-4 py-3">
+              <h4 className="text-sm font-semibold text-[#211B27]">
+                Extracted chronology facts
+              </h4>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs leading-5">
+                <thead className="bg-[#FBFAFC] text-[#74677F]">
+                  <tr>
+                    <th className="px-4 py-2 font-semibold">Date</th>
+                    <th className="px-4 py-2 font-semibold">Fact</th>
+                    <th className="px-4 py-2 font-semibold">People</th>
+                    <th className="px-4 py-2 font-semibold">Organizations</th>
+                    <th className="px-4 py-2 font-semibold">Source</th>
+                    <th className="px-4 py-2 font-semibold">Warnings</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E3DEEA]">
+                  {[...datedFacts, ...undatedFacts].map((fact, index) => (
+                    <tr key={typeof fact.id === "string" ? fact.id : index}>
+                      <td className="whitespace-nowrap px-4 py-2 text-[#211B27]">
+                        {factDisplayDate(fact)}
+                      </td>
+                      <td className="min-w-72 px-4 py-2 text-[#211B27]">
+                        {typeof fact.summary === "string" ? fact.summary : ""}
+                      </td>
+                      <td className="px-4 py-2 text-[#74677F]">
+                        {Array.isArray(fact.people)
+                          ? fact.people.filter((person) => typeof person === "string").join(", ") ||
+                            "None listed"
+                          : "None listed"}
+                      </td>
+                      <td className="px-4 py-2 text-[#74677F]">
+                        {Array.isArray(fact.organizations)
+                          ? fact.organizations
+                              .filter((organization) => typeof organization === "string")
+                              .join(", ") || "None listed"
+                          : "None listed"}
+                      </td>
+                      <td className="px-4 py-2 text-[#74677F]">
+                        {factSourceLabel(fact)}
+                      </td>
+                      <td className="px-4 py-2 text-[#74677F]">
+                        {Array.isArray(fact.warnings) ? fact.warnings.length : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
         <div

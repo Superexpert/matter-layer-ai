@@ -2,44 +2,9 @@ import type {
   ChronologySource,
   CollapsedChronologyEventDraft,
 } from "./chronology-types";
+import { formatSourcePages } from "../../source-format";
 
-function contiguousRanges(pages: number[]) {
-  const sortedPages = [...new Set(pages)].sort((left, right) => left - right);
-  const ranges: Array<{ end: number; start: number }> = [];
-
-  for (const page of sortedPages) {
-    const lastRange = ranges.at(-1);
-    if (lastRange && page === lastRange.end + 1) {
-      lastRange.end = page;
-      continue;
-    }
-
-    ranges.push({
-      end: page,
-      start: page,
-    });
-  }
-
-  return ranges;
-}
-
-export function formatSourcePages(pages: number[]) {
-  if (pages.length === 0) {
-    return "";
-  }
-
-  const ranges = contiguousRanges(pages);
-
-  if (ranges.length === 1 && ranges[0].start === ranges[0].end) {
-    return `p. ${ranges[0].start}`;
-  }
-
-  return `pp. ${ranges
-    .map((range) =>
-      range.start === range.end ? String(range.start) : `${range.start}-${range.end}`,
-    )
-    .join(", ")}`;
-}
+export { formatSourcePages };
 
 function formatSource(source: ChronologySource) {
   const pages = formatSourcePages(source.sourcePages);
@@ -59,10 +24,15 @@ function markdownForEvent(event: CollapsedChronologyEventDraft) {
     "",
     event.summary,
     "",
+    event.people.length > 0 ? `People: ${event.people.join(", ")}` : "",
+    event.organizations.length > 0
+      ? `Organizations: ${event.organizations.join(", ")}`
+      : "",
+    event.people.length > 0 || event.organizations.length > 0 ? "" : "",
     "Sources:",
     "",
     ...event.sources.map((source) => `* ${formatSource(source)}`),
-  ];
+  ].filter((line, index, allLines) => line || allLines[index - 1]);
 
   return lines.join("\n");
 }

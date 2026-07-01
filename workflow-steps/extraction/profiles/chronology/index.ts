@@ -1,45 +1,79 @@
-import type { AIService } from "@/services/ai/ai-service";
-
-import { runChronologyExtraction } from "./extractor";
+import type {
+  ExtractionProfileContext,
+  ExtractionWindowProgressEvent,
+} from "../../types";
+import { buildChronologyPostprocessResult } from "./postprocess";
+import { chronologyRunnerProfile, runChronologyExtraction } from "./extractor";
+import type { ChronologyFact } from "./schema";
 
 export const chronologyExtractionProfile = {
+  ...chronologyRunnerProfile,
   description: "Extract dated and undated chronology facts from selected documents.",
   id: "chronology",
   label: "Chronology",
+  postProcess: (input: {
+    items: ChronologyFact[];
+  }) => {
+    const result = buildChronologyPostprocessResult(input.items);
+
+    return {
+      artifactMetadata: {
+        collapsedEventCount: result.collapsedEventCount,
+        datedCollapsedEventCount: result.datedCollapsedEventCount,
+        generatedFromFactCount: result.generatedFromFactCount,
+        undatedCollapsedEventCount: result.undatedCollapsedEventCount,
+      },
+      artifacts: result.artifactMarkdown && result.collapsedEventCount > 0
+        ? [
+            {
+              content: result.artifactMarkdown,
+              metadataJson: {
+                collapsedEventCount: result.collapsedEventCount,
+                datedEventCount: result.datedCollapsedEventCount,
+                generatedFromFactCount: result.generatedFromFactCount,
+                profile: "chronology",
+                undatedEventCount: result.undatedCollapsedEventCount,
+              },
+              outputKey: "chronologyArtifactId",
+              title: "Chronology Draft",
+            },
+          ]
+        : [],
+      displayItems: result.facts.map((fact) => ({ ...fact })),
+      itemCount: result.generatedFromFactCount,
+      itemCountsByType: input.items.reduce<Record<string, number>>(
+        (counts, fact) => ({
+          ...counts,
+          [fact.factType]: (counts[fact.factType] ?? 0) + 1,
+        }),
+        {
+          chronology_fact: 0,
+        },
+      ),
+      profileOutput: result,
+      stepOutputPatch: {
+        collapsedEventCount: result.collapsedEventCount,
+        collapsedEvents: result.events.map((event) => ({ ...event })),
+        extractedFactCount: result.generatedFromFactCount,
+        facts: result.facts.map((fact) => ({ ...fact })),
+        factsByType: input.items.reduce<Record<string, number>>(
+          (counts, fact) => ({
+            ...counts,
+            [fact.factType]: (counts[fact.factType] ?? 0) + 1,
+          }),
+          {
+            chronology_fact: 0,
+          },
+        ),
+      },
+    };
+  },
   run: runChronologyExtraction,
 } as const;
 
-export type ChronologyExtractionWindowProgressEvent = {
-  documentId: string;
-  elapsedMs?: number;
-  error?: string;
-  errorCode?: string;
-  errorProvider?: string | null;
-  errorStatus?: number | null;
-  errorUserMessage?: string;
-  extractedFactCount?: number;
-  failedWindowCount: number;
-  fileName: string;
-  markdownCharacterCount?: number;
-  pageEnd: number | null;
-  pageStart: number | null;
-  promptCharacterCount?: number;
-  status: "completed" | "failed" | "started" | "waiting";
-  timeoutMs?: number;
-  windowCount: number;
-  windowIndex: number;
-};
+export type ChronologyExtractionWindowProgressEvent =
+  ExtractionWindowProgressEvent & {
+    extractedFactCount?: number;
+  };
 
-export type ChronologyExtractionProfileContext = {
-  aiCallTimeoutMs?: number;
-  aiHeartbeatMs?: number;
-  aiService: Pick<AIService, "generateText">;
-  onWindowProgress?: (
-    event: ChronologyExtractionWindowProgressEvent,
-  ) => Promise<void> | void;
-  readyDocuments: Array<{
-    fileName: string;
-    id: string;
-    markdown: string;
-  }>;
-};
+export type ChronologyExtractionProfileContext = ExtractionProfileContext;

@@ -14,11 +14,12 @@ export type ChronologyCollapseInputFact = {
 };
 
 export type CollapsedChronologyEventDraft = {
-  actors: string[];
-  confidence: "high" | "medium" | "low";
+  confidence: "high" | "medium" | "low" | "unknown";
   date: string | null;
   dateText: string | null;
   isApproximateDate: boolean;
+  organizations: string[];
+  people: string[];
   sortKey: string;
   sourceFactIds: string[];
   sources: ChronologySource[];

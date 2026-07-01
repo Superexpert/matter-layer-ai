@@ -35,9 +35,9 @@ import {
 } from "@/services/workflows/workflow-step-progress";
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { extractionRepresentationDisplayState } from "@/workflow-steps/extraction/display-state";
+import { runExtractionProfile } from "@/workflow-steps/extraction/profile-runner";
 import { getExtractionProfile } from "@/workflow-steps/extraction/profiles";
-import type { ChronologyFact } from "@/workflow-steps/extraction/profiles/chronology/schema";
-import { buildChronologyPostprocessResult } from "@/workflow-steps/extraction/profiles/chronology/postprocess";
+import type { ExtractionProfileRunResult } from "@/workflow-steps/extraction/types";
 import {
   normalizeExtractionStepConfig,
   type ExtractionStepOutput,
@@ -75,28 +75,14 @@ type RepresentationResult = {
   status: MatterDocumentRepresentationStatus;
 };
 
-type ChronologyResultAggregate = {
-  error: string | null;
-  errorCode: string | null;
-  errorProvider: string | null;
-  errorStatus: number | null;
-  errorUserMessage: string | null;
-  extractedFactCount: number;
-  extractionWindowCount: number;
-  facts: ChronologyFact[];
-  factsByType: Record<string, number>;
-  failedWindowCount: number;
-  model: string | null;
-  provider: string | null;
-  status: "COMPLETED" | "FAILED" | "PARTIAL_FAILED";
-};
+type ExtractionResultAggregate = ExtractionProfileRunResult<unknown>;
 
 type ExtractionExecutionOptions = {
   ignoreExistingRunning?: boolean;
 };
 
-type DocumentChronologyExtractionOutcome = {
-  chronologyResult: ChronologyResultAggregate;
+type DocumentProfileExtractionOutcome = {
+  profileResult: ExtractionResultAggregate;
   documentError: WorkflowStepDocumentError | null;
   matterDocumentId: string;
 };
@@ -159,13 +145,7 @@ function outputStatusFromRunStatus(status: WorkflowExtractionRunStatus) {
 }
 
 function emptyFactsByType() {
-  return {
-    dated_event: 0,
-    document_date: 0,
-    organization: 0,
-    person: 0,
-    undated_event: 0,
-  };
+  return {};
 }
 
 function progressItemsForDocuments(
@@ -305,12 +285,13 @@ function workflowDebugLog(message: string, metadata: Record<string, unknown> = {
   console.info(`[workflow:autorun] ${message}`, metadata);
 }
 
-function chronologyServiceLog(message: string, metadata: Record<string, unknown> = {}) {
-  console.info(`[chronology:service] ${message}`, metadata);
+function extractionServiceLog(message: string, metadata: Record<string, unknown> = {}) {
+  console.info(`[extraction:service] ${message}`, metadata);
 }
 
-function chronologyDocumentConcurrency() {
-  const rawValue = process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
+function extractionDocumentConcurrency() {
+  const rawValue = process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY ??
+    process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
 
   if (!rawValue) {
     return 3;
@@ -320,7 +301,7 @@ function chronologyDocumentConcurrency() {
 
   if (!Number.isFinite(parsedValue) || parsedValue < 1) {
     throw new Error(
-      "MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY must be a positive integer.",
+      "MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY must be a positive integer.",
     );
   }
 
@@ -413,16 +394,19 @@ function autorunJobKey(input: RunExtractionStepInput) {
 const backgroundExtractionJobs = new Map<string, Promise<ExtractionStepOutput>>();
 
 function autorunStartingOutput(input: {
-  profile: "chronology";
+  profile: ExtractionStepOutput["profile"];
   workflowRunId: string;
 }): ExtractionStepOutput {
   return {
+    artifactReferences: {},
     chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
+    documentResults: [],
     error: null,
     extractedFactCount: 0,
     extractionRunId: `autorun-starting-${input.workflowRunId}`,
+    extractionWarnings: [],
     extractionWindowCount: 0,
     facts: [],
     factsByType: emptyFactsByType(),
@@ -430,10 +414,11 @@ function autorunStartingOutput(input: {
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
     profile: input.profile,
+    profileOutput: null,
     progress: {
       completedItems: 0,
       items: [],
-      message: "Starting chronology preparation...",
+      message: "Starting extraction preparation...",
       percentComplete: 0,
       status: "running",
       totalItems: 0,
@@ -450,17 +435,20 @@ function failedOutput(input: {
   extractionRunId: string;
   failedRepresentationCount: number;
   progress?: WorkflowStepProgress | null;
-  profile: "chronology";
+  profile: ExtractionStepOutput["profile"];
   readyRepresentationCount: number;
   selectedMatterDocumentIds: string[];
 }): ExtractionStepOutput {
   return {
+    artifactReferences: {},
     chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
+    documentResults: [],
     error: input.error,
     extractedFactCount: 0,
     extractionRunId: input.extractionRunId,
+    extractionWarnings: [],
     extractionWindowCount: 0,
     facts: [],
     factsByType: emptyFactsByType(),
@@ -468,6 +456,7 @@ function failedOutput(input: {
     failedRepresentationCount: input.failedRepresentationCount,
     preparedDocumentIds: [],
     profile: input.profile,
+    profileOutput: null,
     progress: input.progress ?? null,
     readyRepresentationCount: input.readyRepresentationCount,
     schemaVersion: 1,
@@ -479,16 +468,19 @@ function failedOutput(input: {
 function runningOutput(input: {
   extractionRunId: string;
   progress: WorkflowStepProgress;
-  profile: "chronology";
+  profile: ExtractionStepOutput["profile"];
   selectedMatterDocumentIds: string[];
 }): ExtractionStepOutput {
   return {
+    artifactReferences: {},
     chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
+    documentResults: [],
     error: null,
     extractedFactCount: 0,
     extractionRunId: input.extractionRunId,
+    extractionWarnings: [],
     extractionWindowCount: 0,
     facts: [],
     factsByType: emptyFactsByType(),
@@ -496,6 +488,7 @@ function runningOutput(input: {
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
     profile: input.profile,
+    profileOutput: null,
     progress: input.progress,
     readyRepresentationCount: 0,
     schemaVersion: 1,
@@ -516,44 +509,43 @@ function prismaStatusFromPluginStatus(status: "COMPLETED" | "FAILED" | "PARTIAL_
   return WorkflowExtractionRunStatus.FAILED;
 }
 
-function emptyChronologyResultAggregate(): ChronologyResultAggregate {
+function emptyExtractionResultAggregate(): ExtractionResultAggregate {
   return {
     error: null,
     errorCode: null,
     errorProvider: null,
     errorStatus: null,
     errorUserMessage: null,
-    extractedFactCount: 0,
-    extractionWindowCount: 0,
-    facts: [],
-    factsByType: emptyFactsByType(),
     failedWindowCount: 0,
+    itemCount: 0,
+    itemCountsByType: emptyFactsByType(),
+    items: [],
     model: null,
     provider: null,
     status: "COMPLETED",
+    warnings: [],
+    windowCount: 0,
   };
 }
 
-function mergeChronologyResult(
-  aggregate: ChronologyResultAggregate,
-  nextResult: ChronologyResultAggregate,
-): ChronologyResultAggregate {
-  const factsByType = {
-    ...aggregate.factsByType,
+function mergeExtractionResult(
+  aggregate: ExtractionResultAggregate,
+  nextResult: ExtractionResultAggregate,
+): ExtractionResultAggregate {
+  const itemCountsByType = {
+    ...aggregate.itemCountsByType,
   };
 
-  for (const [factType, count] of Object.entries(nextResult.factsByType)) {
-    factsByType[factType] = (factsByType[factType] ?? 0) + count;
+  for (const [itemType, count] of Object.entries(nextResult.itemCountsByType)) {
+    itemCountsByType[itemType] = (itemCountsByType[itemType] ?? 0) + count;
   }
 
   const failedWindowCount = aggregate.failedWindowCount + nextResult.failedWindowCount;
-  const extractionWindowCount =
-    aggregate.extractionWindowCount + nextResult.extractionWindowCount;
-  const extractedFactCount =
-    aggregate.extractedFactCount + nextResult.extractedFactCount;
-  let status: ChronologyResultAggregate["status"] = "COMPLETED";
+  const windowCount = aggregate.windowCount + nextResult.windowCount;
+  const itemCount = aggregate.itemCount + nextResult.itemCount;
+  let status: ExtractionResultAggregate["status"] = "COMPLETED";
 
-  if (extractionWindowCount === 0 || failedWindowCount === extractionWindowCount) {
+  if (windowCount === 0 || failedWindowCount === windowCount) {
     status = "FAILED";
   } else if (failedWindowCount > 0) {
     status = "PARTIAL_FAILED";
@@ -565,14 +557,18 @@ function mergeChronologyResult(
     errorProvider: aggregate.errorProvider ?? nextResult.errorProvider,
     errorStatus: aggregate.errorStatus ?? nextResult.errorStatus,
     errorUserMessage: aggregate.errorUserMessage ?? nextResult.errorUserMessage,
-    extractedFactCount,
-    extractionWindowCount,
-    facts: [...aggregate.facts, ...nextResult.facts],
-    factsByType,
     failedWindowCount,
+    itemCount,
+    itemCountsByType,
+    items: [...aggregate.items, ...nextResult.items],
     model: aggregate.model ?? nextResult.model,
     provider: aggregate.provider ?? nextResult.provider,
     status,
+    warnings: [
+      ...aggregate.warnings,
+      ...nextResult.warnings,
+    ],
+    windowCount,
   };
 }
 
@@ -612,8 +608,9 @@ async function ensureWorkflowRun(input: {
   });
 }
 
-function testChronologyAIServiceFromEnv(): NonNullable<RunExtractionStepInput["aiService"]> | null {
-  const content = process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
+function testExtractionAIServiceFromEnv(): NonNullable<RunExtractionStepInput["aiService"]> | null {
+  const content = process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE ??
+    process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
 
   if (!content) {
     return null;
@@ -633,7 +630,7 @@ async function extractionAIService(input: RunExtractionStepInput) {
     return input.aiService;
   }
 
-  const testAIService = testChronologyAIServiceFromEnv();
+  const testAIService = testExtractionAIServiceFromEnv();
 
   if (testAIService) {
     return testAIService;
@@ -787,7 +784,7 @@ async function recoverUnhandledExtractionFailure(input: {
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
-  chronologyServiceLog("recovery output write completed", {
+  extractionServiceLog("recovery output write completed", {
     errorCode: error.code,
     extractionRunId,
     outputStatus: output.status,
@@ -795,7 +792,7 @@ async function recoverUnhandledExtractionFailure(input: {
     workflowRunId: input.workflowRunId,
   });
   await emitWorkflowActivityEvent({
-    code: "chronology.prepare.failed",
+    code: "extraction.prepare.failed",
     level: "error",
     message: `Preparation failed: ${errorMessage}`,
     metadata: {
@@ -955,7 +952,6 @@ export async function runExtractionStep(
   input: RunExtractionStepInput,
 ): Promise<ExtractionStepOutput> {
   const config = normalizeExtractionStepConfig(input.step.parameters);
-  const profile = getExtractionProfile(config.profile);
   const isAutorun = input.executionMode === "autorun";
 
   if (!isAutorun) {
@@ -1052,7 +1048,7 @@ export async function runExtractionStep(
   }
 
   return autorunStartingOutput({
-    profile: profile.id,
+    profile: config.profile,
     workflowRunId: input.workflowRunId,
   });
 }
@@ -1140,9 +1136,9 @@ async function executeExtractionStep(
   }
 
   await emitActivity({
-    code: "chronology.prepare.started",
+    code: "extraction.prepare.started",
     level: "info",
-    message: "Started chronology preparation.",
+    message: "Started extraction preparation.",
     metadata: {
       profile: config.profile,
       representationType: config.representationType,
@@ -1187,7 +1183,7 @@ async function executeExtractionStep(
       selectedMatterDocumentIds,
     });
 
-    console.error("Chronology preparation failed", {
+    console.error("Extraction preparation failed", {
       error,
       extractionRunId: extractionRun.id,
       stepId: input.step.id,
@@ -1199,7 +1195,7 @@ async function executeExtractionStep(
       workflowRunId: input.workflowRunId,
     });
     await emitActivity({
-      code: "chronology.prepare.failed",
+      code: "extraction.prepare.failed",
       level: "error",
       message: "Preparation failed. No selected source documents were found.",
     });
@@ -1223,7 +1219,7 @@ async function executeExtractionStep(
 
   if (selectedDocuments.length !== selectedMatterDocumentIds.length) {
     await emitActivity({
-      code: "chronology.prepare.selected_documents_loaded",
+      code: "extraction.prepare.selected_documents_loaded",
       level: "warning",
       message: `Loaded ${selectedDocuments.length} of ${selectedMatterDocumentIds.length} selected documents.`,
       metadata: {
@@ -1301,7 +1297,7 @@ async function executeExtractionStep(
       selectedMatterDocumentIds,
     });
 
-    console.error("Chronology preparation failed", {
+    console.error("Extraction preparation failed", {
       error,
       extractionRunId: extractionRun.id,
       stepId: input.step.id,
@@ -1313,7 +1309,7 @@ async function executeExtractionStep(
       workflowRunId: input.workflowRunId,
     });
     await emitActivity({
-      code: "chronology.prepare.failed",
+      code: "extraction.prepare.failed",
       level: "error",
       message: "Preparation failed. One or more selected documents were not available in this matter.",
       metadata: {
@@ -1324,7 +1320,7 @@ async function executeExtractionStep(
     return output;
   }
   await emitActivity({
-    code: "chronology.prepare.selected_documents_loaded",
+    code: "extraction.prepare.selected_documents_loaded",
     level: "info",
     message: `Loaded ${selectedDocuments.length} selected document${selectedDocuments.length === 1 ? "" : "s"}.`,
     metadata: {
@@ -1402,7 +1398,7 @@ async function executeExtractionStep(
     const documentName = selectedDocument?.fileName ?? matterDocumentId;
 
     await emitActivity({
-      code: "chronology.prepare.document_started",
+      code: "extraction.prepare.document_started",
       documentId: matterDocumentId,
       documentName,
       level: "info",
@@ -1410,7 +1406,7 @@ async function executeExtractionStep(
     });
 
     await emitActivity({
-      code: "chronology.prepare.representation_lookup_started",
+      code: "extraction.prepare.representation_lookup_started",
       documentId: matterDocumentId,
       documentName,
       level: "debug",
@@ -1430,7 +1426,7 @@ async function executeExtractionStep(
 
     if (existingRepresentation?.status === MatterDocumentRepresentationStatus.READY) {
       await emitActivity({
-        code: "chronology.prepare.representation_found",
+        code: "extraction.prepare.representation_found",
         documentId: matterDocumentId,
         documentName,
         level: "info",
@@ -1438,7 +1434,7 @@ async function executeExtractionStep(
       });
     } else {
       await emitActivity({
-        code: "chronology.prepare.representation_missing",
+        code: "extraction.prepare.representation_missing",
         documentId: matterDocumentId,
         documentName,
         level: "info",
@@ -1458,7 +1454,7 @@ async function executeExtractionStep(
     });
 
     await emitActivity({
-      code: "chronology.prepare.document_content_lookup_started",
+      code: "extraction.prepare.document_content_lookup_started",
       documentId: matterDocumentId,
       documentName,
       level: "debug",
@@ -1477,7 +1473,7 @@ async function executeExtractionStep(
     });
     if (existingRepresentation?.status !== MatterDocumentRepresentationStatus.READY) {
       await emitActivity({
-        code: "chronology.prepare.markdown_conversion_started",
+        code: "extraction.prepare.markdown_conversion_started",
         documentId: matterDocumentId,
         documentName,
         level: "info",
@@ -1503,8 +1499,8 @@ async function executeExtractionStep(
       if (representation.status === MatterDocumentRepresentationStatus.READY) {
         await emitActivity({
           code: existingRepresentation?.status === MatterDocumentRepresentationStatus.READY
-            ? "chronology.prepare.document_content_found"
-            : "chronology.prepare.markdown_conversion_completed",
+            ? "extraction.prepare.document_content_found"
+            : "extraction.prepare.markdown_conversion_completed",
           documentId: matterDocumentId,
           documentName,
           level: "success",
@@ -1513,14 +1509,14 @@ async function executeExtractionStep(
             : `Created Markdown representation for ${documentName}.`,
         });
         progressItems = updateProgressItem(progressItems, matterDocumentId, {
-          message: "Waiting to extract chronology facts...",
+          message: "Waiting to extract extraction items...",
           phase: "queued",
           percentComplete: 50,
           status: "waiting",
         });
       } else {
         await emitActivity({
-          code: "chronology.prepare.document_failed",
+          code: "extraction.prepare.document_failed",
           documentId: matterDocumentId,
           documentName,
           level: "error",
@@ -1550,7 +1546,7 @@ async function executeExtractionStep(
         workflowRunId: input.workflowRunId,
       });
       await emitActivity({
-        code: "chronology.prepare.document_failed",
+        code: "extraction.prepare.document_failed",
         documentId: matterDocumentId,
         documentName,
         level: "error",
@@ -1648,14 +1644,14 @@ async function executeExtractionStep(
       },
     ]),
   );
-  let chronologyResult = emptyChronologyResultAggregate();
+  let profileResult = emptyExtractionResultAggregate();
   const extractionDocumentErrors: WorkflowStepDocumentError[] = [];
   const aiService = readyRepresentationCount > 0
     ? await extractionAIService(input)
     : null;
-  const documentConcurrency = chronologyDocumentConcurrency();
+  const documentConcurrency = extractionDocumentConcurrency();
 
-  chronologyServiceLog("document extraction phase started", {
+  extractionServiceLog("document extraction phase started", {
     documentConcurrency,
     preparedDocumentCount: preparedDocumentIds.length,
     readyRepresentationCount,
@@ -1665,7 +1661,7 @@ async function executeExtractionStep(
 
   async function extractPreparedDocument(
     matterDocumentId: string,
-  ): Promise<DocumentChronologyExtractionOutcome> {
+  ): Promise<DocumentProfileExtractionOutcome> {
     const readyDocument = readyDocumentById.get(matterDocumentId);
     const documentName = readyDocument?.fileName ?? matterDocumentId;
 
@@ -1682,10 +1678,10 @@ async function executeExtractionStep(
       });
       await persistRunningProgress({
         currentItemLabel: readyDocument?.fileName,
-        message: "Extracting chronology facts...",
+        message: `Extracting ${profile.itemPluralLabel}...`,
       });
       await emitActivity({
-        code: "chronology.prepare.document_failed",
+        code: "extraction.prepare.document_failed",
         documentId: matterDocumentId,
         documentName,
         level: "error",
@@ -1700,31 +1696,31 @@ async function executeExtractionStep(
       };
 
       return {
-        chronologyResult: emptyChronologyResultAggregate(),
         documentError,
         matterDocumentId,
+        profileResult: emptyExtractionResultAggregate(),
       };
     }
 
     progressItems = updateProgressItem(progressItems, matterDocumentId, {
-      message: "Extracting chronology facts...",
+      message: `Extracting ${profile.itemPluralLabel}...`,
       phase: "extracting",
       percentComplete: 75,
       status: "running",
     });
     await persistRunningProgress({
       currentItemLabel: readyDocument.fileName,
-      message: "Extracting chronology facts...",
+      message: `Extracting ${profile.itemPluralLabel}...`,
     });
     await emitActivity({
-      code: "chronology.prepare.extraction_started",
+      code: "extraction.prepare.extraction_started",
       documentId: matterDocumentId,
       documentName: readyDocument.fileName,
       level: "info",
-      message: `Extracting chronology facts from ${readyDocument.fileName}.`,
+      message: `Extracting ${profile.itemPluralLabel} from ${readyDocument.fileName}.`,
     });
 
-    chronologyServiceLog("document profile run started", {
+    extractionServiceLog("document profile run started", {
       documentId: matterDocumentId,
       fileName: readyDocument.fileName,
       markdownCharacterCount: readyDocument.markdown.length,
@@ -1732,7 +1728,7 @@ async function executeExtractionStep(
       workflowRunId: input.workflowRunId,
     });
 
-    const documentChronologyResult = await profile.run({
+    const documentProfileResult = await runExtractionProfile(profile, {
       aiService: aiService!,
       onWindowProgress: async (event) => {
         const windowMessage = extractionWindowMessage(event);
@@ -1757,21 +1753,21 @@ async function executeExtractionStep(
           });
           await persistRunningProgress({
             currentItemLabel: readyDocument.fileName,
-            message: "Extracting chronology facts...",
+            message: `Extracting ${profile.itemPluralLabel}...`,
           });
           await emitActivity({
-            code: "chronology.prepare.extraction_window_started",
+            code: "extraction.prepare.extraction_window_started",
             documentId: matterDocumentId,
             documentName: readyDocument.fileName,
             level: "info",
-            message: `Extracting chronology facts from ${readyDocument.fileName}: ${windowMessage}.`,
+            message: `Extracting ${profile.itemPluralLabel} from ${readyDocument.fileName}: ${windowMessage}.`,
             metadata,
           });
           return;
         }
 
         if (event.status === "completed") {
-          const extractedFactCount = event.extractedFactCount ?? 0;
+          const extractedItemCount = event.extractedItemCount ?? 0;
           progressItems = updateProgressItem(progressItems, matterDocumentId, {
             message: `${windowMessage} complete`,
             phase: "extracting",
@@ -1783,17 +1779,17 @@ async function executeExtractionStep(
           });
           await persistRunningProgress({
             currentItemLabel: readyDocument.fileName,
-            message: "Extracting chronology facts...",
+            message: `Extracting ${profile.itemPluralLabel}...`,
           });
           await emitActivity({
-            code: "chronology.prepare.extraction_window_completed",
+            code: "extraction.prepare.extraction_window_completed",
             documentId: matterDocumentId,
             documentName: readyDocument.fileName,
             level: "success",
-            message: `Extracted ${extractedFactCount} candidate chronology fact${extractedFactCount === 1 ? "" : "s"} from ${readyDocument.fileName}: ${windowMessage}.`,
+            message: `Extracted ${extractedItemCount} candidate ${extractedItemCount === 1 ? profile.itemLabel : profile.itemPluralLabel} from ${readyDocument.fileName}: ${windowMessage}.`,
             metadata: {
               ...metadata,
-              extractedFactCount,
+              extractedItemCount,
             },
           });
           return;
@@ -1819,7 +1815,7 @@ async function executeExtractionStep(
             message: "Waiting for AI provider...",
           });
           await emitActivity({
-            code: "chronology.prepare.extraction_window_waiting",
+            code: "extraction.prepare.extraction_window_waiting",
             documentId: matterDocumentId,
             documentName: readyDocument.fileName,
             level: "info",
@@ -1840,15 +1836,15 @@ async function executeExtractionStep(
         });
         await persistRunningProgress({
           currentItemLabel: readyDocument.fileName,
-          message: "Extracting chronology facts...",
+          message: `Extracting ${profile.itemPluralLabel}...`,
         });
         await emitActivity({
-          code: "chronology.prepare.extraction_window_failed",
+          code: "extraction.prepare.extraction_window_failed",
           documentId: matterDocumentId,
           documentName: readyDocument.fileName,
           level: "error",
           message: event.errorUserMessage ??
-            `Chronology extraction failed for ${readyDocument.fileName}: ${windowMessage}.`,
+            `Extraction failed for ${readyDocument.fileName}: ${windowMessage}.`,
           metadata: {
             ...metadata,
             error: event.error,
@@ -1862,21 +1858,21 @@ async function executeExtractionStep(
       readyDocuments: [readyDocument],
     });
 
-    chronologyServiceLog("document profile run completed", {
+    extractionServiceLog("document profile run completed", {
       documentId: matterDocumentId,
-      errorCode: documentChronologyResult.errorCode,
-      extractedFactCount: documentChronologyResult.extractedFactCount,
-      extractionWindowCount: documentChronologyResult.extractionWindowCount,
-      failedWindowCount: documentChronologyResult.failedWindowCount,
+      errorCode: documentProfileResult.errorCode,
+      itemCount: documentProfileResult.itemCount,
+      windowCount: documentProfileResult.windowCount,
+      failedWindowCount: documentProfileResult.failedWindowCount,
       fileName: readyDocument.fileName,
-      status: documentChronologyResult.status,
+      status: documentProfileResult.status,
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     });
 
-    if (documentChronologyResult.status !== "COMPLETED") {
+    if (documentProfileResult.status !== "COMPLETED") {
       const userMessage =
-        "The chronology extraction provider could not process this document.";
+        "The extraction provider could not process this document.";
       progressItems = updateProgressItem(progressItems, matterDocumentId, {
         error: {
           code: "EXTRACTION_PROVIDER_FAILED",
@@ -1888,51 +1884,51 @@ async function executeExtractionStep(
         status: "failed",
       });
       await emitActivity({
-        code: "chronology.prepare.document_failed",
+        code: "extraction.prepare.document_failed",
         documentId: matterDocumentId,
         documentName: readyDocument.fileName,
         level: "error",
-        message: `Chronology extraction failed for ${readyDocument.fileName}.`,
+        message: `Extraction failed for ${readyDocument.fileName}.`,
         metadata: {
-          errorCode: documentChronologyResult.errorCode,
-          error: documentChronologyResult.error,
-          errorProvider: documentChronologyResult.errorProvider,
-          errorStatus: documentChronologyResult.errorStatus,
-          errorUserMessage: documentChronologyResult.errorUserMessage,
-          extractedFactCount: documentChronologyResult.extractedFactCount,
-          failedWindowCount: documentChronologyResult.failedWindowCount,
+          errorCode: documentProfileResult.errorCode,
+          error: documentProfileResult.error,
+          errorProvider: documentProfileResult.errorProvider,
+          errorStatus: documentProfileResult.errorStatus,
+          errorUserMessage: documentProfileResult.errorUserMessage,
+          itemCount: documentProfileResult.itemCount,
+          failedWindowCount: documentProfileResult.failedWindowCount,
         },
       });
       const documentError = {
-        code: documentChronologyResult.errorCode ?? "EXTRACTION_PROVIDER_FAILED",
+        code: documentProfileResult.errorCode ?? "EXTRACTION_PROVIDER_FAILED",
         fileName: readyDocument.fileName,
         matterDocumentId,
-        message: documentChronologyResult.error ??
-          "The chronology extraction provider failed for this document.",
-        userMessage: documentChronologyResult.errorUserMessage ?? userMessage,
+        message: documentProfileResult.error ??
+          "The extraction provider failed for this document.",
+        userMessage: documentProfileResult.errorUserMessage ?? userMessage,
       };
       await persistRunningProgress({
         currentItemLabel: readyDocument.fileName,
-        message: "Extracting chronology facts...",
+        message: `Extracting ${profile.itemPluralLabel}...`,
       });
 
       return {
-        chronologyResult: documentChronologyResult,
         documentError,
         matterDocumentId,
+        profileResult: documentProfileResult,
       };
     }
 
     await emitActivity({
-      code: "chronology.prepare.extraction_completed",
+      code: "extraction.prepare.extraction_completed",
       documentId: matterDocumentId,
       documentName: readyDocument.fileName,
       level: "success",
-      message: `Extracted ${documentChronologyResult.extractedFactCount} candidate chronology fact${documentChronologyResult.extractedFactCount === 1 ? "" : "s"} from ${readyDocument.fileName}.`,
+      message: `Extracted ${documentProfileResult.itemCount} candidate ${documentProfileResult.itemCount === 1 ? profile.itemLabel : profile.itemPluralLabel} from ${readyDocument.fileName}.`,
       metadata: {
-        extractedFactCount: documentChronologyResult.extractedFactCount,
-        extractionWindowCount: documentChronologyResult.extractionWindowCount,
-        factsByType: documentChronologyResult.factsByType,
+        itemCount: documentProfileResult.itemCount,
+        itemCountsByType: documentProfileResult.itemCountsByType,
+        windowCount: documentProfileResult.windowCount,
       },
     });
     progressItems = updateProgressItem(progressItems, matterDocumentId, {
@@ -1942,7 +1938,7 @@ async function executeExtractionStep(
       status: "completed",
     });
     await emitActivity({
-      code: "chronology.prepare.document_completed",
+      code: "extraction.prepare.document_completed",
       documentId: matterDocumentId,
       documentName: readyDocument.fileName,
       level: "success",
@@ -1950,13 +1946,13 @@ async function executeExtractionStep(
     });
     await persistRunningProgress({
       currentItemLabel: readyDocument.fileName,
-      message: "Extracting chronology facts...",
+      message: `Extracting ${profile.itemPluralLabel}...`,
     });
 
     return {
-      chronologyResult: documentChronologyResult,
       documentError: null,
       matterDocumentId,
+      profileResult: documentProfileResult,
     };
   }
 
@@ -1967,49 +1963,49 @@ async function executeExtractionStep(
   });
 
   for (const outcome of documentExtractionOutcomes) {
-    chronologyResult = mergeChronologyResult(
-      chronologyResult,
-      outcome.chronologyResult,
+    profileResult = mergeExtractionResult(
+      profileResult,
+      outcome.profileResult,
     );
 
     if (outcome.documentError) {
       extractionDocumentErrors.push(outcome.documentError);
     }
 
-    chronologyServiceLog("document result merged", {
-      aggregateStatus: chronologyResult.status,
+    extractionServiceLog("document result merged", {
+      aggregateStatus: profileResult.status,
       documentId: outcome.matterDocumentId,
-      extractedFactCount: chronologyResult.extractedFactCount,
-      failedWindowCount: chronologyResult.failedWindowCount,
+      itemCount: profileResult.itemCount,
+      failedWindowCount: profileResult.failedWindowCount,
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     });
   }
 
   if (readyRepresentationCount === 0) {
-    chronologyResult = {
-      ...emptyChronologyResultAggregate(),
+    profileResult = {
+      ...emptyExtractionResultAggregate(),
       error: "No selected documents could be prepared for extraction.",
       status: "FAILED",
     };
-  } else if (chronologyResult.extractionWindowCount === 0) {
-    chronologyResult = {
-      ...chronologyResult,
-      error: chronologyResult.error ?? "No selected documents had extractable Markdown content.",
+  } else if (profileResult.windowCount === 0) {
+    profileResult = {
+      ...profileResult,
+      error: profileResult.error ?? "No selected documents had extractable Markdown content.",
       status: "FAILED",
     };
   }
-  const chronologyStatus = prismaStatusFromPluginStatus(chronologyResult.status);
+  const profileStatus = prismaStatusFromPluginStatus(profileResult.status);
   const status =
     failedRepresentationCount > 0 &&
-    chronologyStatus === WorkflowExtractionRunStatus.COMPLETED
+    profileStatus === WorkflowExtractionRunStatus.COMPLETED
       ? WorkflowExtractionRunStatus.PARTIAL_FAILED
-      : chronologyStatus;
+      : profileStatus;
   const firstError =
     representationResults.find((result) => result.error)?.error ??
-    chronologyResult.error;
+    profileResult.error;
   if (firstError) {
-    console.error("Chronology preparation failed", {
+    console.error("Extraction preparation failed", {
       error: firstError,
       extractionRunId: extractionRun.id,
       stepId: input.step.id,
@@ -2023,69 +2019,70 @@ async function executeExtractionStep(
       partial:
         (readyRepresentationCount > 0 && failedRepresentationCount > 0) ||
         (extractionDocumentErrors.length > 0 &&
-          chronologyResult.extractedFactCount > 0),
+          profileResult.itemCount > 0),
     }) ??
-    (chronologyResult.error ? extractionProviderError(chronologyResult.error) : null);
+    (profileResult.error ? extractionProviderError(profileResult.error) : null);
 
-  chronologyServiceLog("postprocess started", {
+  extractionServiceLog("postprocess started", {
     documentErrorCount: allDocumentErrors.length,
-    extractedFactCount: chronologyResult.facts.length,
+    itemCount: profileResult.items.length,
     status,
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
 
-  const chronologyPostprocessResult = buildChronologyPostprocessResult(
-    chronologyResult.facts,
-  );
+  const postprocessResult = profile.postProcess
+    ? profile.postProcess({
+        items: profileResult.items,
+        runResult: profileResult,
+      })
+    : {
+        displayItems: profileResult.items.filter(
+          (item): item is Record<string, unknown> =>
+            Boolean(item) && typeof item === "object" && !Array.isArray(item),
+        ),
+        itemCount: profileResult.itemCount,
+        itemCountsByType: profileResult.itemCountsByType,
+        profileOutput: {
+          items: profileResult.items,
+        },
+      };
 
-  chronologyServiceLog("postprocess completed", {
-    artifactMarkdownCharacterCount:
-      chronologyPostprocessResult.artifactMarkdown?.length ?? 0,
-    collapsedEventCount: chronologyPostprocessResult.collapsedEventCount,
-    datedCollapsedEventCount: chronologyPostprocessResult.datedCollapsedEventCount,
-    generatedFromFactCount: chronologyPostprocessResult.generatedFromFactCount,
+  extractionServiceLog("postprocess completed", {
+    artifactCount: postprocessResult.artifacts?.length ?? 0,
+    itemCount: postprocessResult.itemCount,
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
 
-  let chronologyArtifact = null;
+  const artifactReferences: Record<string, string | null> = {};
 
-  if (
-    chronologyPostprocessResult.artifactMarkdown &&
-    chronologyPostprocessResult.collapsedEventCount > 0
-  ) {
-    chronologyServiceLog("artifact creation started", {
-      collapsedEventCount: chronologyPostprocessResult.collapsedEventCount,
-      contentCharacterCount: chronologyPostprocessResult.artifactMarkdown.length,
+  for (const artifact of postprocessResult.artifacts ?? []) {
+    extractionServiceLog("artifact creation started", {
+      contentCharacterCount: artifact.content.length,
+      outputKey: artifact.outputKey,
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     });
-    chronologyArtifact = await createWorkflowMarkdownArtifact({
-      content: chronologyPostprocessResult.artifactMarkdown,
+    const createdArtifact = await createWorkflowMarkdownArtifact({
+      content: artifact.content,
       matterId: input.matterId,
       metadataJson: {
-        collapsedEventCount: chronologyPostprocessResult.collapsedEventCount,
-        datedEventCount: chronologyPostprocessResult.datedCollapsedEventCount,
         extractionRunId: extractionRun.id,
-        generatedFromFactCount: chronologyPostprocessResult.generatedFromFactCount,
-        profile: "chronology",
+        profile: config.profile,
         sourceDocumentCount: selectedMatterDocumentIds.length,
-        undatedEventCount: chronologyPostprocessResult.undatedCollapsedEventCount,
+        ...(artifact.metadataJson && typeof artifact.metadataJson === "object"
+          ? artifact.metadataJson
+          : {}),
       },
       stepId: input.step.id,
-      title: "Chronology Draft",
+      title: artifact.title,
       workflowRunId: input.workflowRunId,
     });
-    chronologyServiceLog("artifact creation completed", {
-      artifactId: chronologyArtifact.id,
-      stepId: input.step.id,
-      workflowRunId: input.workflowRunId,
-    });
-  } else {
-    chronologyServiceLog("artifact creation skipped", {
-      collapsedEventCount: chronologyPostprocessResult.collapsedEventCount,
-      hasArtifactMarkdown: Boolean(chronologyPostprocessResult.artifactMarkdown),
+    artifactReferences[artifact.outputKey] = createdArtifact.id;
+    extractionServiceLog("artifact creation completed", {
+      artifactId: createdArtifact.id,
+      outputKey: artifact.outputKey,
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     });
@@ -2106,21 +2103,35 @@ async function executeExtractionStep(
     status: outputStatusFromRunStatus(status),
   });
   const output: ExtractionStepOutput = {
-    chronologyArtifactId: chronologyArtifact?.id ?? null,
-    collapsedEventCount: chronologyPostprocessResult.collapsedEventCount,
-    collapsedEvents: chronologyPostprocessResult.events,
+    artifactReferences,
+    chronologyArtifactId: artifactReferences.chronologyArtifactId ?? null,
+    collapsedEventCount: postprocessResult.stepOutputPatch?.collapsedEventCount ?? 0,
+    collapsedEvents: postprocessResult.stepOutputPatch?.collapsedEvents ?? [],
+    documentResults: documentExtractionOutcomes.map((outcome) => ({
+      documentError: outcome.documentError,
+      itemCount: outcome.profileResult.itemCount,
+      matterDocumentId: outcome.matterDocumentId,
+      status: outcome.profileResult.status,
+      windowCount: outcome.profileResult.windowCount,
+    })),
     error: structuredError,
-    extractedFactCount: chronologyResult.extractedFactCount,
-    extractionWindowCount: chronologyResult.extractionWindowCount,
+    extractedFactCount:
+      postprocessResult.stepOutputPatch?.extractedFactCount ?? profileResult.itemCount,
+    extractionWarnings: profileResult.warnings,
+    extractionWindowCount: profileResult.windowCount,
     extractionRunId: extractionRun.id,
-    facts: chronologyPostprocessResult.facts,
-    factsByType: chronologyResult.factsByType,
+    facts: postprocessResult.stepOutputPatch?.facts ??
+      postprocessResult.displayItems ?? [],
+    factsByType:
+      postprocessResult.stepOutputPatch?.factsByType ??
+      postprocessResult.itemCountsByType,
     failedDocumentIds: finalFailedDocumentIds.length > 0
       ? finalFailedDocumentIds
       : failedDocumentIds,
     failedRepresentationCount,
     preparedDocumentIds: finalPreparedDocumentIds,
     profile: config.profile,
+    profileOutput: postprocessResult.profileOutput,
     progress: finalProgress,
     readyRepresentationCount,
     schemaVersion: 1,
@@ -2128,7 +2139,7 @@ async function executeExtractionStep(
     status: outputStatusFromRunStatus(status),
   };
 
-  chronologyServiceLog("extraction run update started", {
+  extractionServiceLog("extraction run update started", {
     extractionRunId: extractionRun.id,
     outputStatus: output.status,
     stepId: input.step.id,
@@ -2140,24 +2151,21 @@ async function executeExtractionStep(
       completedAt: new Date(),
       error: firstError,
       metadataJson: toWorkflowJsonValue({
-        aiModel: chronologyResult.model,
-        aiProvider: chronologyResult.provider,
-        chronologyArtifactId: chronologyArtifact?.id ?? null,
-        collapsedEventCount: chronologyPostprocessResult.collapsedEventCount,
-        datedCollapsedEventCount:
-          chronologyPostprocessResult.datedCollapsedEventCount,
+        aiModel: profileResult.model,
+        aiProvider: profileResult.provider,
+        artifactReferences,
+        ...postprocessResult.artifactMetadata,
         documentRepresentations: representationResults,
-        extractedFactCount: chronologyResult.extractedFactCount,
-        extractionWindowCount: chronologyResult.extractionWindowCount,
+        itemCount: profileResult.itemCount,
+        itemCountsByType: profileResult.itemCountsByType,
+        warnings: profileResult.warnings,
+        windowCount: profileResult.windowCount,
         failedRepresentationCount,
-        failedWindowCount: chronologyResult.failedWindowCount,
-        factsByType: chronologyResult.factsByType,
+        failedWindowCount: profileResult.failedWindowCount,
         profileDescription: profile.description,
         profileLabel: profile.label,
         readyRepresentationCount,
         selectedDocumentCount: selectedMatterDocumentIds.length,
-        undatedCollapsedEventCount:
-          chronologyPostprocessResult.undatedCollapsedEventCount,
       }),
       status,
     },
@@ -2166,14 +2174,14 @@ async function executeExtractionStep(
     },
   });
 
-  chronologyServiceLog("extraction run update completed", {
+  extractionServiceLog("extraction run update completed", {
     extractionRunId: extractionRun.id,
     outputStatus: output.status,
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
 
-  chronologyServiceLog("terminal activity emission started", {
+  extractionServiceLog("terminal activity emission started", {
     outputStatus: output.status,
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
@@ -2181,25 +2189,27 @@ async function executeExtractionStep(
 
   if (output.status === "completed") {
     await emitActivity({
-      code: "chronology.prepare.completed",
+      code: "extraction.prepare.completed",
       level: "success",
       message: "All selected documents prepared.",
       metadata: {
-        extractedFactCount: output.extractedFactCount,
+        itemCount: profileResult.itemCount,
         selectedDocumentCount: selectedMatterDocumentIds.length,
       },
     });
-    await emitActivity({
-      code: "chronology.prepare.moving_to_review",
-      level: "info",
-      message: "Moving to Review chronology.",
-      metadata: {
-        chronologyArtifactId: output.chronologyArtifactId,
-      },
-    });
+    if (Object.keys(artifactReferences).length > 0) {
+      await emitActivity({
+        code: "extraction.prepare.artifacts_created",
+        level: "info",
+        message: "Generated extraction artifact.",
+        metadata: {
+          artifactReferences,
+        },
+      });
+    }
   } else if (output.status === "partial_failed") {
     await emitActivity({
-      code: "chronology.prepare.failed",
+      code: "extraction.prepare.failed",
       level: "warning",
       message: `Preparation partially failed. ${output.preparedDocumentIds.length} of ${selectedMatterDocumentIds.length} documents were prepared.`,
       metadata: {
@@ -2208,22 +2218,22 @@ async function executeExtractionStep(
     });
   } else {
     await emitActivity({
-      code: "chronology.prepare.failed",
+      code: "extraction.prepare.failed",
       level: "error",
-      message: "Preparation failed. No chronology draft was created.",
+      message: "Preparation failed. No extraction artifact was created.",
       metadata: {
         failedDocumentIds: output.failedDocumentIds,
       },
     });
   }
 
-  chronologyServiceLog("terminal activity emission completed", {
+  extractionServiceLog("terminal activity emission completed", {
     outputStatus: output.status,
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
 
-  chronologyServiceLog("final output write started", {
+  extractionServiceLog("final output write started", {
     extractionRunId: extractionRun.id,
     outputStatus: output.status,
     preparedDocumentCount: output.preparedDocumentIds.length,
@@ -2237,7 +2247,7 @@ async function executeExtractionStep(
     workflowRunId: input.workflowRunId,
   });
 
-  chronologyServiceLog("final output write completed", {
+  extractionServiceLog("final output write completed", {
     extractionRunId: extractionRun.id,
     outputStatus: output.status,
     stepId: input.step.id,

@@ -4,11 +4,13 @@ import type {
   CollapsedChronologyEventDraft,
 } from "./chronology-types";
 import type { ChronologyFact } from "./schema";
+import { chronologyFactSortKey } from "./schema";
 
 const CONFIDENCE_RANK = {
   high: 3,
   medium: 2,
   low: 1,
+  unknown: 0,
 } as const;
 
 const STOP_WORDS = new Set([
@@ -70,15 +72,15 @@ function jaccardSimilarity(left: string[], right: string[]) {
   return intersectionCount / union.size;
 }
 
-function actorOverlap(left: string[], right: string[]) {
-  const leftActors = new Set(left.map(normalizedText).filter(Boolean));
-  const rightActors = new Set(right.map(normalizedText).filter(Boolean));
+function peopleOverlap(left: string[], right: string[]) {
+  const leftPeople = new Set(left.map(normalizedText).filter(Boolean));
+  const rightPeople = new Set(right.map(normalizedText).filter(Boolean));
 
-  if (leftActors.size === 0 || rightActors.size === 0) {
+  if (leftPeople.size === 0 || rightPeople.size === 0) {
     return false;
   }
 
-  return [...leftActors].some((actor) => rightActors.has(actor));
+  return [...leftPeople].some((person) => rightPeople.has(person));
 }
 
 function sourceFromFact(input: ChronologyCollapseInputFact): ChronologySource {
@@ -92,7 +94,7 @@ function sourceFromFact(input: ChronologyCollapseInputFact): ChronologySource {
 }
 
 function confidenceForFacts(facts: ChronologyFact[]) {
-  return facts.reduce<"high" | "medium" | "low">((lowestConfidence, fact) => {
+  return facts.reduce<"high" | "medium" | "low" | "unknown">((lowestConfidence, fact) => {
     if (CONFIDENCE_RANK[fact.confidence] < CONFIDENCE_RANK[lowestConfidence]) {
       return fact.confidence;
     }
@@ -110,106 +112,65 @@ function titleForSummary(summary: string) {
   return `${trimmedSummary.slice(0, 77).trim()}...`;
 }
 
-function sortKeyForFact(fact: ChronologyFact) {
-  if ("date" in fact && fact.date) {
-    return fact.date;
-  }
-
-  if ("dateText" in fact && fact.dateText) {
-    return `9999-99-99:${fact.dateText}`;
-  }
-
-  return "9999-99-99:undated";
-}
-
 function eventDraftFromFacts(facts: ChronologyCollapseInputFact[]): CollapsedChronologyEventDraft {
   const primaryFact = facts[0].fact;
   const sourceFacts = facts.map((fact) => fact.fact);
-  const actors = uniqueStrings(sourceFacts.flatMap((fact) => ("actors" in fact ? fact.actors : [])));
-  let summary: string;
-
-  if ("eventSummary" in primaryFact) {
-    summary = primaryFact.eventSummary;
-  } else if (primaryFact.factType === "document_date") {
-    summary = `${primaryFact.dateRole.replace(/_/g, " ")}: ${primaryFact.sourceFileName}`;
-  } else {
-    throw new Error(`Unsupported chronology event fact type: ${primaryFact.factType}`);
-  }
+  const people = uniqueStrings(sourceFacts.flatMap((fact) => fact.people));
+  const organizations = uniqueStrings(
+    sourceFacts.flatMap((fact) => fact.organizations),
+  );
 
   return {
-    actors,
     confidence: confidenceForFacts(sourceFacts),
-    date: "date" in primaryFact ? primaryFact.date : null,
-    dateText: "dateText" in primaryFact ? primaryFact.dateText : null,
-    isApproximateDate:
-      "isApproximateDate" in primaryFact ? primaryFact.isApproximateDate : false,
-    sortKey: sortKeyForFact(primaryFact),
+    date: primaryFact.date,
+    dateText: primaryFact.dateText,
+    isApproximateDate: primaryFact.isApproximateDate ?? false,
+    organizations,
+    people,
+    sortKey: chronologyFactSortKey(primaryFact),
     sourceFactIds: facts.map((fact) => fact.id),
     sources: facts.map(sourceFromFact),
-    summary,
-    title: titleForSummary(summary),
+    summary: primaryFact.summary,
+    title: titleForSummary(primaryFact.summary),
   };
 }
 
-function canIncludeDocumentDate(fact: ChronologyFact) {
-  return (
-    fact.factType === "document_date" &&
-    fact.dateRole !== "document_date" &&
-    Boolean(fact.date || fact.dateText)
-  );
-}
-
-function candidateEventFacts(facts: ChronologyCollapseInputFact[]) {
-  return facts.filter(({ fact }) => {
-    if (fact.factType === "dated_event" || fact.factType === "undated_event") {
-      return true;
-    }
-
-    return canIncludeDocumentDate(fact);
-  });
-}
-
-function shouldCollapseDated(
+function shouldCollapse(
   existing: CollapsedChronologyEventDraft,
   candidate: ChronologyCollapseInputFact,
 ) {
   const fact = candidate.fact;
-  if (fact.factType !== "dated_event" || existing.date !== fact.date) {
+
+  if (existing.date !== fact.date) {
     return false;
   }
 
-  const summarySimilarity = jaccardSimilarity(tokens(existing.summary), tokens(fact.eventSummary));
-  if (summarySimilarity >= 0.72) {
+  const summarySimilarity = jaccardSimilarity(tokens(existing.summary), tokens(fact.summary));
+  if (summarySimilarity >= 0.86) {
     return true;
   }
 
   const sourceSimilarity = Math.max(
     jaccardSimilarity(tokens(existing.summary), tokens(fact.sourceQuote)),
-    jaccardSimilarity(tokens(existing.sources.map((source) => source.sourceQuote).join(" ")), tokens(fact.eventSummary)),
+    jaccardSimilarity(
+      tokens(existing.sources.map((source) => source.sourceQuote).join(" ")),
+      tokens(fact.summary),
+    ),
   );
 
-  return summarySimilarity >= 0.45 && sourceSimilarity >= 0.35 && actorOverlap(existing.actors, fact.actors);
-}
-
-function shouldCollapseUndated(
-  existing: CollapsedChronologyEventDraft,
-  candidate: ChronologyCollapseInputFact,
-) {
-  const fact = candidate.fact;
-  if (fact.factType !== "undated_event" || existing.date !== null) {
-    return false;
-  }
-
-  return jaccardSimilarity(tokens(existing.summary), tokens(fact.eventSummary)) >= 0.86;
+  return (
+    Boolean(fact.date) &&
+    summarySimilarity >= 0.45 &&
+    sourceSimilarity >= 0.35 &&
+    peopleOverlap(existing.people, fact.people)
+  );
 }
 
 function mergeEvent(
   existing: CollapsedChronologyEventDraft,
   candidate: ChronologyCollapseInputFact,
 ): CollapsedChronologyEventDraft {
-  const mergedFacts = [...existing.sourceFactIds, candidate.id];
   const candidateFact = candidate.fact;
-  const candidateActors = "actors" in candidateFact ? candidateFact.actors : [];
   const confidence =
     CONFIDENCE_RANK[candidateFact.confidence] < CONFIDENCE_RANK[existing.confidence]
       ? candidateFact.confidence
@@ -217,9 +178,13 @@ function mergeEvent(
 
   return {
     ...existing,
-    actors: uniqueStrings([...existing.actors, ...candidateActors]),
     confidence,
-    sourceFactIds: mergedFacts,
+    organizations: uniqueStrings([
+      ...existing.organizations,
+      ...candidateFact.organizations,
+    ]),
+    people: uniqueStrings([...existing.people, ...candidateFact.people]),
+    sourceFactIds: [...existing.sourceFactIds, candidate.id],
     sources: [...existing.sources, sourceFromFact(candidate)],
   };
 }
@@ -229,10 +194,8 @@ export function collapseChronologyFacts(
 ): CollapsedChronologyEventDraft[] {
   const events: CollapsedChronologyEventDraft[] = [];
 
-  for (const fact of candidateEventFacts(facts)) {
-    const existingIndex = events.findIndex((event) =>
-      shouldCollapseDated(event, fact) || shouldCollapseUndated(event, fact),
-    );
+  for (const fact of facts) {
+    const existingIndex = events.findIndex((event) => shouldCollapse(event, fact));
 
     if (existingIndex >= 0) {
       events[existingIndex] = mergeEvent(events[existingIndex], fact);
@@ -246,3 +209,4 @@ export function collapseChronologyFacts(
     .filter((event) => event.sources.length > 0)
     .sort((left, right) => left.sortKey.localeCompare(right.sortKey));
 }
+

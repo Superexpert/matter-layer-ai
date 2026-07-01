@@ -3,12 +3,18 @@ export type AIProviderModel = {
   label: string;
 };
 
+export const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434";
+
 export type AIProviderRegistration = {
-  id: "openai" | "anthropic";
+  id: "openai" | "anthropic" | "ollama";
   name: string;
   defaultModel: string;
   models: AIProviderModel[];
-  apiKeyLabel: string;
+  apiKeyLabel?: string;
+  baseUrlLabel?: string;
+  defaultBaseUrl?: string;
+  supportsDynamicModels?: boolean;
+  requiresApiKey: boolean;
 };
 
 export const AI_PROVIDER_REGISTRY = [
@@ -31,6 +37,7 @@ export const AI_PROVIDER_REGISTRY = [
       },
     ],
     name: "OpenAI",
+    requiresApiKey: true,
   },
   {
     apiKeyLabel: "Anthropic API Key",
@@ -43,13 +50,28 @@ export const AI_PROVIDER_REGISTRY = [
       },
     ],
     name: "Anthropic",
+    requiresApiKey: true,
+  },
+  {
+    baseUrlLabel: "Ollama server URL",
+    defaultBaseUrl: OLLAMA_DEFAULT_BASE_URL,
+    defaultModel: "",
+    id: "ollama",
+    models: [],
+    name: "Ollama Local",
+    requiresApiKey: false,
+    supportsDynamicModels: true,
   },
 ] as const satisfies readonly AIProviderRegistration[];
 
 export type AIProviderId = (typeof AI_PROVIDER_REGISTRY)[number]["id"];
 
-export function getAIProviderRegistration(providerId: string) {
-  return AI_PROVIDER_REGISTRY.find((provider) => provider.id === providerId);
+export function getAIProviderRegistration(
+  providerId: string,
+): AIProviderRegistration | undefined {
+  return (AI_PROVIDER_REGISTRY as readonly AIProviderRegistration[]).find(
+    (provider) => provider.id === providerId,
+  );
 }
 
 export function isRegisteredAIProvider(
@@ -60,6 +82,10 @@ export function isRegisteredAIProvider(
 
 export function isRegisteredAIModel(providerId: string, modelId: string) {
   const provider = getAIProviderRegistration(providerId);
+
+  if (provider?.supportsDynamicModels) {
+    return modelId.trim().length > 0;
+  }
 
   return Boolean(provider?.models.some((model) => model.id === modelId));
 }
