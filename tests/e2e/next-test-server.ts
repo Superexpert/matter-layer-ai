@@ -200,7 +200,7 @@ export async function seedTestAISettings() {
     data: {
       apiKey: "test-openai-api-key",
       isActive: true,
-      model: "gpt-5",
+      model: "gpt-5.5",
       provider: "openai",
     },
   });

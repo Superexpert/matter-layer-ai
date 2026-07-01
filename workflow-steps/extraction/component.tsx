@@ -10,6 +10,11 @@ import {
 import type { ExtractionStepState } from "./server";
 import { suggestedActionForError } from "./errors";
 import { headingForOutputError, summaryForOutput } from "./display-copy";
+import type { WorkflowActivityEvent } from "@/services/workflows/workflow-activity-service";
+import type {
+  WorkflowStepProgress,
+  WorkflowStepProgressItem,
+} from "@/services/workflows/workflow-step-progress";
 
 type ExtractionStepComponentProps = {
   matterId: string;
@@ -33,6 +38,167 @@ type ExtractionStepComponentProps = {
   }) => Promise<ExtractionStepOutput>;
 };
 
+function progressItemLabel(item: WorkflowStepProgressItem | null | undefined) {
+  if (!item) {
+    return null;
+  }
+
+  if (item.status === "completed") {
+    return "Prepared";
+  }
+
+  if (item.status === "failed") {
+    return "Failed";
+  }
+
+  if (item.status === "running") {
+    if (item.phase === "extracting") {
+      return "Extracting facts";
+    }
+
+    if (item.phase === "converting") {
+      return "Converting";
+    }
+
+    return "Preparing";
+  }
+
+  if (item.status === "skipped") {
+    return "Skipped";
+  }
+
+  return "Waiting";
+}
+
+function progressBadgeClass(status: WorkflowStepProgressItem["status"]) {
+  if (status === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+
+  if (status === "failed") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+
+  if (status === "running") {
+    return "border-[#BCA9D4] bg-[#F3EEF8] text-[#4B3861]";
+  }
+
+  return "border-[#CFC5DA] bg-[#FBFAFC] text-[#4B3861]";
+}
+
+function progressBarWidth(progress: WorkflowStepProgress | null | undefined) {
+  if (typeof progress?.percentComplete === "number") {
+    return `${Math.min(100, Math.max(0, progress.percentComplete))}%`;
+  }
+
+  if (
+    typeof progress?.completedItems === "number" &&
+    typeof progress.totalItems === "number" &&
+    progress.totalItems > 0
+  ) {
+    return `${Math.round((progress.completedItems / progress.totalItems) * 100)}%`;
+  }
+
+  return "35%";
+}
+
+function activeProgressPosition(progress: WorkflowStepProgress | null | undefined) {
+  const currentItemId = progress?.currentItemId;
+  const items = progress?.items ?? [];
+
+  if (!currentItemId || items.length === 0) {
+    return null;
+  }
+
+  const currentIndex = items.findIndex((item) => item.id === currentItemId);
+
+  if (currentIndex < 0) {
+    return null;
+  }
+
+  return {
+    current: currentIndex + 1,
+    total: items.length,
+  };
+}
+
+function activityLevelClass(level: WorkflowActivityEvent["level"]) {
+  if (level === "error") {
+    return "text-red-700";
+  }
+
+  if (level === "warning") {
+    return "text-amber-700";
+  }
+
+  if (level === "success") {
+    return "text-emerald-700";
+  }
+
+  if (level === "debug") {
+    return "text-[#74677F]";
+  }
+
+  return "text-[#211B27]";
+}
+
+function formatActivityTimestamp(timestamp: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function debugWorkflowActivityUi(message: string, metadata: Record<string, unknown> = {}) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.info(`[workflow:activity-ui] ${message}`, metadata);
+}
+
+function localRunningOutput(input: {
+  documents: ExtractionStepState["documents"];
+  profile: ExtractionStepOutput["profile"];
+  workflowRunId: string;
+}): ExtractionStepOutput {
+  return {
+    chronologyArtifactId: null,
+    collapsedEventCount: 0,
+    collapsedEvents: [],
+    error: null,
+    extractedFactCount: 0,
+    extractionRunId: `local-running-${input.workflowRunId}`,
+    extractionWindowCount: 0,
+    facts: [],
+    factsByType: {},
+    failedDocumentIds: [],
+    failedRepresentationCount: 0,
+    preparedDocumentIds: [],
+    profile: input.profile,
+    progress: {
+      completedItems: 0,
+      items: input.documents.map((document) => ({
+        id: document.id,
+        label: document.fileName,
+        message: "Waiting to prepare",
+        phase: "queued",
+        percentComplete: 0,
+        status: "waiting",
+      })),
+      message: "Preparing selected documents...",
+      percentComplete: 0,
+      status: "running",
+      totalItems: input.documents.length,
+    },
+    readyRepresentationCount: 0,
+    schemaVersion: 1,
+    selectedMatterDocumentIds: input.documents.map((document) => document.id),
+    status: "running",
+  };
+}
+
 export function ExtractionStepComponent({
   loadStepState,
   matterId,
@@ -51,8 +217,12 @@ export function ExtractionStepComponent({
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [sawRunningOutput, setSawRunningOutput] = useState(false);
+  const [lastActivityPoll, setLastActivityPoll] = useState<string | null>(null);
+  const [emptyActivityPollCount, setEmptyActivityPollCount] = useState(0);
   const autorunStartedKeyRef = useRef<string | null>(null);
   const autorunAdvancedRunIdRef = useRef<string | null>(null);
+  const activityEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let isCurrent = true;
@@ -73,6 +243,14 @@ export function ExtractionStepComponent({
 
         if (isCurrent) {
           setState(nextState);
+          if (nextState.latestOutput?.status === "running") {
+            setSawRunningOutput(true);
+            if (nextState.activityEvents.length > 0) {
+              setEmptyActivityPollCount(0);
+            }
+          } else {
+            setEmptyActivityPollCount(0);
+          }
         }
       } catch (error) {
         if (isCurrent) {
@@ -99,6 +277,24 @@ export function ExtractionStepComponent({
   const prepareDocuments = useCallback(async (executionMode: "autorun" | "manual" = "manual") => {
     setIsRunning(true);
     setErrorMessage("");
+    setSawRunningOutput(true);
+    setEmptyActivityPollCount(0);
+    const currentDocuments = state?.documents ?? [];
+
+    if (currentDocuments.length > 0) {
+      setState((currentState) =>
+        currentState
+          ? {
+              ...currentState,
+              latestOutput: localRunningOutput({
+                documents: currentDocuments,
+                profile: config.profile,
+                workflowRunId,
+              }),
+            }
+          : currentState,
+      );
+    }
 
     try {
       const output = await runStep({
@@ -115,13 +311,30 @@ export function ExtractionStepComponent({
         workflowRunId,
       });
 
-      setState({
-        ...nextState,
-        latestOutput: output,
+      setState((currentState) => {
+        const currentOutput = currentState?.latestOutput;
+
+        if (
+          currentOutput?.status === "completed" ||
+          currentOutput?.status === "failed" ||
+          currentOutput?.status === "partial_failed"
+        ) {
+          return currentState;
+        }
+
+        return {
+          ...nextState,
+          latestOutput: nextState.latestOutput ?? output,
+        };
       });
+      if (nextState.latestOutput?.status !== "running" || nextState.activityEvents.length > 0) {
+        setEmptyActivityPollCount(0);
+      }
       if (executionMode === "autorun" && output.status === "completed") {
         autorunAdvancedRunIdRef.current = output.extractionRunId;
-        onComplete(output);
+        window.setTimeout(() => {
+          onComplete(output);
+        }, 700);
       }
 
     } catch (error) {
@@ -134,19 +347,37 @@ export function ExtractionStepComponent({
       setIsRunning(false);
     }
   }, [
+    config.profile,
     loadStepState,
     matterId,
     onComplete,
     runStep,
     step,
+    state?.documents,
     workflowDefinitionId,
     workflowRunId,
   ]);
 
   const latestOutput = state?.latestOutput ?? null;
+  const activityEvents = state?.activityEvents ?? [];
+  const progress = latestOutput?.progress ?? null;
+  const progressItemsByDocumentId = useMemo(() => {
+    return new Map(
+      (progress?.items ?? []).map((item) => [item.id, item]),
+    );
+  }, [progress?.items]);
+  const activeProgress = activeProgressPosition(progress);
   const outputError = latestOutput?.error ?? null;
   const suggestedAction = suggestedActionForError(outputError);
   const canContinue = latestOutput?.status === "completed";
+  const activityDiagnosticVisible =
+    latestOutput?.status === "running" &&
+    activityEvents.length === 0 &&
+    emptyActivityPollCount >= 6;
+  const isShowingCompletionHold =
+    step.autorun &&
+    latestOutput?.status === "completed" &&
+    sawRunningOutput;
   const shouldShowRunButton =
     !step.autorun ||
     latestOutput?.status === "failed" ||
@@ -160,7 +391,13 @@ export function ExtractionStepComponent({
     if (latestOutput?.status === "completed") {
       if (autorunAdvancedRunIdRef.current !== latestOutput.extractionRunId) {
         autorunAdvancedRunIdRef.current = latestOutput.extractionRunId;
-        onComplete(latestOutput);
+        if (sawRunningOutput) {
+          window.setTimeout(() => {
+            onComplete(latestOutput);
+          }, 700);
+        } else {
+          onComplete(latestOutput);
+        }
       }
 
       return;
@@ -188,6 +425,7 @@ export function ExtractionStepComponent({
     latestOutput,
     onComplete,
     prepareDocuments,
+    sawRunningOutput,
     state?.documents.length,
     step.autorun,
     step.id,
@@ -200,8 +438,18 @@ export function ExtractionStepComponent({
     }
 
     let isCurrent = true;
-    const timeoutId = window.setTimeout(async () => {
+    let isPolling = false;
+    const pollRunningStep = async () => {
+      if (isPolling) {
+        return;
+      }
+
+      isPolling = true;
       try {
+        debugWorkflowActivityUi("polling", {
+          stepId: step.id,
+          workflowRunId,
+        });
         const nextState = await loadStepState({
           matterId,
           step,
@@ -210,7 +458,24 @@ export function ExtractionStepComponent({
         });
 
         if (isCurrent) {
+          setLastActivityPoll(new Date().toISOString());
+          debugWorkflowActivityUi("received events", {
+            eventCount: nextState.activityEvents.length,
+            latestEvent: nextState.activityEvents.at(-1)?.code ?? null,
+            stepId: step.id,
+            workflowRunId,
+          });
           setState(nextState);
+          if (nextState.latestOutput?.status === "running") {
+            setSawRunningOutput(true);
+            if (nextState.activityEvents.length === 0) {
+              setEmptyActivityPollCount((currentCount) => currentCount + 1);
+            } else {
+              setEmptyActivityPollCount(0);
+            }
+          } else {
+            setEmptyActivityPollCount(0);
+          }
         }
       } catch (error) {
         if (isCurrent) {
@@ -220,12 +485,19 @@ export function ExtractionStepComponent({
               : "Matter Layer could not refresh the extraction step.",
           );
         }
+      } finally {
+        isPolling = false;
       }
-    }, 1500);
+    };
+    const intervalId = window.setInterval(() => {
+      void pollRunningStep();
+    }, 750);
+
+    void pollRunningStep();
 
     return () => {
       isCurrent = false;
-      window.clearTimeout(timeoutId);
+      window.clearInterval(intervalId);
     };
   }, [
     latestOutput?.status,
@@ -235,6 +507,16 @@ export function ExtractionStepComponent({
     workflowDefinitionId,
     workflowRunId,
   ]);
+
+  useEffect(() => {
+    if (latestOutput?.status !== "running") {
+      return;
+    }
+
+    activityEndRef.current?.scrollIntoView({
+      block: "nearest",
+    });
+  }, [activityEvents.length, latestOutput?.status]);
 
   return (
     <section className="grid gap-5" data-testid="extraction-step">
@@ -266,32 +548,60 @@ export function ExtractionStepComponent({
           </p>
         ) : state?.documents.length ? (
           <div className="mt-4 grid gap-2" data-testid="extraction-document-list">
-            {state.documents.map((document) => (
-              <div
-                className="rounded-lg border border-[#E3DEEA] bg-white p-3"
-                data-testid={`extraction-document-${document.id}`}
-                key={document.id}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-[#211B27]">
-                      {document.fileName}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-[#74677F]">
-                      {document.mimeType}
-                    </p>
+            {state.documents.map((document) => {
+              const progressItem = progressItemsByDocumentId.get(document.id);
+              const documentStatusLabel =
+                progressItemLabel(progressItem) ??
+                (step.autorun ? "Queued" : document.representationStatus);
+              const documentMessage =
+                progressItem?.error?.userMessage ??
+                progressItem?.message ??
+                document.error ??
+                (step.autorun ? "Waiting to prepare" : null);
+
+              return (
+                <div
+                  className="rounded-lg border border-[#E3DEEA] bg-white p-3"
+                  data-testid={`extraction-document-${document.id}`}
+                  key={document.id}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-[#211B27]">
+                        {document.fileName}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-[#74677F]">
+                        {document.mimeType}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${progressItem ? progressBadgeClass(progressItem.status) : "border-[#CFC5DA] bg-[#FBFAFC] text-[#4B3861]"}`}
+                      data-testid={`extraction-document-status-${document.id}`}
+                    >
+                      {documentStatusLabel}
+                    </span>
                   </div>
-                  <span className="rounded-full border border-[#CFC5DA] bg-[#FBFAFC] px-2 py-1 text-xs font-semibold text-[#4B3861]">
-                    {document.representationStatus}
-                  </span>
+                  {documentMessage ? (
+                    <p
+                      className={`mt-2 text-sm leading-5 ${progressItem?.status === "failed" || document.error ? "text-red-700" : "text-[#74677F]"}`}
+                      data-testid={`extraction-document-message-${document.id}`}
+                    >
+                      {documentMessage}
+                    </p>
+                  ) : null}
+                  {progressItem?.status === "running" ? (
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#E3DEEA]">
+                      <div
+                        className="h-full rounded-full bg-[#5F4B76] transition-all animate-pulse"
+                        style={{
+                          width: `${progressItem.percentComplete ?? 35}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
-                {document.error ? (
-                  <p className="mt-2 text-sm leading-5 text-red-700">
-                    {document.error}
-                  </p>
-                ) : null}
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p
@@ -311,10 +621,55 @@ export function ExtractionStepComponent({
           Preparation status
         </h3>
         <p className="mt-2 text-sm leading-6 text-[#74677F]">
-          {isRunning || (step.autorun && !latestOutput)
+          {isShowingCompletionHold
+            ? "All documents prepared. Moving to Review chronology..."
+            : isRunning || (step.autorun && !latestOutput)
             ? "Preparing selected documents..."
             : summaryForOutput(latestOutput)}
         </p>
+        {progress?.currentItemLabel ? (
+          <div
+            className="mt-3 rounded-lg border border-[#E3DEEA] bg-white px-4 py-3"
+            data-testid="extraction-active-document"
+          >
+            <p className="text-sm font-semibold text-[#211B27]">
+              {activeProgress
+                ? `Processing ${activeProgress.current} of ${activeProgress.total}: ${progress.currentItemLabel}`
+                : `Processing: ${progress.currentItemLabel}`}
+            </p>
+            {progress.currentItemMessage ? (
+              <p className="mt-1 text-sm leading-5 text-[#74677F]">
+                {progress.currentItemMessage}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {progress || isRunning || (step.autorun && !latestOutput) ? (
+          <div className="mt-3" data-testid="extraction-global-progress">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs leading-5 text-[#74677F]">
+              <span>
+                {typeof progress?.completedItems === "number" &&
+                typeof progress.totalItems === "number"
+                  ? `${progress.completedItems} of ${progress.totalItems} documents processed`
+                  : "Preparing documents"}
+              </span>
+              {progress?.currentItemLabel ? (
+                <span className="truncate">
+                  Current: {progress.currentItemLabel}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E3DEEA]">
+              <div
+                className="h-full rounded-full bg-[#5F4B76] transition-all"
+                data-testid="extraction-global-progress-bar"
+                style={{
+                  width: progressBarWidth(progress),
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
         {outputError ? (
           <div
             className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950"
@@ -361,6 +716,76 @@ export function ExtractionStepComponent({
             ) : null}
           </div>
         ) : null}
+        <div
+          className="mt-4 rounded-lg border border-[#E3DEEA] bg-white"
+          data-testid="extraction-activity-log"
+        >
+          <div className="border-b border-[#E3DEEA] px-4 py-3">
+            <h4 className="text-sm font-semibold text-[#211B27]">
+              Activity
+            </h4>
+          </div>
+          <div className="max-h-64 overflow-y-auto px-4 py-3">
+            {activityEvents.length ? (
+              <ol className="grid gap-2">
+                {activityEvents.map((event) => (
+                  <li
+                    className="grid grid-cols-[4.75rem_1fr] gap-3 text-xs leading-5"
+                    data-testid={`extraction-activity-${event.code}`}
+                    key={event.id}
+                  >
+                    <time className="text-[#74677F]">
+                      {formatActivityTimestamp(event.timestamp)}
+                    </time>
+                    <span className={activityLevelClass(event.level)}>
+                      {event.message}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="grid gap-2">
+                <p className="text-sm leading-6 text-[#74677F]">
+                  Waiting for workflow activity...
+                </p>
+                {activityDiagnosticVisible ? (
+                  <div
+                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"
+                    data-testid="extraction-activity-diagnostic"
+                  >
+                    <p className="font-semibold">
+                      Matter Layer thinks this step is running, but no activity events have been received yet.
+                    </p>
+                    <p className="mt-1">
+                      This usually means the step is blocked before emitting activity, or the activity polling endpoint is not returning events.
+                    </p>
+                    {process.env.NODE_ENV === "development" ? (
+                      <dl className="mt-2 grid gap-1">
+                        <div>
+                          <dt className="inline font-semibold">workflowRunId: </dt>
+                          <dd className="inline">{workflowRunId}</dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-semibold">stepId: </dt>
+                          <dd className="inline">{step.id}</dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-semibold">last poll: </dt>
+                          <dd className="inline">{lastActivityPoll ?? "not yet"}</dd>
+                        </div>
+                        <div>
+                          <dt className="inline font-semibold">activity events returned: </dt>
+                          <dd className="inline">0</dd>
+                        </div>
+                      </dl>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <div ref={activityEndRef} />
+          </div>
+        </div>
       </div>
 
       {errorMessage ? (

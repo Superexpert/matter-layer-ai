@@ -3,6 +3,7 @@ import type {
   ChronologyFactOutput,
 } from "./profiles/chronology/postprocess";
 import type { WorkflowStepError } from "@/services/workflows/workflow-step-errors";
+import type { WorkflowStepProgress } from "@/services/workflows/workflow-step-progress";
 
 export const EXTRACTION_REPRESENTATION_TYPES = ["MARKDOWN"] as const;
 export const EXTRACTION_PROFILES = ["chronology"] as const;
@@ -37,6 +38,7 @@ export type ExtractionStepOutput = {
   failedRepresentationCount: number;
   preparedDocumentIds: string[];
   profile: ExtractionProfile;
+  progress: WorkflowStepProgress | null;
   readyRepresentationCount: number;
   schemaVersion: 1;
   selectedMatterDocumentIds: string[];

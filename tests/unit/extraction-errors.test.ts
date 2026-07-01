@@ -24,6 +24,7 @@ function outputWith(input: Partial<ExtractionStepOutput>): ExtractionStepOutput 
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
     profile: "chronology",
+    progress: null,
     readyRepresentationCount: 0,
     schemaVersion: 1,
     selectedMatterDocumentIds: [],
@@ -119,7 +120,9 @@ describe("extraction step errors", () => {
       userMessage:
         "Some selected documents were prepared, but one or more files could not be converted into AI-readable Markdown.",
     });
-    expect(summaryForOutput(output)).toBe("Some documents could not be prepared.");
+    expect(summaryForOutput(output)).toBe(
+      "Some selected documents were prepared, but one or more files could not be converted into AI-readable Markdown.",
+    );
   });
 
   it("does not expose raw provider errors as user-facing text", () => {
@@ -135,6 +138,35 @@ describe("extraction step errors", () => {
     expect(error.userMessage).not.toContain("service.ts");
     expect(error.userMessage).not.toContain(" at ");
     expect(summaryForOutput(output)).toBe(error.userMessage);
+  });
+
+  it("surfaces classified AI provider errors with safe user-facing text", () => {
+    const error = extractionStepErrorForDocuments({
+      documentErrors: [
+        {
+          code: "AI_PROVIDER_BILLING_REQUIRED",
+          fileName: "report.pdf",
+          matterDocumentId: "doc_ai_failed",
+          message: "Window 1 for report.pdf: insufficient_quota",
+          userMessage:
+            "The configured AI provider account appears to need billing, credits, or quota attention before Matter Layer can continue.",
+        },
+      ],
+      partial: false,
+    });
+    const output = outputWith({
+      error,
+      failedDocumentIds: ["doc_ai_failed"],
+      status: "failed",
+    });
+
+    expect(error).toMatchObject({
+      code: "AI_PROVIDER_BILLING_REQUIRED",
+      userMessage:
+        "The configured AI provider account appears to need billing, credits, or quota attention before Matter Layer can continue.",
+    });
+    expect(summaryForOutput(output)).toBe(error?.userMessage);
+    expect(suggestedActionForError(error)).toContain("billing");
   });
 
   it("shows a running message for persisted autorun output", () => {

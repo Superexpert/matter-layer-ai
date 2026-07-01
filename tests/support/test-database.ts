@@ -45,6 +45,7 @@ export async function resetTestDatabase() {
   const prisma = new PrismaClient();
 
   try {
+    await prisma.workflowRunStepActivity.deleteMany();
     await prisma.workflowRunStepFile.deleteMany();
     await prisma.workflowRunStepOutput.deleteMany();
     await prisma.workflowExtractionRun.deleteMany();

@@ -81,6 +81,9 @@ export const extractionOutputSchema: WorkflowSchema = {
     profile: {
       type: "string",
     },
+    progress: {
+      type: ["object", "null"],
+    },
     readyRepresentationCount: {
       type: "integer",
     },
@@ -113,6 +116,7 @@ export const extractionOutputSchema: WorkflowSchema = {
     "failedRepresentationCount",
     "preparedDocumentIds",
     "profile",
+    "progress",
     "readyRepresentationCount",
     "schemaVersion",
     "selectedMatterDocumentIds",

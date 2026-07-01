@@ -4,6 +4,18 @@ import type {
 } from "@/services/workflows/workflow-step-errors";
 
 export const EXTRACTION_ERROR_ACTIONS: Record<string, string> = {
+  AI_PROVIDER_AUTH_FAILED:
+    "Ask an admin to update the configured AI provider API key or provider access.",
+  AI_PROVIDER_BILLING_REQUIRED:
+    "Ask an admin to check the configured AI provider account billing, credits, or quota.",
+  AI_PROVIDER_CONFIGURATION_FAILED:
+    "Ask an admin to review the configured AI provider and model settings.",
+  AI_PROVIDER_RATE_LIMITED:
+    "Try again shortly. If this continues, ask an admin to review AI provider rate limits.",
+  AI_PROVIDER_REQUEST_FAILED:
+    "Try running preparation again. If the problem continues, ask an admin to review the configured AI provider.",
+  AI_PROVIDER_TIMEOUT:
+    "Try running preparation again. If this continues, ask an admin to check AI provider availability.",
   DOCUMENT_ACCESS_DENIED:
     "Go back to Select source documents and choose documents from this matter.",
   DOCUMENT_NOT_FOUND:
@@ -86,28 +98,41 @@ export function extractionStepErrorForDocuments(input: {
     return null;
   }
 
-  if (input.partial) {
-    return {
-      code: "PARTIAL_DOCUMENT_PREPARATION_FAILED",
-      documentErrors: input.documentErrors,
-      message: "Some selected documents could not be prepared.",
-      userMessage:
-        "Some selected documents were prepared, but one or more files could not be converted into AI-readable Markdown.",
-    };
-  }
-
   const firstCode = input.documentErrors[0]?.code ?? "DOCUMENT_PREPARATION_FAILED";
   const commonCode = input.documentErrors.every((error) => error.code === firstCode)
     ? firstCode
     : "DOCUMENT_PREPARATION_FAILED";
+  const firstUserMessage = input.documentErrors[0]?.userMessage;
+
+  if (input.partial) {
+    return {
+      code: isAIProviderErrorCode(commonCode)
+        ? commonCode
+        : "PARTIAL_DOCUMENT_PREPARATION_FAILED",
+      documentErrors: input.documentErrors,
+      message: "Some selected documents could not be prepared.",
+      userMessage: isAIProviderErrorCode(commonCode) && firstUserMessage
+        ? firstUserMessage
+        : "Some selected documents were prepared, but one or more files could not be converted into AI-readable Markdown.",
+    };
+  }
+  const userMessage =
+    isAIProviderErrorCode(commonCode) && firstUserMessage
+      ? firstUserMessage
+      : commonCode === "EXTRACTION_PROVIDER_FAILED"
+      ? "Matter Layer prepared the documents, but the chronology extraction provider could not process one or more files."
+      : "Matter Layer could not prepare the selected documents because one or more files could not be converted into AI-readable Markdown.";
 
   return {
     code: commonCode,
     documentErrors: input.documentErrors,
     message: "One or more selected documents could not be prepared.",
-    userMessage:
-      "Matter Layer could not prepare the selected documents because one or more files could not be converted into AI-readable Markdown.",
+    userMessage,
   };
+}
+
+function isAIProviderErrorCode(code: string) {
+  return code.startsWith("AI_PROVIDER_");
 }
 
 export function extractionProviderError(message: string): WorkflowStepError {

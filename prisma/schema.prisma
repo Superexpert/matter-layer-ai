@@ -183,6 +183,7 @@ model WorkflowRun {
   artifacts            WorkflowArtifact[]
   artifactRevisions    WorkflowArtifactRevision[]
   extractionRuns       WorkflowExtractionRun[]
+  stepActivities       WorkflowRunStepActivity[]
   stepOutputs          WorkflowRunStepOutput[]
   selectedFiles        WorkflowRunStepFile[]
   createdAt            DateTime                   @default(now())
@@ -202,6 +203,27 @@ model WorkflowRunStepOutput {
 
   @@unique([workflowRunId, stepId])
   @@index([workflowRunId])
+}
+
+model WorkflowRunStepActivity {
+  id            String      @id @default(cuid())
+  workflowRunId String
+  stepId        String
+  level         String
+  code          String
+  message       String
+  documentId    String?
+  documentName  String?
+  metadataJson  Json?
+  workflowRun   WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@index([workflowRunId, stepId, createdAt])
+  @@index([workflowRunId])
+  @@index([stepId])
+  @@index([level])
+  @@index([code])
+  @@index([documentId])
 }
 
 model WorkflowExtractionRun {

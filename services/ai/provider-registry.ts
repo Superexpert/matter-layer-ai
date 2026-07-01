@@ -6,6 +6,7 @@ export type AIProviderModel = {
 export type AIProviderRegistration = {
   id: "openai" | "anthropic";
   name: string;
+  defaultModel: string;
   models: AIProviderModel[];
   apiKeyLabel: string;
 };
@@ -13,17 +14,27 @@ export type AIProviderRegistration = {
 export const AI_PROVIDER_REGISTRY = [
   {
     apiKeyLabel: "OpenAI API Key",
+    defaultModel: "gpt-5.5",
     id: "openai",
     models: [
       {
-        id: "gpt-5",
-        label: "GPT-5",
+        id: "gpt-5.5",
+        label: "GPT-5.5",
+      },
+      {
+        id: "gpt-5.5-mini",
+        label: "GPT-5.5 mini",
+      },
+      {
+        id: "gpt-5.4-mini",
+        label: "GPT-5.4 mini",
       },
     ],
     name: "OpenAI",
   },
   {
     apiKeyLabel: "Anthropic API Key",
+    defaultModel: "sonnet-4",
     id: "anthropic",
     models: [
       {

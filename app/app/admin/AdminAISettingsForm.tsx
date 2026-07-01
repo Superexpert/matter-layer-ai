@@ -27,6 +27,7 @@ export function AdminAISettingsForm({
     [providers, selectedProvider],
   );
   const models = selectedProviderRegistration?.models ?? [];
+  const defaultModel = selectedProviderRegistration?.defaultModel ?? models[0]?.id;
   const finalProviderRemaining = configs.length <= 1;
 
   return (
@@ -202,7 +203,7 @@ export function AdminAISettingsForm({
             <select
               className="mt-2 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950"
               data-testid="ai-model-select"
-              defaultValue={models[0]?.id}
+              defaultValue={defaultModel}
               id="aiModel"
               key={selectedProvider}
               name="aiModel"

@@ -1,5 +1,7 @@
 "use server";
 
+import { unstable_noStore as noStore } from "next/cache";
+
 import {
   createCustomWorkflow,
   deleteCustomWorkflow,
@@ -22,6 +24,14 @@ import {
   uploadMatterDocuments,
 } from "@/workflow-steps/file-selector/server";
 import type { FileSelectorStepConfig } from "@/workflow-steps/file-selector/schema";
+
+function workflowDebugLog(scope: "activity" | "autorun", message: string, metadata: Record<string, unknown> = {}) {
+  if (process.env.WORKFLOW_DEBUG !== "true" && process.env.WORKFLOW_DEBUG !== "1") {
+    return;
+  }
+
+  console.info(`[workflow:${scope}] ${message}`, metadata);
+}
 
 export async function saveCustomWorkflowAction(workflow: WorkflowDefinition) {
   const currentUser = await requireCurrentUser();
@@ -91,9 +101,22 @@ export async function loadExtractionStepStateAction(input: {
   workflowDefinitionId: string;
   workflowRunId: string;
 }) {
+  noStore();
   await requireCurrentUser();
 
-  return loadExtractionStepState(input);
+  workflowDebugLog("activity", "Fetching activity", {
+    stepId: input.step.id,
+    workflowRunId: input.workflowRunId,
+  });
+  const state = await loadExtractionStepState(input);
+  workflowDebugLog("activity", "Returned activity events", {
+    eventCount: state.activityEvents.length,
+    latestEvent: state.activityEvents.at(-1)?.code ?? null,
+    stepId: input.step.id,
+    workflowRunId: input.workflowRunId,
+  });
+
+  return state;
 }
 
 export async function runExtractionStepAction(input: {
@@ -103,9 +126,33 @@ export async function runExtractionStepAction(input: {
   workflowDefinitionId: string;
   workflowRunId: string;
 }) {
+  noStore();
   await requireCurrentUser();
 
-  return runExtractionStep(input);
+  workflowDebugLog("autorun", "Server execution requested", {
+    autorun: input.step.autorun === true,
+    executionMode: input.executionMode ?? "manual",
+    stepId: input.step.id,
+    workflowRunId: input.workflowRunId,
+  });
+
+  try {
+    const output = await runExtractionStep(input);
+    workflowDebugLog("autorun", "Server execution returned", {
+      status: output.status,
+      stepId: input.step.id,
+      workflowRunId: input.workflowRunId,
+    });
+
+    return output;
+  } catch (error) {
+    console.error("[workflow:autorun] Server execution failed", {
+      error,
+      stepId: input.step.id,
+      workflowRunId: input.workflowRunId,
+    });
+    throw error;
+  }
 }
 
 export async function loadDocumentEditorStepStateAction(input: {

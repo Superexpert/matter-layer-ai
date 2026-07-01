@@ -13,10 +13,17 @@ import { uploadMatterDocuments } from "../../workflow-steps/file-selector/server
 import {
   loadExtractionStepState,
   runExtractionStep,
+  type RunExtractionStepInput,
 } from "../../workflow-steps/extraction/server";
 import { extractionStep as registeredExtractionStep } from "../../workflow-steps/extraction/definition";
 
 const prisma = new PrismaClient();
+
+type MockAIService = NonNullable<RunExtractionStepInput["aiService"]> & {
+  readonly callCount: number;
+};
+type MockGenerateTextRequest = Parameters<MockAIService["generateText"]>[0];
+type MockGenerateTextResponse = Awaited<ReturnType<MockAIService["generateText"]>>;
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -58,6 +65,13 @@ async function cleanupMatter(matterId: string) {
   await prisma.workflowArtifact.deleteMany({
     where: {
       matterId,
+    },
+  });
+  await prisma.workflowRunStepActivity.deleteMany({
+    where: {
+      workflowRun: {
+        matterId,
+      },
     },
   });
   await prisma.workflowRunStepFile.deleteMany({
@@ -206,69 +220,110 @@ function promptField(prompt: string, fieldName: string) {
 }
 
 function mockChronologyAI(options?: {
+  delayMs?: number;
   failFirstCall?: boolean;
   invalidJson?: boolean;
-}) {
+  neverResolveFirstCall?: boolean;
+  onCallFinished?: (callNumber: number) => void;
+  onCallStarted?: (callNumber: number) => void;
+}): MockAIService {
   let callCount = 0;
 
   return {
     get callCount() {
       return callCount;
     },
-    generateText: async (request: { messages: Array<{ content: string }> }) => {
+    generateText: async (
+      request: MockGenerateTextRequest,
+    ): Promise<MockGenerateTextResponse> => {
       callCount += 1;
+      const callNumber = callCount;
+      options?.onCallStarted?.(callNumber);
 
-      if (options?.failFirstCall && callCount === 1) {
-        throw new Error("Mock AI window failure.");
-      }
+      try {
+        if (options?.delayMs) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, options.delayMs);
+          });
+        }
 
-      if (options?.invalidJson) {
+        if (options?.failFirstCall && callNumber === 1) {
+          throw new Error("Mock AI window failure.");
+        }
+
+        if (options?.neverResolveFirstCall && callNumber === 1) {
+          return new Promise<MockGenerateTextResponse>(() => {});
+        }
+
+        if (options?.invalidJson) {
+          return {
+            content: "not json",
+            model: "mock-model",
+            provider: "mock",
+          };
+        }
+
+        const prompt = request.messages.at(-1)?.content ?? "";
+        const sourceDocumentId = promptField(prompt, "matterDocumentId");
+        const sourceFileName = promptField(prompt, "sourceFileName");
+        const hasPageTwo = prompt.includes('<!-- ml:page {"page":2} -->');
+
         return {
-          content: "not json",
+          content: JSON.stringify({
+            facts: [
+              {
+                actors: ["Officer Smith", "Defendant"],
+                confidence: "high",
+                date: "2024-01-12",
+                dateText: "January 12, 2024",
+                eventSummary: `Chronology fact from ${sourceFileName}.`,
+                factType: "dated_event",
+                isApproximateDate: false,
+                sourceDocumentId,
+                sourceFileName,
+                sourcePages: hasPageTwo ? [1, 2] : [],
+                sourceQuote: hasPageTwo ? "First page text Second page text" : "Chronology text notes.",
+              },
+              {
+                aliases: [],
+                confidence: "medium",
+                factType: "person",
+                name: "Officer Smith",
+                role: "officer",
+                sourceDocumentId,
+                sourceFileName,
+                sourcePages: hasPageTwo ? [1] : [],
+                sourceQuote: "Officer Smith",
+              },
+            ],
+          }),
           model: "mock-model",
           provider: "mock",
         };
+      } finally {
+        options?.onCallFinished?.(callNumber);
       }
-
-      const prompt = request.messages.at(-1)?.content ?? "";
-      const sourceDocumentId = promptField(prompt, "matterDocumentId");
-      const sourceFileName = promptField(prompt, "sourceFileName");
-      const hasPageTwo = prompt.includes('<!-- ml:page {"page":2} -->');
-
-      return {
-        content: JSON.stringify({
-          facts: [
-            {
-              actors: ["Officer Smith", "Defendant"],
-              confidence: "high",
-              date: "2024-01-12",
-              dateText: "January 12, 2024",
-              eventSummary: `Chronology fact from ${sourceFileName}.`,
-              factType: "dated_event",
-              isApproximateDate: false,
-              sourceDocumentId,
-              sourceFileName,
-              sourcePages: hasPageTwo ? [1, 2] : [],
-              sourceQuote: hasPageTwo ? "First page text Second page text" : "Chronology text notes.",
-            },
-            {
-              aliases: [],
-              confidence: "medium",
-              factType: "person",
-              name: "Officer Smith",
-              role: "officer",
-              sourceDocumentId,
-              sourceFileName,
-              sourcePages: hasPageTwo ? [1] : [],
-              sourceQuote: "Officer Smith",
-            },
-          ],
-        }),
-        model: "mock-model",
-        provider: "mock",
-      };
     },
   };
+}
+
+async function waitForCondition(
+  predicate: () => Promise<boolean>,
+  timeoutMs = 3000,
+) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await predicate()) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+  }
+
+  throw new Error("Timed out waiting for condition.");
 }
 
 test("extraction step is registered", () => {
@@ -279,6 +334,105 @@ test("extraction step is registered", () => {
   expect(registeredExtractionStep.parameterSchema.required).toContain(
     "inputStepId",
   );
+});
+
+test("autorun starts extraction in the background and exposes activity for the active step", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `autorun-observability-${Date.now()}`;
+  const autorunExtractionStep: WorkflowStepDefinition = {
+    ...extractionStep,
+    autorun: true,
+  };
+
+  try {
+    const textDocument = await uploadFixture({
+      bytes: Buffer.from("Chronology text notes."),
+      fileName: "notes.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [textDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockChronologyAI(),
+      executionMode: "autorun",
+      matterId: matter.id,
+      step: autorunExtractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(output.status).toBe("running");
+
+    await waitForCondition(async () => {
+      const startedEvent = await prisma.workflowRunStepActivity.findFirst({
+        where: {
+          code: "chronology.prepare.started",
+          stepId: autorunExtractionStep.id,
+          workflowRunId,
+        },
+      });
+
+      return Boolean(startedEvent);
+    });
+
+    const activityEvents = await prisma.workflowRunStepActivity.findMany({
+      orderBy: {
+        createdAt: "asc",
+      },
+      where: {
+        stepId: autorunExtractionStep.id,
+        workflowRunId,
+      },
+    });
+
+    expect(activityEvents[0]).toMatchObject({
+      code: "chronology.prepare.started",
+      stepId: autorunExtractionStep.id,
+      workflowRunId,
+    });
+
+    const state = await loadExtractionStepState({
+      matterId: matter.id,
+      step: autorunExtractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(state.activityEvents.map((event) => event.code)).toContain(
+      "chronology.prepare.started",
+    );
+
+    await waitForCondition(async () => {
+      const latestOutput = await prisma.workflowRunStepOutput.findUnique({
+        select: {
+          outputJson: true,
+        },
+        where: {
+          workflowRunId_stepId: {
+            stepId: autorunExtractionStep.id,
+            workflowRunId,
+          },
+        },
+      });
+
+      return (
+        typeof latestOutput?.outputJson === "object" &&
+        latestOutput.outputJson !== null &&
+        !Array.isArray(latestOutput.outputJson) &&
+        latestOutput.outputJson.status === "completed"
+      );
+    });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
 });
 
 test("extraction state does not surface stale pdfjs worker failures", async () => {
@@ -445,6 +599,38 @@ test("extraction step prepares TXT and PDF representations and persists output",
       sourceDocumentCount: 2,
     });
 
+    const activityEvents = await prisma.workflowRunStepActivity.findMany({
+      orderBy: {
+        createdAt: "asc",
+      },
+      where: {
+        stepId: extractionStep.id,
+        workflowRunId,
+      },
+    });
+    const activityCodes = activityEvents.map((event) => event.code);
+
+    expect(activityCodes).toContain("chronology.prepare.started");
+    expect(activityCodes).toContain("chronology.prepare.selected_documents_loaded");
+    expect(activityCodes.filter((code) => code === "chronology.prepare.document_started")).toHaveLength(2);
+    expect(activityCodes).toContain("chronology.prepare.representation_lookup_started");
+    expect(activityCodes).toContain("chronology.prepare.extraction_started");
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_started");
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_completed");
+    expect(activityCodes).toContain("chronology.prepare.extraction_completed");
+    expect(activityCodes).toContain("chronology.prepare.document_completed");
+    expect(activityCodes).toContain("chronology.prepare.completed");
+    expect(activityCodes).toContain("chronology.prepare.moving_to_review");
+    expect(
+      activityEvents.some((event) =>
+        event.message.includes("Extracted") &&
+        event.message.includes("candidate chronology facts"),
+      ),
+    ).toBe(true);
+    expect(
+      activityEvents.some((event) => event.documentName === "report.pdf"),
+    ).toBe(true);
+
     expect(output.facts).toHaveLength(4);
     expect(output.facts.map((fact) => fact.sourceDocumentId).sort()).toEqual(
       [pdfDocument.id, pdfDocument.id, textDocument.id, textDocument.id].sort(),
@@ -525,6 +711,76 @@ test("extraction step prepares TXT and PDF representations and persists output",
       representation.updatedAt.getTime(),
     )).toEqual(representationUpdatedAt);
   } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("chronology extraction runs documents with bounded parallelism and preserves selected order", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `parallel-extraction-run-${Date.now()}`;
+  const previousConcurrency =
+    process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
+  let activeCallCount = 0;
+  let maxActiveCallCount = 0;
+
+  process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY = "2";
+
+  try {
+    const firstDocument = await uploadFixture({
+      bytes: Buffer.from("Chronology text notes."),
+      fileName: "first-notes.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+    const secondDocument = await uploadFixture({
+      bytes: Buffer.from("Chronology text notes."),
+      fileName: "second-notes.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [firstDocument.id, secondDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockChronologyAI({
+        delayMs: 75,
+        onCallFinished: () => {
+          activeCallCount -= 1;
+        },
+        onCallStarted: () => {
+          activeCallCount += 1;
+          maxActiveCallCount = Math.max(maxActiveCallCount, activeCallCount);
+        },
+      }),
+      matterId: matter.id,
+      step: extractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(maxActiveCallCount).toBe(2);
+    expect(output.status).toBe("completed");
+    expect(output.facts.map((fact) => fact.sourceDocumentId)).toEqual([
+      firstDocument.id,
+      firstDocument.id,
+      secondDocument.id,
+      secondDocument.id,
+    ]);
+  } finally {
+    if (previousConcurrency) {
+      process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY =
+        previousConcurrency;
+    } else {
+      delete process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
+    }
+
     await cleanupMatter(matter.id);
   }
 });
@@ -637,6 +893,268 @@ test("failed AI windows produce partial and failed extraction runs", async () =>
   }
 });
 
+test("window extraction activity exposes per-window progress and failures", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `window-activity-extraction-run-${Date.now()}`;
+
+  try {
+    const textDocument = await uploadFixture({
+      bytes: Buffer.from([
+        '<!-- ml:page {"page":1} -->',
+        "Chronology text notes page one.\n".repeat(900),
+        '<!-- ml:page {"page":2} -->',
+        "Chronology text notes page two.\n".repeat(900),
+        '<!-- ml:page {"page":3} -->',
+        "Chronology text notes page three.\n".repeat(900),
+      ].join("\n")),
+      fileName: "long-notes.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [textDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockChronologyAI({
+        failFirstCall: true,
+      }),
+      matterId: matter.id,
+      step: extractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(output.status).toBe("partial_failed");
+    expect(output.extractionWindowCount).toBeGreaterThan(1);
+
+    const activityEvents = await prisma.workflowRunStepActivity.findMany({
+      orderBy: {
+        createdAt: "asc",
+      },
+      where: {
+        stepId: extractionStep.id,
+        workflowRunId,
+      },
+    });
+    const activityCodes = activityEvents.map((event) => event.code);
+    const startedWindow = activityEvents.find(
+      (event) => event.code === "chronology.prepare.extraction_window_started",
+    );
+    const failedWindow = activityEvents.find(
+      (event) => event.code === "chronology.prepare.extraction_window_failed",
+    );
+
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_started");
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_failed");
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_completed");
+    expect(startedWindow?.message).toContain("Window 1 of");
+    expect(startedWindow?.metadataJson).toMatchObject({
+      windowIndex: 1,
+    });
+    expect(failedWindow?.metadataJson).toMatchObject({
+      error: "Mock AI window failure.",
+      errorCode: "AI_PROVIDER_REQUEST_FAILED",
+      failedWindowCount: 1,
+      windowIndex: 1,
+    });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("hung AI window calls time out and persist failed output", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `window-timeout-extraction-run-${Date.now()}`;
+  const previousTimeout = process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS;
+  const previousHeartbeat = process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS;
+
+  process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS = "75";
+  process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS = "25";
+
+  try {
+    const textDocument = await uploadFixture({
+      bytes: Buffer.from("Chronology text notes."),
+      fileName: "notes.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [textDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockChronologyAI({
+        neverResolveFirstCall: true,
+      }),
+      matterId: matter.id,
+      step: extractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(output).toMatchObject({
+      extractedFactCount: 0,
+      status: "failed",
+    });
+    expect(output.error).toMatchObject({
+      code: "AI_PROVIDER_TIMEOUT",
+    });
+    expect(output.error?.userMessage).toContain("did not return a response in time");
+    expect(output.error?.documentErrors?.[0]?.message).toContain(
+      "AI provider did not return chronology extraction",
+    );
+
+    const activityEvents = await prisma.workflowRunStepActivity.findMany({
+      orderBy: {
+        createdAt: "asc",
+      },
+      where: {
+        stepId: extractionStep.id,
+        workflowRunId,
+      },
+    });
+    const activityCodes = activityEvents.map((event) => event.code);
+    const waitingWindow = activityEvents.find(
+      (event) => event.code === "chronology.prepare.extraction_window_waiting",
+    );
+    const failedWindow = activityEvents.find(
+      (event) => event.code === "chronology.prepare.extraction_window_failed",
+    );
+
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_started");
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_waiting");
+    expect(activityCodes).toContain("chronology.prepare.extraction_window_failed");
+    expect(waitingWindow?.message).toContain("Still waiting for the AI provider");
+    expect(waitingWindow?.metadataJson).toMatchObject({
+      timeoutMs: 75,
+      windowIndex: 1,
+    });
+    expect(failedWindow?.metadataJson).toMatchObject({
+      errorCode: "AI_PROVIDER_TIMEOUT",
+      windowIndex: 1,
+    });
+    expect(JSON.stringify(failedWindow?.metadataJson)).toContain(
+      "AI provider did not return chronology extraction",
+    );
+  } finally {
+    if (previousTimeout) {
+      process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS = previousTimeout;
+    } else {
+      delete process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS;
+    }
+
+    if (previousHeartbeat) {
+      process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS = previousHeartbeat;
+    } else {
+      delete process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS;
+    }
+
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("unexpected autorun extraction errors persist a failed output instead of stale running state", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `autorun-recovery-extraction-run-${Date.now()}`;
+  const autorunExtractionStep: WorkflowStepDefinition = {
+    ...extractionStep,
+    autorun: true,
+  };
+
+  try {
+    const textDocument = await uploadFixture({
+      bytes: Buffer.from("Chronology text notes."),
+      fileName: "notes.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [textDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockChronologyAI(),
+      executionMode: "autorun",
+      matterId: matter.id,
+      onProgress: () => {
+        throw new Error("Injected progress persistence failure.");
+      },
+      step: autorunExtractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(output.status).toBe("running");
+
+    await waitForCondition(async () => {
+      const latestOutput = await prisma.workflowRunStepOutput.findUnique({
+        select: {
+          outputJson: true,
+        },
+        where: {
+          workflowRunId_stepId: {
+            stepId: autorunExtractionStep.id,
+            workflowRunId,
+          },
+        },
+      });
+
+      return (
+        typeof latestOutput?.outputJson === "object" &&
+        latestOutput.outputJson !== null &&
+        !Array.isArray(latestOutput.outputJson) &&
+        latestOutput.outputJson.status === "failed"
+      );
+    });
+
+    const state = await loadExtractionStepState({
+      matterId: matter.id,
+      step: autorunExtractionStep,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+
+    expect(state.latestOutput).toMatchObject({
+      error: {
+        code: "INTERNAL_ERROR",
+      },
+      status: "failed",
+    });
+    expect(state.latestOutput?.progress?.status).toBe("failed");
+    expect(state.activityEvents.at(-1)).toMatchObject({
+      code: "chronology.prepare.failed",
+      level: "error",
+    });
+
+    const extractionRun = await prisma.workflowExtractionRun.findUniqueOrThrow({
+      where: {
+        id: state.latestOutput?.extractionRunId ?? "",
+      },
+    });
+
+    expect(extractionRun.status).toBe(WorkflowExtractionRunStatus.FAILED);
+    expect(extractionRun.error).toContain("Injected progress persistence failure.");
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
 test("extraction step stores structured errors for cross-matter selected document IDs", async () => {
   const { matter, user } = await createUserAndMatter();
   const otherMatter = await prisma.matter.create({
@@ -703,7 +1221,36 @@ test("extraction step stores structured errors for cross-matter selected documen
       schemaVersion: 1,
       status: "failed",
     });
-    expect(persistedOutput?.outputJson).toMatchObject(output);
+    expect(persistedOutput?.outputJson).toMatchObject({
+      error: {
+        code: "DOCUMENT_ACCESS_DENIED",
+      },
+      extractionRunId: output.extractionRunId,
+      failedDocumentIds: [otherDocument.id],
+      schemaVersion: 1,
+      status: "failed",
+    });
+    await expect(
+      prisma.workflowRunStepActivity.findMany({
+        orderBy: {
+          createdAt: "asc",
+        },
+        where: {
+          stepId: extractionStep.id,
+          workflowRunId,
+        },
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "chronology.prepare.started",
+        }),
+        expect.objectContaining({
+          code: "chronology.prepare.failed",
+          level: "error",
+        }),
+      ]),
+    );
   } finally {
     await cleanupMatter(matter.id);
     await cleanupMatter(otherMatter.id);

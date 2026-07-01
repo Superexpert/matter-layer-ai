@@ -19,6 +19,8 @@
     "test:e2e:reset-db": "dotenv -e .env.test.local -- tsx tests/e2e/reset-test-db.ts",
     "test:all": "npm run test && npm run test:e2e",
     "test:coverage": "NODE_OPTIONS='--conditions react-server' dotenv -e .env.test.local -- vitest run --coverage",
+    "db:nuke": "dotenv -e .env.local -- prisma db push --force-reset && npm run sync:workflows",
+    "db:nuke:test": "dotenv -e .env.test.local -- prisma db push --force-reset --skip-generate",
     "db:push": "dotenv -e .env.local -- prisma db push",
     "db:studio": "dotenv -e .env.local -- prisma studio",
     "sync:workflows": "dotenv -e .env.local -- tsx scripts/sync-workflows.ts"

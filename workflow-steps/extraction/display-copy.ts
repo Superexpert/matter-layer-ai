@@ -15,7 +15,7 @@ export function summaryForOutput(output: ExtractionStepOutput | null) {
 
   if (output.status === "partial_failed") {
     if (output.error?.documentErrors?.length) {
-      return "Some documents could not be prepared.";
+      return output.error.userMessage;
     }
 
     return output.error?.userMessage ??
