@@ -8,6 +8,10 @@ import {
   assertDocumentEditorStepOutput,
   normalizeDocumentEditorStepConfig,
 } from "../../workflow-steps/document-editor/schema";
+import {
+  docxFileNameFromTitle,
+  generateDocxBlobFromEditorJson,
+} from "../../workflow-steps/document-editor/docx-export";
 
 describe("document editor schema", () => {
   it("accepts valid config and applies defaults", () => {
@@ -92,5 +96,103 @@ describe("document editor Markdown conversion", () => {
     expect(markdown).toContain("**bold**");
     expect(markdown).toContain("* First source");
     expect(markdown).toContain("* Second source");
+  });
+});
+
+describe("document editor DOCX export", () => {
+  it("creates lawyer-friendly DOCX filenames", () => {
+    expect(docxFileNameFromTitle("Chronology.md")).toBe("Chronology.docx");
+    expect(docxFileNameFromTitle("Motion to Suppress")).toBe("Motion to Suppress.docx");
+    expect(docxFileNameFromTitle("Bad/File:Name?.md")).toBe("Bad File Name.docx");
+    expect(docxFileNameFromTitle("")).toBe("Matter Document.docx");
+  });
+
+  it("generates a DOCX blob from current TipTap content", async () => {
+    const blob = await generateDocxBlobFromEditorJson({
+      editorJson: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: {
+              level: 1,
+            },
+            content: [
+              {
+                type: "text",
+                text: "Chronology",
+              },
+            ],
+          },
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "Bold",
+                marks: [
+                  {
+                    type: "bold",
+                  },
+                ],
+              },
+              {
+                type: "text",
+                text: " and italic",
+                marks: [
+                  {
+                    type: "italic",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [
+                      {
+                        type: "text",
+                        text: "Bullet",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: "orderedList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [
+                      {
+                        type: "text",
+                        text: "Numbered",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      title: "Chronology.md",
+    });
+
+    expect(blob.type).toBe(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    expect(blob.size).toBeGreaterThan(1000);
   });
 });

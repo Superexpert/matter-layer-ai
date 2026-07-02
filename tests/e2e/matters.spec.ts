@@ -302,6 +302,9 @@ test("authenticated user can create a matter", async ({ page }) => {
       "Save changes",
     );
     await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Export DOCX",
+    );
+    await expect(page.getByTestId("documents-edit-view")).toContainText(
       "Back to Documents",
     );
     await expect(page.getByTestId("document-editor-content")).toContainText(

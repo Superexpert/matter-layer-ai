@@ -7,6 +7,7 @@ import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
+import { exportEditorContentToDocx } from "./docx-export";
 import { editorHtmlToMarkdown } from "./conversion";
 import {
   normalizeDocumentEditorStepConfig,
@@ -112,6 +113,7 @@ export function DocumentEditorSurface({
   unsavedStatusLabel,
 }: DocumentEditorSurfaceProps) {
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("unsaved");
   const [errorMessage, setErrorMessage] = useState("");
   const editor = useEditor({
@@ -191,6 +193,30 @@ export function DocumentEditorSurface({
       );
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function exportDocx() {
+    if (!editor) {
+      return;
+    }
+
+    setIsExporting(true);
+    setErrorMessage("");
+
+    try {
+      await exportEditorContentToDocx({
+        editorJson: JSON.parse(JSON.stringify(editor.getJSON())),
+        title,
+      });
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Could not export this document to Word. Please try again.",
+      );
+    } finally {
+      setIsExporting(false);
     }
   }
 
@@ -318,6 +344,17 @@ export function DocumentEditorSurface({
           type="button"
         >
           {isSaving ? "Saving..." : saveButtonLabel}
+        </button>
+        <button
+          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+          data-testid="document-editor-export-docx"
+          disabled={isLoading || isExporting || disabled || !editor}
+          onClick={() => {
+            void exportDocx();
+          }}
+          type="button"
+        >
+          {isExporting ? "Exporting..." : "Export DOCX"}
         </button>
         {toolbarFooterPosition === "afterSave" ? toolbarFooter : null}
       </div>
