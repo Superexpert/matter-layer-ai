@@ -19,6 +19,8 @@ describe("document editor schema", () => {
     ).toEqual({
       artifactOutputKey: "chronologyArtifactId",
       contentType: "MARKDOWN",
+      documentFileName: null,
+      documentTitle: null,
       editor: "tiptap",
       inputStepId: "extract-chronology",
       saveMode: "revision",
@@ -38,6 +40,7 @@ describe("document editor schema", () => {
       assertDocumentEditorStepOutput({
         reviewedArtifactId: "artifact_1",
         revisionId: "revision_1",
+        savedMatterDocumentId: "document_1",
         sourceArtifactId: "artifact_1",
         status: "completed",
       }),
@@ -47,6 +50,7 @@ describe("document editor schema", () => {
     expect(
       assertDocumentEditorStepOutput({
         artifactId: "artifact_1",
+        savedMatterDocumentId: "document_1",
         status: "completed",
       }),
     ).toMatchObject({
@@ -62,12 +66,17 @@ describe("document editor Markdown conversion", () => {
       "",
       "A **bold** paragraph.",
       "",
+      "Source: Incident Report, p. 1.",
+      "",
       "* First source",
       "* Second source",
     ].join("\n"));
 
     expect(html).toContain("<h1>Chronology</h1>");
     expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain(
+      '<p class="chronology-source" data-node-type="citation">Source: Incident Report, p. 1.</p>',
+    );
     expect(html).toContain("<ul>");
     expect(html).toContain("<li>First source</li>");
   });

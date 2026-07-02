@@ -6,6 +6,7 @@ import {
 } from "../../workflow-steps/extraction/profiles/chronology/chronology-artifact";
 import { collapseChronologyFacts } from "../../workflow-steps/extraction/profiles/chronology/collapse";
 import type { ChronologyFact } from "../../workflow-steps/extraction/profiles/chronology/schema";
+import { markdownToEditorHtml } from "../../workflow-steps/document-editor/conversion";
 
 function datedFact(overrides: Partial<ChronologyFact> = {}) {
   const date = overrides.date ?? "2024-01-12";
@@ -144,13 +145,36 @@ describe("chronology Markdown artifact", () => {
     expect(formatSourcePages([1, 3, 5])).toBe("pp. 1, 3, 5");
   });
 
-  it("includes every event source and omits unsourced events", () => {
+  it("groups dated events with inline citations and filters background facts", () => {
     const events = collapseChronologyFacts([
-      inputFact("fact_1", datedFact()),
+      inputFact("fact_1", datedFact({
+        date: null,
+        dateText: "01/14/2026|null",
+        sortDate: null,
+        sourceFileName: "02_Supplemental_Report_Officer_Benton.pdf",
+        sourceQuote:
+          "On 01/14/2026, I, Officer Tessa Benton (#6118), responded as backup to Officer Daniel Alvarez in the 1900 block of E. Riverside Dr.",
+        summary:
+          "Officer Tessa Benton responded as backup to Officer Daniel Alvarez at 1900 E. Riverside Dr. and observed Marcus Reed weaving over the fog line before a stop was initiated.",
+      })),
       inputFact("fact_2", datedFact({
+        date: null,
+        dateText: "01/14/2026|null",
+        sortDate: null,
         sourceDocumentId: "doc_2",
-        sourceFileName: "Deposition.pdf",
-        sourcePages: [17],
+        sourceFileName: "01_Incident_Report.pdf",
+        sourcePages: [3],
+        sourceQuote:
+          "On 01/14/2026 at approximately 2214 hours, Officer Alvarez was on routine patrol.",
+        summary:
+          "Officer Tessa Benton responded as backup to Officer Daniel Alvarez at 1900 E. Riverside Dr. and observed Marcus Reed weaving over the fog line before a stop was initiated.",
+      })),
+      inputFact("dob", datedFact({
+        date: "1991-08-22",
+        dateText: "August 22, 1991",
+        sortDate: "1991-08-22",
+        sourceFileName: "01_Incident_Report_Officer_Alvarez_V2.pdf",
+        summary: "Marcus Reed's date of birth is August 22, 1991.",
       })),
     ]);
     const markdown = generateChronologyMarkdown([
@@ -162,10 +186,96 @@ describe("chronology Markdown artifact", () => {
       },
     ]);
 
-    expect(markdown).toContain("# Chronology");
-    expect(markdown).toContain("Police Report.pdf, p. 1");
-    expect(markdown).toContain("Deposition.pdf, p. 17");
+    expect(markdown).toMatch(/^### January 14, 2026/);
+    expect(markdown).not.toContain("Chronology of Events");
+    expect(markdown).toContain("### January 14, 2026");
+    expect(markdown).not.toContain("Generated from selected matter documents.");
+    expect(markdown).not.toContain("Undated Events");
+    expect(markdown).not.toContain("**Officer Tessa Benton responded as backup");
+    expect(markdown).not.toContain("Sources:");
+    expect(markdown).not.toContain("* ");
+    expect(markdown).not.toContain("|");
+    expect(markdown).toContain(
+      "Officer Tessa Benton responded as backup to Officer Daniel Alvarez at 1900 E. Riverside Dr. and observed Marcus Reed weaving over the fog line before a stop was initiated.",
+    );
+    expect(markdown).toContain(
+      "Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.",
+    );
+    expect(markdown).not.toContain("02_Supplemental_Report_Officer_Benton.pdf");
+    expect(markdown).not.toContain("Marcus Reed's date of birth");
     expect(markdown).not.toContain("Unsupported unsourced event.");
+
+    const editorHtml = markdownToEditorHtml(markdown);
+    expect(editorHtml).toContain("<h3>January 14, 2026</h3>");
+    expect(editorHtml).toContain("<p>Officer Tessa Benton responded");
+    expect(editorHtml).toContain(
+      '<p class="chronology-source" data-node-type="citation">Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.</p>',
+    );
+    expect(editorHtml).not.toContain("<h1>");
+    expect(editorHtml).not.toContain("<h2>");
+    expect(editorHtml).not.toContain("<ul>");
+    expect(editorHtml).not.toContain("<table>");
+  });
+
+  it("sorts dated events by date and time when available", () => {
+    const markdown = generateChronologyMarkdown(collapseChronologyFacts([
+      inputFact("completed", datedFact({
+        date: "2026-01-15",
+        dateText: "January 15, 2026",
+        sortDate: "2026-01-15",
+        sourceFileName: "01_Incident_Report_Officer_Alvarez_V2.pdf",
+        summary: "The incident report was completed on January 15, 2026 at 12:18 AM.",
+      })),
+      inputFact("stop", datedFact({
+        date: "2026-01-14",
+        dateText: "January 14, 2026",
+        sortDate: "2026-01-14",
+        sourceFileName: "01_Incident_Report_Officer_Alvarez_V2.pdf",
+        summary: "Officer Alvarez initiated a traffic stop of Marcus Reed's vehicle due to a lane change violation.",
+      })),
+      inputFact("warning", datedFact({
+        date: "2026-01-14",
+        dateText: "January 14, 2026",
+        sortDate: "2026-01-14",
+        sourceFileName: "03_Warning_Citation_Unsafe_Lane_Movement.pdf",
+        summary:
+          "Officer Daniel Alvarez issued a written warning to Marcus Reed for unsafe lane movement on E. Riverside Dr. at 10:27 PM on January 14, 2026.",
+        timeText: "10:27 PM",
+      })),
+    ]));
+
+    expect(markdown.indexOf("### January 14, 2026")).toBeLessThan(
+      markdown.indexOf("### January 15, 2026"),
+    );
+    expect(markdown.indexOf("10:27 p.m.")).toBeLessThan(
+      markdown.indexOf("traffic stop"),
+    );
+    expect(markdown).toContain(
+      "Officer Daniel Alvarez issued a written warning to Marcus Reed for unsafe lane movement on E. Riverside Dr. at 10:27 p.m.",
+    );
+    expect(markdown).toContain("Source: Warning Citation Unsafe Lane Movement, p. 1.");
+    expect(markdown).toContain(
+      "The incident report was completed at 12:18 a.m.",
+    );
+    expect(markdown).toContain("Source: Incident Report Officer Alvarez V2, p. 1.");
+  });
+
+  it("places undated events after dated events only when present", () => {
+    const events = collapseChronologyFacts([
+      inputFact("undated", datedFact({
+        date: null,
+        dateText: null,
+        sortDate: null,
+        sourceFileName: "medical-records.pdf",
+        summary: "Plaintiff reported prior back pain.",
+      })),
+      inputFact("dated", datedFact()),
+    ]);
+    const markdown = generateChronologyMarkdown(events);
+
+    expect(markdown.indexOf("### January 12, 2024")).toBeLessThan(
+      markdown.indexOf("### Undated Events"),
+    );
+    expect(markdown).toContain("Source: Medical Records, p. 1.");
   });
 });
-

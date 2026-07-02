@@ -131,6 +131,7 @@ function eventDraftFromFacts(facts: ChronologyCollapseInputFact[]): CollapsedChr
     sourceFactIds: facts.map((fact) => fact.id),
     sources: facts.map(sourceFromFact),
     summary: primaryFact.summary,
+    timeText: primaryFact.timeText ?? null,
     title: titleForSummary(primaryFact.summary),
   };
 }
@@ -209,4 +210,3 @@ export function collapseChronologyFacts(
     .filter((event) => event.sources.length > 0)
     .sort((left, right) => left.sortKey.localeCompare(right.sortKey));
 }
-

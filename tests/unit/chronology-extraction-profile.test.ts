@@ -220,6 +220,52 @@ describe("chronology prompts and parser", () => {
     });
   });
 
+  it("normalizes model-emitted null fragments in date and time fields", () => {
+    const result = parseChronologyExtractionOutput(JSON.stringify({
+      facts: [
+        {
+          confidence: "high",
+          date: "null",
+          dateText: "01/14/2026|null",
+          people: ["Marcus Reed"],
+          sourceDocumentId: "doc_123",
+          sourceFileName: "Incident Report.pdf",
+          sourcePages: [1],
+          sourceQuote:
+            "On 01/14/2026 at approximately 2214 hours, Officer Alvarez was on routine patrol.",
+          summary:
+            "Officer Alvarez initiated a traffic stop of Marcus Reed's vehicle due to a lane change violation.",
+          timeText: "2214 hours|null",
+        },
+        {
+          confidence: "high",
+          date: "null",
+          dateText: "01/15/2026 12:18 AM|null",
+          people: [],
+          sourceDocumentId: "doc_123",
+          sourceFileName: "Incident Report.pdf",
+          sourcePages: [1],
+          sourceQuote: "Report Date / Time 01/15/2026 12:18 AM|null",
+          summary: "The incident report was completed on January 15, 2026, at 12:18 AM.",
+          timeText: "null|null",
+        },
+      ],
+    }));
+
+    expect(result.facts).toMatchObject([
+      {
+        date: "2026-01-14",
+        dateText: "01/14/2026",
+        timeText: "2214 hours",
+      },
+      {
+        date: "2026-01-15",
+        dateText: "01/15/2026 12:18 AM",
+        timeText: null,
+      },
+    ]);
+  });
+
   it("accepts Gemma-style role and dateRole values without enum failures", () => {
     const result = parseChronologyExtractionOutput(JSON.stringify({
       facts: [

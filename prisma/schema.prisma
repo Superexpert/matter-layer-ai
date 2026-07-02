@@ -19,6 +19,7 @@ enum WorkflowSource {
 
 enum MatterDocumentSourceType {
   upload
+  workflow_output
 }
 
 enum WorkflowRunStatus {

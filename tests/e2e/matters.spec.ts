@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { PrismaClient, WorkflowSource } from "@prisma/client";
+import {
+  MatterDocumentRepresentationStatus,
+  MatterDocumentRepresentationType,
+  MatterDocumentSourceType,
+  PrismaClient,
+  WorkflowSource,
+} from "@prisma/client";
 
 import {
   addTestAuthSession,
@@ -47,6 +53,54 @@ test("authenticated user can create a matter", async ({ page }) => {
     await page.getByTestId("create-matter-submit").click();
 
     await expect(page.getByTestId("matters-list")).toContainText(matterName);
+
+    const [createdMatter, currentUser] = await Promise.all([
+      prisma.matter.findFirstOrThrow({
+        where: {
+          name: matterName,
+        },
+      }),
+      prisma.user.findUniqueOrThrow({
+        where: {
+          email: "lawyer@smithlaw.com",
+        },
+      }),
+    ]);
+    const workProductDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "Chronology.md",
+        matterId: createdMatter.id,
+        mimeType: "text/markdown",
+        representations: {
+          create: {
+            content: "# Chronology",
+            metadataJson: {
+              source: "workflow_output",
+              stepId: "review-chronology",
+              workflowDefinitionId: "chronology",
+              workflowRunId: "documents-tab-action-test-run",
+            },
+            status: MatterDocumentRepresentationStatus.READY,
+            type: MatterDocumentRepresentationType.MARKDOWN,
+          },
+        },
+        size: 841,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: currentUser.id,
+      },
+    });
+    const sourceDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "01_Incident_Report_Officer_Alvarez_v2.pdf",
+        matterId: createdMatter.id,
+        mimeType: "application/pdf",
+        size: 3686,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: currentUser.id,
+      },
+    });
 
     await page.getByRole("link", { name: matterName }).click();
 
@@ -207,9 +261,54 @@ test("authenticated user can create a matter", async ({ page }) => {
       "aria-current",
       "page",
     );
-    await expect(page.getByTestId("documents-empty-state")).toContainText(
-      "Documents",
+    await expect(page.getByTestId("documents-work-product-section")).toContainText(
+      "Work Product",
     );
+    await expect(
+      page.getByTestId("documents-source-documents-section"),
+    ).toContainText("Source Documents");
+    const workProductCard = page.getByTestId(
+      `matter-document-${workProductDocument.id}`,
+    );
+    const sourceDocumentCard = page.getByTestId(
+      `matter-document-${sourceDocument.id}`,
+    );
+
+    await expect(workProductCard).toContainText("Chronology.md");
+    await expect(workProductCard).toContainText("Updated");
+    await expect(workProductCard).not.toContainText("841 B");
+    await expect(
+      page.getByTestId(`matter-document-edit-${workProductDocument.id}`),
+    ).toContainText("Edit");
+    await expect(
+      page.getByTestId(`matter-document-delete-${workProductDocument.id}`),
+    ).toContainText("Delete");
+    await expect(sourceDocumentCard).toContainText(
+      "01_Incident_Report_Officer_Alvarez_v2.pdf",
+    );
+    await expect(sourceDocumentCard).toContainText("Updated");
+    await expect(sourceDocumentCard).not.toContainText("3.6 KB");
+    await expect(
+      page.getByTestId(`matter-document-edit-${sourceDocument.id}`),
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId(`matter-document-delete-${sourceDocument.id}`),
+    ).toContainText("Delete");
+    await page.getByTestId(`matter-document-edit-${workProductDocument.id}`).click();
+    await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Chronology.md",
+    );
+    await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Save changes",
+    );
+    await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Back to Documents",
+    );
+    await expect(page.getByTestId("document-editor-content")).toContainText(
+      "Chronology",
+    );
+    await page.getByTestId("documents-edit-back").click();
+    await expect(page.getByTestId("documents-list")).toBeVisible();
 
     await page.getByTestId("matter-tab-workflows").click();
     await expect(page.getByTestId("matter-tab-workflows")).toHaveAttribute(

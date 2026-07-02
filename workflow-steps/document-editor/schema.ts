@@ -11,6 +11,8 @@ export type DocumentEditorSaveMode =
 export type DocumentEditorStepConfig = {
   artifactOutputKey: string;
   contentType: DocumentEditorContentType;
+  documentFileName: string | null;
+  documentTitle: string | null;
   editor: DocumentEditorEditor;
   inputStepId: string;
   saveMode: DocumentEditorSaveMode;
@@ -20,11 +22,13 @@ export type DocumentEditorStepOutput =
   | {
       reviewedArtifactId: string;
       revisionId: string;
+      savedMatterDocumentId: string;
       sourceArtifactId: string;
       status: "completed";
     }
   | {
       artifactId: string;
+      savedMatterDocumentId: string;
       status: "completed";
     };
 
@@ -74,6 +78,14 @@ export function normalizeDocumentEditorStepConfig(
       DOCUMENT_EDITOR_CONTENT_TYPES,
       "MARKDOWN",
     ),
+    documentFileName:
+      typeof rawConfig.documentFileName === "string" && rawConfig.documentFileName.trim()
+        ? rawConfig.documentFileName.trim()
+        : null,
+    documentTitle:
+      typeof rawConfig.documentTitle === "string" && rawConfig.documentTitle.trim()
+        ? rawConfig.documentTitle.trim()
+        : null,
     editor: enumValue(rawConfig.editor, "editor", DOCUMENT_EDITOR_EDITORS, "tiptap"),
     inputStepId: requireString(rawConfig.inputStepId, "inputStepId"),
     saveMode: enumValue(
@@ -95,22 +107,28 @@ export function assertDocumentEditorStepOutput(
   if (
     typeof value.sourceArtifactId === "string" &&
     typeof value.reviewedArtifactId === "string" &&
-    typeof value.revisionId === "string"
+    typeof value.revisionId === "string" &&
+    typeof value.savedMatterDocumentId === "string"
   ) {
     return {
       reviewedArtifactId: value.reviewedArtifactId,
       revisionId: value.revisionId,
+      savedMatterDocumentId: value.savedMatterDocumentId,
       sourceArtifactId: value.sourceArtifactId,
       status: "completed",
     };
   }
 
-  if (typeof value.artifactId === "string") {
+  if (
+    typeof value.artifactId === "string" &&
+    typeof value.savedMatterDocumentId === "string"
+  ) {
     return {
       artifactId: value.artifactId,
+      savedMatterDocumentId: value.savedMatterDocumentId,
       status: "completed",
     };
   }
 
-  throw new Error("Document editor step output must include artifact ids.");
+  throw new Error("Document editor step output must include artifact and matter document ids.");
 }

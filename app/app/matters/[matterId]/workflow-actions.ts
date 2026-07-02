@@ -3,9 +3,15 @@
 import { unstable_noStore as noStore } from "next/cache";
 
 import {
+  getEditableMatterDocument,
+  listMatterDocuments,
+  saveMatterDocumentEdits,
+} from "@/services/matter-documents/matter-document-service";
+import {
   createCustomWorkflow,
   deleteCustomWorkflow,
   duplicateWorkflow,
+  getWorkflowCatalogItem,
 } from "@/services/workflows/catalog-service";
 import { requireCurrentUser } from "@/services/users/user-service";
 import type { WorkflowDefinition } from "@/services/workflows/types";
@@ -48,6 +54,37 @@ export async function duplicateWorkflowAction(workflowId: string) {
 export async function deleteWorkflowAction(workflowId: string) {
   await requireCurrentUser();
   await deleteCustomWorkflow(workflowId);
+}
+
+export async function listMatterDocumentsAction(input: {
+  matterId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  return listMatterDocuments(input);
+}
+
+export async function getEditableMatterDocumentAction(input: {
+  matterDocumentId: string;
+  matterId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  return getEditableMatterDocument(input);
+}
+
+export async function saveMatterDocumentEditsAction(input: {
+  contentMarkdown: string;
+  editorJson?: unknown;
+  matterDocumentId: string;
+  matterId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  return saveMatterDocumentEdits(input);
 }
 
 export async function loadFileSelectorStepStateAction(input: {
@@ -171,14 +208,21 @@ export async function saveDocumentEditorArtifactAction(input: {
   contentMarkdown: string;
   editorJson?: unknown;
   matterId: string;
-  step: WorkflowStepDefinition;
+  stepId: string;
   workflowDefinitionId: string;
   workflowRunId: string;
 }) {
   const currentUser = await requireCurrentUser();
+  const workflow = await getWorkflowCatalogItem(input.workflowDefinitionId);
+  const step = workflow.steps.find((candidateStep) => candidateStep.id === input.stepId);
+
+  if (!step) {
+    throw new Error(`Workflow step was not found: ${input.stepId}`);
+  }
 
   return saveDocumentEditorArtifact({
     ...input,
+    step,
     userId: currentUser.id,
   });
 }

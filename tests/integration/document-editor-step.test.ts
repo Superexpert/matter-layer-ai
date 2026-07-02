@@ -1,6 +1,17 @@
-import { PrismaClient, WorkflowArtifactType } from "@prisma/client";
+import {
+  MatterDocumentRepresentationStatus,
+  MatterDocumentRepresentationType,
+  MatterDocumentSourceType,
+  PrismaClient,
+  WorkflowArtifactType,
+} from "@prisma/client";
 import { afterAll, expect, test } from "vitest";
 
+import {
+  getEditableMatterDocument,
+  listMatterDocuments,
+  saveMatterDocumentEdits,
+} from "../../services/matter-documents/matter-document-service";
 import type { WorkflowStepDefinition } from "../../services/workflows/types";
 import {
   loadDocumentEditorStepState,
@@ -22,6 +33,8 @@ const documentEditorStep: WorkflowStepDefinition = {
   parameters: {
     artifactOutputKey: "chronologyArtifactId",
     contentType: "MARKDOWN",
+    documentFileName: "Chronology.md",
+    documentTitle: "Chronology",
     editor: "tiptap",
     inputStepId: "extract-chronology",
     saveMode: "revision",
@@ -154,6 +167,8 @@ test("document editor loads artifact from previous step output and saves a revis
       workflowRunId,
     });
 
+    await expect(listMatterDocuments({ matterId: matter.id })).resolves.toEqual([]);
+
     expect(state).toMatchObject({
       artifactId: artifact.id,
       contentMarkdown: "# Chronology\n\nOriginal chronology.",
@@ -177,6 +192,7 @@ test("document editor loads artifact from previous step output and saves a revis
 
     expect(output).toMatchObject({
       reviewedArtifactId: artifact.id,
+      savedMatterDocumentId: expect.any(String),
       sourceArtifactId: artifact.id,
       status: "completed",
     });
@@ -200,15 +216,284 @@ test("document editor loads artifact from previous step output and saves a revis
         },
       },
     });
+    const savedMatterDocument = await prisma.matterDocument.findUniqueOrThrow({
+      include: {
+        content: true,
+        representations: true,
+      },
+      where: {
+        id: output.savedMatterDocumentId,
+      },
+    });
+    const listedDocuments = await listMatterDocuments({
+      matterId: matter.id,
+    });
+    const activityEvent = await prisma.workflowRunStepActivity.findFirstOrThrow({
+      where: {
+        code: "workflow_document_saved_to_matter",
+        documentId: output.savedMatterDocumentId,
+        stepId: documentEditorStep.id,
+        workflowRunId,
+      },
+    });
 
     expect(updatedArtifact.content).toBe("# Chronology\n\nOriginal chronology.");
     expect(updatedArtifact.currentRevisionId).toBe(revision.id);
     expect(revision.content).toBe("# Chronology\n\nReviewed chronology.");
+    expect(savedMatterDocument).toMatchObject({
+      fileName: "Chronology.md",
+      matterId: matter.id,
+      mimeType: "text/markdown",
+      sourceType: MatterDocumentSourceType.upload,
+      uploadedByUserId: user.id,
+    });
+    expect(Buffer.from(savedMatterDocument.content?.bytes ?? []).toString("utf8")).toBe(
+      "# Chronology\n\nReviewed chronology.",
+    );
+    expect(savedMatterDocument.representations).toHaveLength(1);
+    expect(savedMatterDocument.representations[0]).toMatchObject({
+      content: "# Chronology\n\nReviewed chronology.",
+      status: MatterDocumentRepresentationStatus.READY,
+      type: MatterDocumentRepresentationType.MARKDOWN,
+    });
+    expect(listedDocuments).toHaveLength(1);
+    expect(listedDocuments[0]).toMatchObject({
+      documentSection: "workProduct",
+      fileName: "Chronology.md",
+      id: output.savedMatterDocumentId,
+      sourceType: "upload",
+    });
+    expect(activityEvent.metadataJson).toMatchObject({
+      matterId: matter.id,
+      savedMatterDocumentId: output.savedMatterDocumentId,
+      workflowRunId,
+    });
     expect(stepOutput.outputJson).toMatchObject({
       revisionId: revision.id,
+      savedMatterDocumentId: output.savedMatterDocumentId,
       sourceArtifactId: artifact.id,
       status: "completed",
     });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("matter document listing classifies workflow metadata as work product", async () => {
+  const { matter, user, workflowRunId } = await createFixture();
+
+  try {
+    const uploadedPdf = await prisma.matterDocument.create({
+      data: {
+        fileName: "source-evidence.pdf",
+        matterId: matter.id,
+        mimeType: "application/pdf",
+        size: 4096,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: user.id,
+      },
+    });
+    const legacyWorkflowDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "lawyer-notes.md",
+        matterId: matter.id,
+        mimeType: "text/markdown",
+        representations: {
+          create: {
+            content: "# Lawyer notes",
+            metadataJson: {
+              source: "workflow_output",
+              stepId: documentEditorStep.id,
+              workflowDefinitionId: "chronology",
+              workflowRunId,
+            },
+            status: MatterDocumentRepresentationStatus.READY,
+            type: MatterDocumentRepresentationType.MARKDOWN,
+          },
+        },
+        size: 14,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: user.id,
+      },
+    });
+    const documents = await listMatterDocuments({
+      matterId: matter.id,
+    });
+    const documentsById = new Map(
+      documents.map((document) => [document.id, document]),
+    );
+
+    expect(documentsById.get(uploadedPdf.id)).toMatchObject({
+      documentSection: "sourceDocument",
+      fileName: "source-evidence.pdf",
+      sourceType: "upload",
+    });
+    expect(documentsById.get(legacyWorkflowDocument.id)).toMatchObject({
+      documentSection: "workProduct",
+      fileName: "lawyer-notes.md",
+      sourceType: "upload",
+    });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("editing an existing work product document updates the same matter document", async () => {
+  const { matter, user, workflowRunId } = await createFixture();
+
+  try {
+    const workProductDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "research-note.md",
+        matterId: matter.id,
+        mimeType: "text/markdown",
+        representations: {
+          create: {
+            content: "# Research note\n\nInitial work product.",
+            metadataJson: {
+              source: "workflow_output",
+              stepId: documentEditorStep.id,
+              workflowDefinitionId: "chronology",
+              workflowRunId,
+            },
+            status: MatterDocumentRepresentationStatus.READY,
+            type: MatterDocumentRepresentationType.MARKDOWN,
+          },
+        },
+        size: 38,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: user.id,
+      },
+    });
+    const loadedDocument = await getEditableMatterDocument({
+      matterDocumentId: workProductDocument.id,
+      matterId: matter.id,
+    });
+    const updatedDocument = await saveMatterDocumentEdits({
+      contentMarkdown: "# Research note\n\nUpdated work product.",
+      editorJson: {
+        type: "doc",
+      },
+      matterDocumentId: workProductDocument.id,
+      matterId: matter.id,
+    });
+    const documents = await prisma.matterDocument.findMany({
+      include: {
+        representations: true,
+      },
+      where: {
+        matterId: matter.id,
+      },
+    });
+
+    expect(loadedDocument).toMatchObject({
+      contentMarkdown: "# Research note\n\nInitial work product.",
+      documentSection: "workProduct",
+      fileName: "research-note.md",
+      id: workProductDocument.id,
+    });
+    expect(loadedDocument.editorContentHtml).toContain("<h1>Research note</h1>");
+    expect(updatedDocument).toMatchObject({
+      contentMarkdown: "# Research note\n\nUpdated work product.",
+      documentSection: "workProduct",
+      fileName: "research-note.md",
+      id: workProductDocument.id,
+    });
+    expect(documents).toHaveLength(1);
+    expect(documents[0].representations[0]).toMatchObject({
+      content: "# Research note\n\nUpdated work product.",
+      status: MatterDocumentRepresentationStatus.READY,
+      type: MatterDocumentRepresentationType.MARKDOWN,
+    });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("source documents cannot be opened in the work product editor", async () => {
+  const { matter, user } = await createFixture();
+
+  try {
+    const sourceDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "source.pdf",
+        matterId: matter.id,
+        mimeType: "application/pdf",
+        size: 4096,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: user.id,
+      },
+    });
+
+    await expect(
+      getEditableMatterDocument({
+        matterDocumentId: sourceDocument.id,
+        matterId: matter.id,
+      }),
+    ).rejects.toThrow("Source documents are view-only.");
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("document editor updates the saved matter document on later saves", async () => {
+  const { artifact, matter, user, workflowRunId } = await createFixture();
+
+  try {
+    const firstOutput = await saveDocumentEditorArtifact({
+      artifactId: artifact.id,
+      contentMarkdown: "# Chronology\n\nFirst saved chronology.",
+      editorJson: {
+        type: "doc",
+      },
+      matterId: matter.id,
+      step: documentEditorStep,
+      userId: user.id,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+    const secondOutput = await saveDocumentEditorArtifact({
+      artifactId: artifact.id,
+      contentMarkdown: "# Chronology\n\nSecond saved chronology.",
+      editorJson: {
+        type: "doc",
+      },
+      matterId: matter.id,
+      step: documentEditorStep,
+      userId: user.id,
+      workflowDefinitionId: "chronology",
+      workflowRunId,
+    });
+    const documents = await prisma.matterDocument.findMany({
+      include: {
+        content: true,
+        representations: true,
+      },
+      where: {
+        matterId: matter.id,
+      },
+    });
+    const revisions = await prisma.workflowArtifactRevision.findMany({
+      where: {
+        artifactId: artifact.id,
+      },
+    });
+
+    expect(secondOutput.savedMatterDocumentId).toBe(firstOutput.savedMatterDocumentId);
+    expect(documents).toHaveLength(1);
+    expect(Buffer.from(documents[0].content?.bytes ?? []).toString("utf8")).toBe(
+      "# Chronology\n\nSecond saved chronology.",
+    );
+    expect(documents[0].representations[0]).toMatchObject({
+      content: "# Chronology\n\nSecond saved chronology.",
+      status: MatterDocumentRepresentationStatus.READY,
+      type: MatterDocumentRepresentationType.MARKDOWN,
+    });
+    expect(revisions).toHaveLength(2);
   } finally {
     await cleanupMatter(matter.id);
   }

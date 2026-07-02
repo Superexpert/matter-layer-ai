@@ -1,6 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { saveWorkflowMatterDocument } from "@/services/matter-documents/matter-document-service";
+import { emitWorkflowActivityEvent } from "@/services/workflows/workflow-activity-service";
 import {
   createWorkflowArtifactRevision,
   getWorkflowMarkdownArtifact,
@@ -13,6 +15,7 @@ import {
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
 import {
+  assertDocumentEditorStepOutput,
   normalizeDocumentEditorStepConfig,
   type DocumentEditorStepOutput,
 } from "@/workflow-steps/document-editor/schema";
@@ -43,6 +46,28 @@ type SaveDocumentEditorArtifactInput = BaseDocumentEditorInput & {
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function savedMatterDocumentIdFromOutput(output: unknown) {
+  if (
+    isObjectRecord(output) &&
+    typeof output.savedMatterDocumentId === "string" &&
+    output.savedMatterDocumentId.trim()
+  ) {
+    return output.savedMatterDocumentId.trim();
+  }
+
+  return null;
+}
+
+function defaultDocumentFileName(title: string) {
+  const safeTitle = title.replace(/[^a-zA-Z0-9._ -]/g, "_").trim();
+
+  if (!safeTitle) {
+    throw new Error("Document editor matter document title cannot be empty.");
+  }
+
+  return safeTitle.endsWith(".md") ? safeTitle : `${safeTitle}.md`;
 }
 
 async function assertWorkflowRun(input: {
@@ -137,7 +162,7 @@ export async function loadDocumentEditorStepState(
     contentType: "MARKDOWN",
     editorContentHtml: markdownToEditorHtml(contentMarkdown),
     latestOutput: isObjectRecord(latestOutput?.outputJson)
-      ? (latestOutput.outputJson as DocumentEditorStepOutput)
+      ? assertDocumentEditorStepOutput(latestOutput.outputJson)
       : null,
     saveMode: config.saveMode,
     title: artifact.title,
@@ -148,6 +173,10 @@ export async function saveDocumentEditorArtifact(
   input: SaveDocumentEditorArtifactInput,
 ): Promise<DocumentEditorStepOutput> {
   const { artifact, config } = await loadConfiguredArtifact(input);
+  const previousOutput = await readWorkflowStepOutput({
+    stepId: input.step.id,
+    workflowRunId: input.workflowRunId,
+  });
 
   if (artifact.id !== input.artifactId) {
     throw new Error("Document editor artifact does not match the configured input artifact.");
@@ -157,9 +186,29 @@ export async function saveDocumentEditorArtifact(
     throw new Error("Reviewed document content cannot be empty.");
   }
 
+  if (!input.userId) {
+    throw new Error("Saving a reviewed document to matter documents requires a user.");
+  }
+
+  const documentTitle = config.documentTitle ?? artifact.title;
+  const documentFileName = config.documentFileName ?? defaultDocumentFileName(documentTitle);
+  const savedMatterDocument = await saveWorkflowMatterDocument({
+    contentMarkdown: input.contentMarkdown,
+    editorJson: input.editorJson,
+    existingMatterDocumentId: savedMatterDocumentIdFromOutput(previousOutput?.outputJson),
+    fileName: documentFileName,
+    matterId: input.matterId,
+    stepId: input.step.id,
+    title: documentTitle,
+    userId: input.userId,
+    workflowDefinitionId: input.workflowDefinitionId,
+    workflowRunId: input.workflowRunId,
+  });
+
   if (config.saveMode === "overwrite") {
     const output: DocumentEditorStepOutput = {
       artifactId: artifact.id,
+      savedMatterDocumentId: savedMatterDocument.id,
       status: "completed",
     };
 
@@ -170,6 +219,21 @@ export async function saveDocumentEditorArtifact(
     });
     await writeWorkflowStepOutput({
       outputJson: output,
+      stepId: input.step.id,
+      workflowRunId: input.workflowRunId,
+    });
+    await emitWorkflowActivityEvent({
+      code: "workflow_document_saved_to_matter",
+      documentId: savedMatterDocument.id,
+      documentName: savedMatterDocument.fileName,
+      level: "success",
+      message: `Saved ${documentTitle} to matter documents.`,
+      metadata: {
+        matterId: input.matterId,
+        savedMatterDocumentId: savedMatterDocument.id,
+        stepId: input.step.id,
+        workflowRunId: input.workflowRunId,
+      },
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     });
@@ -189,12 +253,29 @@ export async function saveDocumentEditorArtifact(
   const output: DocumentEditorStepOutput = {
     reviewedArtifactId: artifact.id,
     revisionId: revision.id,
+    savedMatterDocumentId: savedMatterDocument.id,
     sourceArtifactId: artifact.id,
     status: "completed",
   };
 
   await writeWorkflowStepOutput({
     outputJson: output,
+    stepId: input.step.id,
+    workflowRunId: input.workflowRunId,
+  });
+  await emitWorkflowActivityEvent({
+    code: "workflow_document_saved_to_matter",
+    documentId: savedMatterDocument.id,
+    documentName: savedMatterDocument.fileName,
+    level: "success",
+    message: `Saved ${documentTitle} to matter documents.`,
+    metadata: {
+      matterId: input.matterId,
+      revisionId: revision.id,
+      savedMatterDocumentId: savedMatterDocument.id,
+      stepId: input.step.id,
+      workflowRunId: input.workflowRunId,
+    },
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });

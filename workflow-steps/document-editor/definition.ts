@@ -17,6 +17,12 @@ export const documentEditorParameterSchema: WorkflowSchema = {
       enum: ["MARKDOWN"],
       type: "string",
     },
+    documentFileName: {
+      type: "string",
+    },
+    documentTitle: {
+      type: "string",
+    },
     editor: {
       enum: ["tiptap"],
       type: "string",
@@ -46,6 +52,9 @@ export const documentEditorOutputSchema: WorkflowSchema = {
     revisionId: {
       type: "string",
     },
+    savedMatterDocumentId: {
+      type: "string",
+    },
     sourceArtifactId: {
       type: "string",
     },
@@ -54,7 +63,7 @@ export const documentEditorOutputSchema: WorkflowSchema = {
       type: "string",
     },
   },
-  required: ["status"],
+  required: ["status", "savedMatterDocumentId"],
   type: "object",
 };
 

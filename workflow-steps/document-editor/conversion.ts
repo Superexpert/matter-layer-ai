@@ -2,10 +2,15 @@ import { marked } from "marked";
 import TurndownService from "turndown";
 
 export function markdownToEditorHtml(markdown: string) {
-  return marked.parse(markdown, {
+  const html = marked.parse(markdown, {
     async: false,
     gfm: true,
   }) as string;
+
+  return html.replace(
+    /<p>(Source:\s[\s\S]*?)<\/p>/g,
+    '<p class="chronology-source" data-node-type="citation">$1</p>',
+  );
 }
 
 export function editorHtmlToMarkdown(html: string) {

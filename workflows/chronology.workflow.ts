@@ -41,6 +41,8 @@ export const chronologyDefinition: WorkflowDefinition = {
       parameters: {
         artifactOutputKey: "chronologyArtifactId",
         contentType: "MARKDOWN",
+        documentFileName: "Chronology.md",
+        documentTitle: "Chronology",
         editor: "tiptap",
         inputStepId: "extract-chronology",
         saveMode: "revision",

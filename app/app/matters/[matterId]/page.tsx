@@ -6,6 +6,7 @@ import {
   listEnabledWorkflowCatalog,
   syncBuiltInWorkflows,
 } from "@/services/workflows/catalog-service";
+import { listMatterDocuments } from "@/services/matter-documents/matter-document-service";
 
 import { MatterChat } from "./MatterChat";
 
@@ -38,10 +39,16 @@ export default async function MatterPage({ params }: MatterPageProps) {
   }
 
   await syncBuiltInWorkflows();
-  const workflowCatalog = await listEnabledWorkflowCatalog();
+  const [workflowCatalog, documents] = await Promise.all([
+    listEnabledWorkflowCatalog(),
+    listMatterDocuments({
+      matterId,
+    }),
+  ]);
 
   return (
     <MatterChat
+      initialDocuments={documents}
       isAdmin={isAdmin}
       matterId={matterId}
       matterName={matter.name}

@@ -106,8 +106,16 @@ function optionalString(value: unknown) {
   }
 
   const trimmedValue = value.trim();
+  const cleanedParts = trimmedValue
+    .split("|")
+    .map((part) => part.trim())
+    .filter((part) => part && !/^(?:null|undefined|none|n\/a)$/i.test(part));
 
-  return trimmedValue || null;
+  if (cleanedParts.length === 0) {
+    return null;
+  }
+
+  return uniqueStrings(cleanedParts).join("|");
 }
 
 function normalizeStringKey(value: string) {
@@ -132,6 +140,12 @@ function formatDateParts(year: number, month: number, day: number) {
 }
 
 function normalizeFullDate(value: string) {
+  const datePrefixMatch =
+    /^(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+\d{1,2}:\d{2}\s*[AP]\.?M\.?)?$/i.exec(value);
+  if (datePrefixMatch && datePrefixMatch[1] !== value) {
+    return normalizeFullDate(datePrefixMatch[1]);
+  }
+
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (isoMatch) {
     return formatDateParts(

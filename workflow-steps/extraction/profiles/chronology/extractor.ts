@@ -36,6 +36,9 @@ const chronologyFactJsonSchema = {
           dateText: {
             type: ["string", "null"],
           },
+          timeText: {
+            type: ["string", "null"],
+          },
           labels: {
             items: {
               type: "string",
@@ -76,6 +79,7 @@ const chronologyFactJsonSchema = {
         required: [
           "date",
           "dateText",
+          "timeText",
           "summary",
           "people",
           "organizations",
@@ -96,8 +100,9 @@ const chronologyFactJsonSchema = {
 
 const chronologyJsonRepairInstructions = [
   "Return a JSON object with exactly this top-level shape:",
-  "{\"facts\":[{\"date\":\"YYYY-MM-DD|null\",\"dateText\":\"source date text|null\",\"summary\":\"what happened\",\"people\":[\"person names\"],\"organizations\":[\"organization names\"],\"sourceDocumentId\":\"document id\",\"sourceFileName\":\"file name\",\"sourcePages\":[1],\"sourceQuote\":\"exact supporting quote\",\"confidence\":\"high|medium|low|unknown\",\"labels\":[\"optional labels\"]}]}",
+  "{\"facts\":[{\"date\":\"YYYY-MM-DD|null\",\"dateText\":\"source date text|null\",\"timeText\":\"source time text|null\",\"summary\":\"what happened\",\"people\":[\"person names\"],\"organizations\":[\"organization names\"],\"sourceDocumentId\":\"document id\",\"sourceFileName\":\"file name\",\"sourcePages\":[1],\"sourceQuote\":\"exact supporting quote\",\"confidence\":\"high|medium|low|unknown\",\"labels\":[\"optional labels\"]}]}",
   "Use null for unknown dates.",
+  "Use null for unknown times.",
   "Use empty arrays for people, organizations, or labels when none are listed.",
   "Every fact must include sourceDocumentId, sourceFileName, sourcePages, and sourceQuote.",
 ].join("\n");

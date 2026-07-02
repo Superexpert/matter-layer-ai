@@ -7,6 +7,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { AppContainer } from "@/components/app-container";
 import type { AIMessage } from "@/services/ai/types";
+import type {
+  EditableMatterDocument,
+  MatterDocumentSection,
+  MatterDocumentSummary,
+} from "@/services/matter-documents/matter-document-service";
 import {
   createDefaultWorkflowStep,
   generateWorkflowDraftFromGoal,
@@ -22,7 +27,10 @@ import {
 } from "@/services/workflows";
 import { ExtractionStepComponent } from "@/workflow-steps/extraction/component";
 import type { ExtractionStepOutput } from "@/workflow-steps/extraction/schema";
-import { DocumentEditorStepComponent } from "@/workflow-steps/document-editor/component";
+import {
+  DocumentEditorStepComponent,
+  DocumentEditorSurface,
+} from "@/workflow-steps/document-editor/component";
 import type { DocumentEditorStepOutput } from "@/workflow-steps/document-editor/schema";
 import { FileSelectorStepComponent } from "@/workflow-steps/file-selector/component";
 import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/schema";
@@ -30,11 +38,14 @@ import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/sche
 import {
   deleteWorkflowAction,
   duplicateWorkflowAction,
+  getEditableMatterDocumentAction,
+  listMatterDocumentsAction,
   loadExtractionStepStateAction,
   loadDocumentEditorStepStateAction,
   loadFileSelectorStepStateAction,
   runExtractionStepAction,
   saveDocumentEditorArtifactAction,
+  saveMatterDocumentEditsAction,
   saveCustomWorkflowAction,
   saveFileSelectorSelectionAction,
   uploadFileSelectorFilesAction,
@@ -45,6 +56,7 @@ type ChatMessage = AIMessage & {
 };
 
 type MatterChatProps = {
+  initialDocuments: MatterDocumentSummary[];
   isAdmin: boolean;
   matterId: string;
   matterName: string;
@@ -124,17 +136,75 @@ function createWorkflowRunId() {
   return crypto.randomUUID();
 }
 
+function getDocumentSection(document: MatterDocumentSummary): MatterDocumentSection {
+  if (document.documentSection === "workProduct") {
+    return "workProduct";
+  }
+
+  if (document.documentSection === "sourceDocument") {
+    return "sourceDocument";
+  }
+
+  throw new Error(`Unsupported matter document section: ${document.documentSection}`);
+}
+
+function MatterDocumentCard({
+  document,
+  onEdit,
+  section,
+}: {
+  document: MatterDocumentSummary;
+  onEdit?: (documentId: string) => void;
+  section: MatterDocumentSection;
+}) {
+  return (
+    <article
+      className="rounded-lg border border-[#E3DEEA] bg-white p-4"
+      data-testid={`matter-document-${document.id}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[#211B27]">
+            {document.fileName}
+          </h3>
+          <p className="mt-2 text-xs leading-5 text-[#74677F]">
+            Updated {new Date(document.updatedAt).toLocaleString()}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {section === "workProduct" ? (
+            <button
+              className="inline-flex h-8 items-center justify-center rounded-md border border-[#CFC5DA] bg-white px-3 text-xs font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC]"
+              data-testid={`matter-document-edit-${document.id}`}
+              onClick={() => onEdit?.(document.id)}
+              type="button"
+            >
+              Edit
+            </button>
+          ) : null}
+          <button
+            className="inline-flex h-8 items-center justify-center rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            data-testid={`matter-document-delete-${document.id}`}
+            disabled
+            type="button"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function useChatAutoScroll(dependencies: readonly unknown[]) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
-  const [isNearBottom, setIsNearBottom] = useState(true);
 
   const updateNearBottom = useCallback(() => {
     const scrollElement = scrollContainerRef.current;
 
     if (!scrollElement) {
       shouldAutoScrollRef.current = true;
-      setIsNearBottom(true);
       return true;
     }
 
@@ -145,7 +215,6 @@ function useChatAutoScroll(dependencies: readonly unknown[]) {
     const nextIsNearBottom = distanceFromBottom < CHAT_AUTO_SCROLL_THRESHOLD;
 
     shouldAutoScrollRef.current = nextIsNearBottom;
-    setIsNearBottom(nextIsNearBottom);
 
     return nextIsNearBottom;
   }, []);
@@ -162,7 +231,6 @@ function useChatAutoScroll(dependencies: readonly unknown[]) {
       top: scrollElement.scrollHeight,
     });
     shouldAutoScrollRef.current = true;
-    setIsNearBottom(true);
   }, []);
 
   useEffect(() => {
@@ -175,10 +243,7 @@ function useChatAutoScroll(dependencies: readonly unknown[]) {
   }, dependencies);
 
   return {
-    isNearBottom,
     scrollContainerRef,
-    scrollToBottom,
-    showJumpToLatest: !isNearBottom,
     updateNearBottom,
   };
 }
@@ -247,6 +312,7 @@ function isChatErrorResponse(value: unknown): value is ChatErrorResponse {
 }
 
 export function MatterChat({
+  initialDocuments,
   isAdmin,
   matterId,
   matterName,
@@ -260,6 +326,12 @@ export function MatterChat({
     useState<ActiveWorkflowState | null>(null);
   const [workflowDefinitions, setWorkflowDefinitions] =
     useState<WorkflowCatalogItem[]>(initialWorkflowDefinitions);
+  const [documents, setDocuments] =
+    useState<MatterDocumentSummary[]>(initialDocuments);
+  const [editableDocument, setEditableDocument] =
+    useState<EditableMatterDocument | null>(null);
+  const [documentEditError, setDocumentEditError] = useState("");
+  const [isLoadingEditableDocument, setIsLoadingEditableDocument] = useState(false);
   const [openWorkflowMenuId, setOpenWorkflowMenuId] = useState<string | null>(
     null,
   );
@@ -288,10 +360,14 @@ export function MatterChat({
   const deleteDialogCancelRef = useRef<HTMLButtonElement>(null);
   const {
     scrollContainerRef,
-    scrollToBottom,
-    showJumpToLatest,
     updateNearBottom,
   } = useChatAutoScroll([messages, isPending, errorMessage]);
+  const workProductDocuments = documents.filter(
+    (document) => getDocumentSection(document) === "workProduct",
+  );
+  const sourceDocuments = documents.filter(
+    (document) => getDocumentSection(document) === "sourceDocument",
+  );
 
   useEffect(() => {
     return () => {
@@ -969,6 +1045,60 @@ export function MatterChat({
     });
   }
 
+  const refreshMatterDocuments = useCallback(async () => {
+    const nextDocuments = await listMatterDocumentsAction({
+      matterId,
+    });
+
+    setDocuments(nextDocuments);
+  }, [matterId]);
+
+  const startEditingMatterDocument = useCallback(async (matterDocumentId: string) => {
+    setDocumentEditError("");
+    setIsLoadingEditableDocument(true);
+
+    try {
+      const document = await getEditableMatterDocumentAction({
+        matterDocumentId,
+        matterId,
+      });
+
+      setEditableDocument(document);
+    } catch (error) {
+      setDocumentEditError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Matter Layer could not open this document for editing.",
+      );
+    } finally {
+      setIsLoadingEditableDocument(false);
+    }
+  }, [matterId]);
+
+  const saveEditableMatterDocument = useCallback(async (input: {
+    contentMarkdown: string;
+    editorJson: unknown;
+  }) => {
+    if (!editableDocument) {
+      throw new Error("No matter document is open for editing.");
+    }
+
+    const updatedDocument = await saveMatterDocumentEditsAction({
+      contentMarkdown: input.contentMarkdown,
+      editorJson: input.editorJson,
+      matterDocumentId: editableDocument.id,
+      matterId,
+    });
+
+    setEditableDocument(updatedDocument);
+    await refreshMatterDocuments();
+  }, [editableDocument, matterId, refreshMatterDocuments]);
+
+  function returnToDocumentsList() {
+    setEditableDocument(null);
+    setDocumentEditError("");
+  }
+
   function completeDocumentEditorStep(output: DocumentEditorStepOutput) {
     if (!activeWorkflow || !activeWorkflowStep) {
       throw new Error("Completing a document editor step requires an active workflow step.");
@@ -1356,10 +1486,7 @@ export function MatterChat({
                     data-testid="workflow-builder-interaction"
                   >
                     <div>
-                      <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
-                        Active Workflow
-                      </p>
-                      <h2 className="mt-2 text-lg font-semibold text-[#211B27]">
+                      <h2 className="text-lg font-semibold text-[#211B27]">
                         Workflow Builder
                       </h2>
                       <p className="mt-1 text-sm leading-6 text-[#74677F]">
@@ -1724,6 +1851,7 @@ export function MatterChat({
                     loadStepState={loadDocumentEditorStepStateAction}
                     matterId={matterId}
                     onComplete={completeDocumentEditorStep}
+                    onSavedToDocuments={refreshMatterDocuments}
                     saveArtifact={saveDocumentEditorArtifactAction}
                     step={activeWorkflowStep}
                     workflowDefinitionId={activeWorkflow.workflowDefinition.id}
@@ -1735,10 +1863,7 @@ export function MatterChat({
                     data-testid="workflow-active-summary"
                   >
                     <div>
-                      <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
-                        Active Workflow
-                      </p>
-                      <h2 className="mt-2 text-lg font-semibold text-[#211B27]">
+                      <h2 className="text-lg font-semibold text-[#211B27]">
                         {activeWorkflow.workflowDefinition.name}
                       </h2>
                       <p className="mt-1 text-sm leading-6 text-[#74677F]">
@@ -1795,7 +1920,31 @@ export function MatterChat({
                   </div>
                 ) : null}
 
-                {selectedTab === "Documents" ? (
+                {selectedTab === "Documents" && (editableDocument || isLoadingEditableDocument) ? (
+                  <div data-testid="documents-edit-view">
+                    <DocumentEditorSurface
+                      contentHtml={editableDocument?.editorContentHtml ?? ""}
+                      disabled={!editableDocument}
+                      errorFallback="Matter Layer could not save this document."
+                      isLoading={isLoadingEditableDocument}
+                      onSave={saveEditableMatterDocument}
+                      saveButtonLabel="Save changes"
+                      savedStatusLabel="Saved"
+                      title={editableDocument?.fileName ?? "Document"}
+                      toolbarFooter={
+                        <button
+                          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC]"
+                          data-testid="documents-edit-back"
+                          onClick={returnToDocumentsList}
+                          type="button"
+                        >
+                          Back to Documents
+                        </button>
+                      }
+                      unsavedStatusLabel="Unsaved changes"
+                    />
+                  </div>
+                ) : selectedTab === "Documents" && documents.length === 0 ? (
                   <div
                     className="flex min-h-full items-center justify-center rounded-xl border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-6 text-center"
                     data-testid="documents-empty-state"
@@ -1808,6 +1957,68 @@ export function MatterChat({
                         Matter documents will appear here.
                       </p>
                     </div>
+                  </div>
+                ) : selectedTab === "Documents" ? (
+                  <div className="grid gap-6" data-testid="documents-list">
+                    <section data-testid="documents-work-product-section">
+                      <h2 className="text-sm font-semibold text-[#211B27]">
+                        Work Product
+                      </h2>
+                      <div className="mt-3 grid gap-3">
+                        {workProductDocuments.length ? (
+                          workProductDocuments.map((document) => (
+                            <MatterDocumentCard
+                              document={document}
+                              key={document.id}
+                              onEdit={(documentId) => {
+                                void startEditingMatterDocument(documentId);
+                              }}
+                              section="workProduct"
+                            />
+                          ))
+                        ) : (
+                          <p
+                            className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#74677F]"
+                            data-testid="documents-work-product-empty"
+                          >
+                            No work product has been saved yet.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+
+                    <section data-testid="documents-source-documents-section">
+                      <h2 className="text-sm font-semibold text-[#211B27]">
+                        Source Documents
+                      </h2>
+                      <div className="mt-3 grid gap-3">
+                        {sourceDocuments.length ? (
+                          sourceDocuments.map((document) => (
+                            <MatterDocumentCard
+                              document={document}
+                              key={document.id}
+                              section="sourceDocument"
+                            />
+                          ))
+                        ) : (
+                          <p
+                            className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#74677F]"
+                            data-testid="documents-source-documents-empty"
+                          >
+                            No source documents have been added yet.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                    {documentEditError ? (
+                      <p
+                        className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
+                        data-testid="documents-edit-error"
+                        role="alert"
+                      >
+                        {documentEditError}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1839,16 +2050,6 @@ export function MatterChat({
               </div>
             </div>
 
-            {showJumpToLatest ? (
-              <button
-                className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full border border-[#CFC5DA] bg-white px-3 py-1.5 text-xs font-semibold text-[#4B3861] shadow-[0_8px_24px_rgba(40,29,52,0.16)] transition-colors hover:bg-[#FBFAFC]"
-                data-testid="jump-to-latest-button"
-                onClick={() => scrollToBottom()}
-                type="button"
-              >
-                Jump to latest
-              </button>
-            ) : null}
           </div>
 
           {selectedTab === "Chat" ? (

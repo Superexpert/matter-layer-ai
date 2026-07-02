@@ -24,5 +24,6 @@ export type CollapsedChronologyEventDraft = {
   sourceFactIds: string[];
   sources: ChronologySource[];
   summary: string;
+  timeText: string | null;
   title: string;
 };

@@ -589,9 +589,10 @@ test("extraction step prepares TXT and PDF representations and persists output",
       title: "Chronology Draft",
       workflowRunId,
     });
-    expect(artifact.content).toContain("# Chronology");
-    expect(artifact.content).toContain("notes.txt");
-    expect(artifact.content).toContain("report.pdf, pp. 1-2");
+    expect(artifact.content).not.toContain("Chronology of Events");
+    expect(artifact.content).toContain("Source: Notes, p. 1.");
+    expect(artifact.content).toContain("Source: Report, pp. 1-2.");
+    expect(artifact.content).not.toContain("Generated from selected matter documents.");
     expect(artifact.metadataJson).toMatchObject({
       collapsedEventCount: 2,
       generatedFromFactCount: 2,
