@@ -209,7 +209,7 @@ describe("chronology Markdown artifact", () => {
     expect(editorHtml).toContain("<h3>January 14, 2026</h3>");
     expect(editorHtml).toContain("<p>Officer Tessa Benton responded");
     expect(editorHtml).toContain(
-      '<p class="chronology-source" data-node-type="citation">Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.</p>',
+      '<p class="document-citation" data-node-type="citation">Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.</p>',
     );
     expect(editorHtml).not.toContain("<h1>");
     expect(editorHtml).not.toContain("<h2>");

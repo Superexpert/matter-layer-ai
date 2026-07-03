@@ -25,7 +25,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-.ProseMirror.chronology-editor {
+.ProseMirror.document-editor {
   box-sizing: border-box;
   font-size: 0.95rem;
   line-height: 1.65;
@@ -35,11 +35,11 @@ body {
   width: 100%;
 }
 
-.ProseMirror.chronology-editor p {
+.ProseMirror.document-editor p {
   margin: 0 0 0.35rem;
 }
 
-.ProseMirror.chronology-editor h3 {
+.ProseMirror.document-editor h3 {
   color: #211b27;
   font-size: 1rem;
   font-weight: 700;
@@ -47,20 +47,20 @@ body {
   margin: 1.5rem 0 0.75rem;
 }
 
-.ProseMirror.chronology-editor h3:first-child {
+.ProseMirror.document-editor h3:first-child {
   margin-top: 0;
 }
 
-.ProseMirror.chronology-editor p.chronology-source,
-.ProseMirror.chronology-editor p[data-node-type="citation"] {
+.ProseMirror.document-editor p.document-citation,
+.ProseMirror.document-editor p[data-node-type="citation"] {
   color: #74677f;
   font-size: 0.875rem;
   line-height: 1.45;
   margin: 0.15rem 0 1.2rem 1rem;
 }
 
-.ProseMirror.chronology-editor ul,
-.ProseMirror.chronology-editor ol,
-.ProseMirror.chronology-editor table {
+.ProseMirror.document-editor ul,
+.ProseMirror.document-editor ol,
+.ProseMirror.document-editor table {
   margin-bottom: 0.9rem;
 }

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -79,7 +81,7 @@ describe("document editor Markdown conversion", () => {
     expect(html).toContain("<h1>Chronology</h1>");
     expect(html).toContain("<strong>bold</strong>");
     expect(html).toContain(
-      '<p class="chronology-source" data-node-type="citation">Source: Incident Report, p. 1.</p>',
+      '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
     );
     expect(html).toContain("<ul>");
     expect(html).toContain("<li>First source</li>");
@@ -96,6 +98,27 @@ describe("document editor Markdown conversion", () => {
     expect(markdown).toContain("**bold**");
     expect(markdown).toContain("* First source");
     expect(markdown).toContain("* Second source");
+  });
+});
+
+describe("document editor styling boundary", () => {
+  it("uses semantic document styling instead of workflow-specific editor flags", () => {
+    const componentSource = readFileSync(
+      join(process.cwd(), "workflow-steps/document-editor/component.tsx"),
+      "utf8",
+    );
+    const globalCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(componentSource).toContain("document-editor");
+    expect(componentSource).not.toMatch(/is[A-Z][A-Za-z]+Editor/);
+    expect(componentSource).not.toContain("ChronologyParagraph");
+    expect(componentSource).not.toContain("chronology-editor");
+    expect(globalCss).toContain(".ProseMirror.document-editor");
+    expect(globalCss).toContain('[data-node-type="citation"]');
+    expect(globalCss).not.toContain(".ProseMirror.chronology-editor");
   });
 });
 

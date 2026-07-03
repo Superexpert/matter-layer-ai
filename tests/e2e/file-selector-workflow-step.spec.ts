@@ -120,6 +120,29 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
       "Active Workflow",
     );
+    await expect(page.getByTestId("active-workflow-canvas")).toContainText(
+      "Chronology",
+    );
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Current step:",
+    );
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Work Product Canvas",
+    );
+    await expect(page.getByTestId("workflow-run-canvas")).toContainText(
+      "Select source documents",
+    );
+    await expect(page.getByTestId("workflow-run-canvas")).toContainText(
+      "Prepare source documents",
+    );
+    await expect(page.getByTestId("workflow-run-canvas")).toContainText(
+      "Review chronology",
+    );
+    await expect(
+      page
+        .getByTestId("workflow-run-canvas")
+        .locator('li[aria-current="step"]'),
+    ).toContainText("Select source documents");
 
     await page
       .getByTestId("file-selector-upload-input")
@@ -291,6 +314,55 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
       readyRepresentationCount: 2,
       status: "completed",
     });
+
+    await page.getByTestId("extraction-continue").click();
+    await expect(page.getByTestId("document-editor-step")).toContainText(
+      "Review chronology",
+    );
+    await expect(page.getByTestId("document-editor-continue")).toBeEnabled();
+
+    await page.getByTestId("document-editor-continue").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toContainText(
+      "Unsaved document changes",
+    );
+    await page.getByTestId("cancel-unsaved-document").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("document-editor-step")).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByTestId("document-editor-export-docx").click();
+    await downloadPromise;
+    await page.getByTestId("document-editor-continue").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toBeVisible();
+    await page.getByTestId("leave-unsaved-document").click();
+    await expect(page.getByTestId("available-workflows-panel")).toBeVisible();
+
+    await page.getByTestId("workflow-chip-chronology").click();
+    await page
+      .getByTestId(`file-selector-checkbox-${existingDocument.id}`)
+      .check();
+    await page.getByTestId("file-selector-continue").click();
+    await page.getByTestId("extraction-run-button").click();
+    await expect(page.getByTestId("extraction-continue")).toBeEnabled();
+    await page.getByTestId("extraction-continue").click();
+    await expect(page.getByTestId("document-editor-step")).toBeVisible();
+
+    await page.getByTestId("document-editor-save").click();
+    await expect(page.getByText("Saved to Documents")).toBeVisible();
+    await page
+      .getByTestId("document-editor-content")
+      .locator('[contenteditable="true"]')
+      .click();
+    await page.keyboard.type(" Added after save.");
+    await page.getByTestId("document-editor-continue").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toBeVisible();
+    await page.getByTestId("cancel-unsaved-document").click();
+    await expect(page.getByTestId("document-editor-step")).toBeVisible();
+    await page.getByTestId("document-editor-save").click();
+    await expect(page.getByText("Saved to Documents")).toBeVisible();
+    await page.getByTestId("document-editor-continue").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("available-workflows-panel")).toBeVisible();
   } finally {
     await prisma.workflowRunStepFile.deleteMany({
       where: {

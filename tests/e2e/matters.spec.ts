@@ -73,7 +73,13 @@ test("authenticated user can create a matter", async ({ page }) => {
         mimeType: "text/markdown",
         representations: {
           create: {
-            content: "# Chronology",
+            content: [
+              "### January 12, 2024",
+              "",
+              "The chronology event occurred.",
+              "",
+              "Source: Incident Report, p. 1.",
+            ].join("\n"),
             metadataJson: {
               source: "workflow_output",
               stepId: "review-chronology",
@@ -274,7 +280,8 @@ test("authenticated user can create a matter", async ({ page }) => {
       `matter-document-${sourceDocument.id}`,
     );
 
-    await expect(workProductCard).toContainText("Chronology.md");
+    await expect(workProductCard).toContainText("Chronology");
+    await expect(workProductCard).not.toContainText("Chronology.md");
     await expect(workProductCard).toContainText("Updated");
     await expect(workProductCard).not.toContainText("841 B");
     await expect(
@@ -294,24 +301,132 @@ test("authenticated user can create a matter", async ({ page }) => {
     await expect(
       page.getByTestId(`matter-document-delete-${sourceDocument.id}`),
     ).toContainText("Delete");
+    await page.getByTestId(`matter-document-delete-${workProductDocument.id}`).click();
+    await expect(page.getByTestId("delete-document-dialog")).toContainText(
+      "Delete document?",
+    );
+    await expect(page.getByTestId("delete-document-dialog")).toContainText(
+      "This will permanently delete this document from the matter. This action cannot be undone.",
+    );
+    await page.getByTestId("cancel-delete-document").click();
+    await expect(page.getByTestId("delete-document-dialog")).toHaveCount(0);
+    await expect(workProductCard).toBeVisible();
+    const workProductAfterCancel = await prisma.matterDocument.findUnique({
+      where: {
+        id: workProductDocument.id,
+      },
+    });
+
+    expect(workProductAfterCancel).not.toBeNull();
+
     await page.getByTestId(`matter-document-edit-${workProductDocument.id}`).click();
     await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Chronology",
+    );
+    await expect(page.getByTestId("documents-edit-view")).not.toContainText(
       "Chronology.md",
     );
     await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Save",
+    );
+    await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Export",
+    );
+    await expect(page.getByTestId("documents-edit-view")).toContainText(
+      "Done",
+    );
+    await expect(page.getByTestId("documents-edit-view")).not.toContainText(
       "Save changes",
     );
-    await expect(page.getByTestId("documents-edit-view")).toContainText(
+    await expect(page.getByTestId("documents-edit-view")).not.toContainText(
       "Export DOCX",
     );
-    await expect(page.getByTestId("documents-edit-view")).toContainText(
+    await expect(page.getByTestId("documents-edit-view")).not.toContainText(
       "Back to Documents",
     );
     await expect(page.getByTestId("document-editor-content")).toContainText(
-      "Chronology",
+      "January 12, 2024",
     );
-    await page.getByTestId("documents-edit-back").click();
+    await expect(
+      page
+        .getByTestId("document-editor-content")
+        .locator(".ProseMirror"),
+    ).toHaveClass(/document-editor/);
+    await expect(
+      page
+        .getByTestId("document-editor-content")
+        .locator('p.document-citation[data-node-type="citation"]'),
+    ).toContainText(
+      "Source: Incident Report, p. 1.",
+    );
+    const existingDocumentDownloadPromise = page.waitForEvent("download");
+    await page.getByTestId("document-editor-export-docx").click();
+    await existingDocumentDownloadPromise;
+    await expect(page.getByTestId("documents-edit-view")).toBeVisible();
+    await page
+      .getByTestId("document-editor-content")
+      .locator('[contenteditable="true"]')
+      .click();
+    await page.keyboard.type(" Edited from Documents tab.");
+    await page.getByTestId("document-editor-continue").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toContainText(
+      "Unsaved document changes",
+    );
+    await page.getByTestId("cancel-unsaved-document").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("documents-edit-view")).toBeVisible();
+    await page.getByTestId("document-editor-save").click();
+    await expect(page.getByText("Saved")).toBeVisible();
+    const savedWorkProduct = await prisma.matterDocumentRepresentation.findUnique({
+      where: {
+        matterDocumentId_type: {
+          matterDocumentId: workProductDocument.id,
+          type: MatterDocumentRepresentationType.MARKDOWN,
+        },
+      },
+    });
+
+    expect(savedWorkProduct?.content).toContain("Edited from Documents tab.");
+    expect(savedWorkProduct?.content).toContain("Source: Incident Report, p. 1.");
+    await page.getByTestId("document-editor-continue").click();
+    await expect(page.getByTestId("unsaved-document-dialog")).toHaveCount(0);
     await expect(page.getByTestId("documents-list")).toBeVisible();
+
+    await page.getByTestId(`matter-document-delete-${sourceDocument.id}`).click();
+    await expect(page.getByTestId("delete-document-dialog")).toContainText(
+      "Delete document?",
+    );
+    await page.getByTestId("confirm-delete-document").click();
+    await expect(page.getByTestId("delete-document-dialog")).toHaveCount(0);
+    await expect(sourceDocumentCard).toHaveCount(0);
+    const sourceDocumentAfterDelete = await prisma.matterDocument.findUnique({
+      where: {
+        id: sourceDocument.id,
+      },
+    });
+
+    expect(sourceDocumentAfterDelete).toBeNull();
+    await expect(page.getByTestId("matter-tab-documents")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await page.getByTestId(`matter-document-delete-${workProductDocument.id}`).click();
+    await expect(page.getByTestId("delete-document-dialog")).toContainText(
+      "Delete document?",
+    );
+    await page.getByTestId("confirm-delete-document").click();
+    await expect(page.getByTestId("delete-document-dialog")).toHaveCount(0);
+    await expect(workProductCard).toHaveCount(0);
+    const workProductAfterDelete = await prisma.matterDocument.findUnique({
+      where: {
+        id: workProductDocument.id,
+      },
+    });
+
+    expect(workProductAfterDelete).toBeNull();
+    await expect(page.getByTestId("documents-work-product-empty")).toBeVisible();
+    await expect(page.getByTestId("documents-source-documents-empty")).toBeVisible();
 
     await page.getByTestId("matter-tab-workflows").click();
     await expect(page.getByTestId("matter-tab-workflows")).toHaveAttribute(
@@ -379,8 +494,11 @@ test("authenticated user can create a matter", async ({ page }) => {
     await expect(page.getByTestId("active-workflow-canvas")).toContainText(
       "Workflow Builder",
     );
-    await expect(page.getByTestId("active-workflow-canvas")).toContainText(
-      "Current step: Define Goal",
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Current step:",
+    );
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Work Product Canvas",
     );
     await expect(page.getByTestId("workflow-define-goal-panel")).toContainText(
       "Describe the business outcome",
@@ -398,14 +516,14 @@ test("authenticated user can create a matter", async ({ page }) => {
       .fill("Draft an Original Petition for Divorce.");
     await page.getByTestId("workflow-goal-submit").click();
 
-    await expect(page.getByTestId("active-workflow-canvas")).toContainText(
-      "Current step: Generate Draft Workflow",
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Current step:",
     );
     await expect(page.getByTestId("workflow-generate-draft-panel")).toContainText(
       "Generating draft",
     );
-    await expect(page.getByTestId("active-workflow-canvas")).toContainText(
-      "Current step: Edit Workflow",
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Current step:",
     );
     await expect(page.getByTestId("workflow-editor-panel")).toBeVisible();
     await expect(
@@ -462,8 +580,8 @@ test("authenticated user can create a matter", async ({ page }) => {
     await expect(page.getByTestId("workflow-step-parameter-error")).toHaveCount(0);
 
     await page.getByTestId("workflow-save-button").click();
-    await expect(page.getByTestId("active-workflow-canvas")).toContainText(
-      "Current step: Save Workflow",
+    await expect(page.getByTestId("active-workflow-canvas")).not.toContainText(
+      "Current step:",
     );
     await expect(page.getByTestId("workflow-save-confirmation")).toContainText(
       "Workflow saved",

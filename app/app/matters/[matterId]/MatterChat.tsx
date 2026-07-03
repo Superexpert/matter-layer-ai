@@ -6,12 +6,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SignOutButton } from "@/app/components/SignOutButton";
 import { AppContainer } from "@/components/app-container";
+import { WarningModal } from "@/components/warning-modal";
 import type { AIMessage } from "@/services/ai/types";
 import type {
   EditableMatterDocument,
   MatterDocumentSection,
   MatterDocumentSummary,
 } from "@/services/matter-documents/matter-document-service";
+import { getMatterDocumentDisplayName } from "@/services/matter-documents/display-name";
 import {
   createDefaultWorkflowStep,
   generateWorkflowDraftFromGoal,
@@ -36,6 +38,7 @@ import { FileSelectorStepComponent } from "@/workflow-steps/file-selector/compon
 import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/schema";
 
 import {
+  deleteMatterDocumentAction,
   deleteWorkflowAction,
   duplicateWorkflowAction,
   getEditableMatterDocumentAction,
@@ -150,13 +153,17 @@ function getDocumentSection(document: MatterDocumentSummary): MatterDocumentSect
 
 function MatterDocumentCard({
   document,
+  onDelete,
   onEdit,
   section,
 }: {
   document: MatterDocumentSummary;
+  onDelete: (document: MatterDocumentSummary) => void;
   onEdit?: (documentId: string) => void;
   section: MatterDocumentSection;
 }) {
+  const displayName = getMatterDocumentDisplayName(document);
+
   return (
     <article
       className="rounded-lg border border-[#E3DEEA] bg-white p-4"
@@ -165,7 +172,7 @@ function MatterDocumentCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-[#211B27]">
-            {document.fileName}
+            {displayName}
           </h3>
           <p className="mt-2 text-xs leading-5 text-[#74677F]">
             Updated {new Date(document.updatedAt).toLocaleString()}
@@ -183,9 +190,9 @@ function MatterDocumentCard({
             </button>
           ) : null}
           <button
-            className="inline-flex h-8 items-center justify-center rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 items-center justify-center rounded-md border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 transition-colors hover:bg-red-50"
             data-testid={`matter-document-delete-${document.id}`}
-            disabled
+            onClick={() => onDelete(document)}
             type="button"
           >
             Delete
@@ -337,10 +344,14 @@ export function MatterChat({
   );
   const [deleteCandidateWorkflow, setDeleteCandidateWorkflow] =
     useState<WorkflowCatalogItem | null>(null);
+  const [deleteCandidateDocument, setDeleteCandidateDocument] =
+    useState<MatterDocumentSummary | null>(null);
+  const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [pendingWorkflowAction, setPendingWorkflowAction] = useState<
     string | null
   >(null);
   const [workflowActionError, setWorkflowActionError] = useState("");
+  const [documentActionError, setDocumentActionError] = useState("");
   const [workflowGoalInput, setWorkflowGoalInput] = useState("");
   const [editorWorkflow, setEditorWorkflow] =
     useState<WorkflowDefinition | null>(null);
@@ -357,7 +368,6 @@ export function MatterChat({
   const abortControllerRef = useRef<AbortController | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const workflowMenuContainerRef = useRef<HTMLDivElement>(null);
-  const deleteDialogCancelRef = useRef<HTMLButtonElement>(null);
   const {
     scrollContainerRef,
     updateNearBottom,
@@ -399,8 +409,13 @@ export function MatterChat({
         return;
       }
 
-      if (deleteCandidateWorkflow) {
+      if (deleteCandidateWorkflow && !pendingWorkflowAction) {
         setDeleteCandidateWorkflow(null);
+        return;
+      }
+
+      if (deleteCandidateDocument && !isDeletingDocument) {
+        setDeleteCandidateDocument(null);
         return;
       }
 
@@ -412,13 +427,7 @@ export function MatterChat({
     return () => {
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [deleteCandidateWorkflow]);
-
-  useEffect(() => {
-    if (deleteCandidateWorkflow) {
-      deleteDialogCancelRef.current?.focus();
-    }
-  }, [deleteCandidateWorkflow]);
+  }, [deleteCandidateDocument, deleteCandidateWorkflow, isDeletingDocument, pendingWorkflowAction]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -1053,6 +1062,40 @@ export function MatterChat({
     setDocuments(nextDocuments);
   }, [matterId]);
 
+  async function confirmDeleteMatterDocument() {
+    if (!deleteCandidateDocument) {
+      return;
+    }
+
+    const documentId = deleteCandidateDocument.id;
+
+    setIsDeletingDocument(true);
+    setDocumentActionError("");
+
+    try {
+      await deleteMatterDocumentAction({
+        matterDocumentId: documentId,
+        matterId,
+      });
+      setDocuments((currentDocuments) =>
+        currentDocuments.filter((document) => document.id !== documentId),
+      );
+      setEditableDocument((currentDocument) =>
+        currentDocument?.id === documentId ? null : currentDocument,
+      );
+      setDeleteCandidateDocument(null);
+      setSelectedTab("Documents");
+    } catch (error) {
+      setDocumentActionError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Matter Layer could not delete this document.",
+      );
+    } finally {
+      setIsDeletingDocument(false);
+    }
+  }
+
   const startEditingMatterDocument = useCallback(async (matterDocumentId: string) => {
     setDocumentEditError("");
     setIsLoadingEditableDocument(true);
@@ -1099,6 +1142,20 @@ export function MatterChat({
     setDocumentEditError("");
   }
 
+  function promptDeleteMatterDocument(document: MatterDocumentSummary) {
+    setDocumentActionError("");
+    setDeleteCandidateDocument(document);
+  }
+
+  function exitDocumentEditorStep() {
+    setActiveWorkflow(null);
+    setSelectedTab("Workflows");
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createWorkflowMessage("Document review complete. Workflow complete."),
+    ]);
+  }
+
   function completeDocumentEditorStep(output: DocumentEditorStepOutput) {
     if (!activeWorkflow || !activeWorkflowStep) {
       throw new Error("Completing a document editor step requires an active workflow step.");
@@ -1113,19 +1170,20 @@ export function MatterChat({
       [activeWorkflowStep.id]: output,
     };
 
+    if (!nextStep) {
+      exitDocumentEditorStep();
+      return;
+    }
+
     setActiveWorkflow({
       ...activeWorkflow,
-      activeStepId: nextStep?.id ?? activeWorkflow.activeStepId,
-      completed: !nextStep,
+      activeStepId: nextStep.id,
+      completed: false,
       stepOutputs: nextStepOutputs,
     });
     setMessages((currentMessages) => [
       ...currentMessages,
-      createWorkflowMessage(
-        nextStep
-          ? `Reviewed document saved. Next step: ${nextStep.name}.`
-          : "Reviewed document saved. Workflow complete.",
-      ),
+      createWorkflowMessage(`Document review complete. Next step: ${nextStep.name}.`),
     ]);
   }
 
@@ -1851,6 +1909,7 @@ export function MatterChat({
                     loadStepState={loadDocumentEditorStepStateAction}
                     matterId={matterId}
                     onComplete={completeDocumentEditorStep}
+                    onExitReview={exitDocumentEditorStep}
                     onSavedToDocuments={refreshMatterDocuments}
                     saveArtifact={saveDocumentEditorArtifactAction}
                     step={activeWorkflowStep}
@@ -1927,19 +1986,13 @@ export function MatterChat({
                       disabled={!editableDocument}
                       errorFallback="Matter Layer could not save this document."
                       isLoading={isLoadingEditableDocument}
+                      onDone={returnToDocumentsList}
                       onSave={saveEditableMatterDocument}
-                      saveButtonLabel="Save changes"
                       savedStatusLabel="Saved"
-                      title={editableDocument?.fileName ?? "Document"}
-                      toolbarFooter={
-                        <button
-                          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC]"
-                          data-testid="documents-edit-back"
-                          onClick={returnToDocumentsList}
-                          type="button"
-                        >
-                          Back to Documents
-                        </button>
+                      title={
+                        editableDocument
+                          ? getMatterDocumentDisplayName(editableDocument)
+                          : "Document"
                       }
                       unsavedStatusLabel="Unsaved changes"
                     />
@@ -1970,6 +2023,7 @@ export function MatterChat({
                             <MatterDocumentCard
                               document={document}
                               key={document.id}
+                              onDelete={promptDeleteMatterDocument}
                               onEdit={(documentId) => {
                                 void startEditingMatterDocument(documentId);
                               }}
@@ -1997,6 +2051,7 @@ export function MatterChat({
                             <MatterDocumentCard
                               document={document}
                               key={document.id}
+                              onDelete={promptDeleteMatterDocument}
                               section="sourceDocument"
                             />
                           ))
@@ -2017,6 +2072,15 @@ export function MatterChat({
                         role="alert"
                       >
                         {documentEditError}
+                      </p>
+                    ) : null}
+                    {documentActionError ? (
+                      <p
+                        className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800"
+                        data-testid="documents-action-error"
+                        role="alert"
+                      >
+                        {documentActionError}
                       </p>
                     ) : null}
                   </div>
@@ -2136,16 +2200,10 @@ export function MatterChat({
               <h2 className="text-base font-semibold text-[#211B27]">
                 {activeWorkflow.workflowDefinition.name}
               </h2>
-              <p className="mt-1 text-sm leading-6 text-[#74677F]">
-                Current step: {activeWorkflowStep?.name}
-              </p>
 
               <div className="mt-4 border-t border-[#E3DEEA] pt-4">
-                <p className="text-sm font-semibold text-[#211B27]">
-                  Work Product Canvas
-                </p>
                 {activeWorkflow.workflowDefinition.id === "workflow-builder" ? (
-                  <div className="mt-3" data-testid="workflow-builder-canvas">
+                  <div data-testid="workflow-builder-canvas">
                     {!previewWorkflow ? (
                       <div
                         className="rounded-lg border border-[#E3DEEA] bg-[#FBFAFC] p-4"
@@ -2266,6 +2324,9 @@ export function MatterChat({
                   <ol className="mt-3 grid gap-3" data-testid="workflow-run-canvas">
                     {activeWorkflow.workflowDefinition.steps.map((step, index) => (
                       <li
+                        aria-current={
+                          step.id === activeWorkflow.activeStepId ? "step" : undefined
+                        }
                         className={
                           step.id === activeWorkflow.activeStepId
                             ? "rounded-lg border border-[#5F4B76] bg-[#FBFAFC] p-3"
@@ -2298,62 +2359,66 @@ export function MatterChat({
         </aside>
       </AppContainer>
 
-      {deleteCandidateWorkflow ? (
-        <div
-          aria-labelledby="delete-workflow-title"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[#211B27]/40 px-4"
-          data-testid="delete-workflow-dialog"
-          role="dialog"
-        >
-          <div className="w-full max-w-md rounded-xl border border-[#E3DEEA] bg-white p-5 shadow-[0_24px_64px_rgba(40,29,52,0.24)]">
-            <h2
-              className="text-lg font-semibold text-[#211B27]"
-              id="delete-workflow-title"
-            >
-              Delete {deleteCandidateWorkflow.name}?
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-[#74677F]">
-              This workflow will be permanently deleted. This action cannot be
-              undone.
-            </p>
-            {workflowActionError ? (
-              <p
-                className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-800"
-                data-testid="delete-workflow-error"
-                role="alert"
-              >
-                {workflowActionError}
-              </p>
-            ) : null}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC]"
-                data-testid="cancel-delete-workflow"
-                onClick={() => setDeleteCandidateWorkflow(null)}
-                ref={deleteDialogCancelRef}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="inline-flex h-9 items-center justify-center rounded-lg bg-red-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-red-300"
-                data-testid="confirm-delete-workflow"
-                disabled={
-                  pendingWorkflowAction ===
-                  `delete:${deleteCandidateWorkflow.id}`
-                }
-                onClick={() => {
-                  void confirmDeleteWorkflow();
-                }}
-                type="button"
-              >
-                Delete workflow
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WarningModal
+        cancelLabel="Cancel"
+        cancelTestId="cancel-delete-workflow"
+        confirmLabel="Delete workflow"
+        confirmTestId="confirm-delete-workflow"
+        isPending={
+          deleteCandidateWorkflow
+            ? pendingWorkflowAction === `delete:${deleteCandidateWorkflow.id}`
+            : false
+        }
+        message="This workflow will be permanently deleted. This action cannot be undone."
+        onCancel={() => setDeleteCandidateWorkflow(null)}
+        onConfirm={() => {
+          void confirmDeleteWorkflow();
+        }}
+        open={Boolean(deleteCandidateWorkflow)}
+        testId="delete-workflow-dialog"
+        title={`Delete ${deleteCandidateWorkflow?.name ?? "workflow"}?`}
+        variant="danger"
+      >
+        {workflowActionError ? (
+          <p
+            className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-800"
+            data-testid="delete-workflow-error"
+            role="alert"
+          >
+            {workflowActionError}
+          </p>
+        ) : null}
+      </WarningModal>
+
+      <WarningModal
+        cancelLabel="Cancel"
+        cancelTestId="cancel-delete-document"
+        confirmLabel="Delete"
+        confirmTestId="confirm-delete-document"
+        isPending={isDeletingDocument}
+        message="This will permanently delete this document from the matter. This action cannot be undone."
+        onCancel={() => {
+          setDeleteCandidateDocument(null);
+          setDocumentActionError("");
+        }}
+        onConfirm={() => {
+          void confirmDeleteMatterDocument();
+        }}
+        open={Boolean(deleteCandidateDocument)}
+        testId="delete-document-dialog"
+        title="Delete document?"
+        variant="danger"
+      >
+        {documentActionError ? (
+          <p
+            className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm leading-6 text-red-800"
+            data-testid="delete-document-error"
+            role="alert"
+          >
+            {documentActionError}
+          </p>
+        ) : null}
+      </WarningModal>
     </section>
   );
 }

@@ -413,6 +413,86 @@ test("editing an existing work product document updates the same matter document
   }
 });
 
+test("editing a saved chronology preserves citation editor structure", async () => {
+  const { matter, user, workflowRunId } = await createFixture();
+
+  try {
+    const workProductDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "Chronology.md",
+        matterId: matter.id,
+        mimeType: "text/markdown",
+        representations: {
+          create: {
+            content: [
+              "### January 12, 2024",
+              "",
+              "The event occurred.",
+              "",
+              "Source: Incident Report, p. 1.",
+            ].join("\n"),
+            metadataJson: {
+              source: "workflow_output",
+              stepId: documentEditorStep.id,
+              workflowDefinitionId: "chronology",
+              workflowRunId,
+            },
+            status: MatterDocumentRepresentationStatus.READY,
+            type: MatterDocumentRepresentationType.MARKDOWN,
+          },
+        },
+        size: 84,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: user.id,
+      },
+    });
+    const loadedDocument = await getEditableMatterDocument({
+      matterDocumentId: workProductDocument.id,
+      matterId: matter.id,
+    });
+    const updatedDocument = await saveMatterDocumentEdits({
+      contentMarkdown: [
+        "### January 12, 2024",
+        "",
+        "The updated event occurred.",
+        "",
+        "Source: Incident Report, p. 1.",
+      ].join("\n"),
+      editorJson: {
+        content: [
+          {
+            attrs: {
+              nodeType: "citation",
+            },
+            content: [
+              {
+                text: "Source: Incident Report, p. 1.",
+                type: "text",
+              },
+            ],
+            type: "paragraph",
+          },
+        ],
+        type: "doc",
+      },
+      matterDocumentId: workProductDocument.id,
+      matterId: matter.id,
+    });
+
+    expect(loadedDocument.editorContentHtml).toContain("<h3>January 12, 2024</h3>");
+    expect(loadedDocument.editorContentHtml).toContain(
+      '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
+    );
+    expect(updatedDocument.contentMarkdown).toContain("Source: Incident Report, p. 1.");
+    expect(updatedDocument.editorContentHtml).toContain(
+      'data-node-type="citation"',
+    );
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
 test("source documents cannot be opened in the work product editor", async () => {
   const { matter, user } = await createFixture();
 

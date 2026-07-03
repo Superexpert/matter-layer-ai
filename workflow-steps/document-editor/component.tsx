@@ -1,18 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "@tiptap/extension-link";
 import Paragraph from "@tiptap/extension-paragraph";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
+import { WarningModal } from "@/components/warning-modal";
 import { exportEditorContentToDocx } from "./docx-export";
 import { editorHtmlToMarkdown } from "./conversion";
-import {
-  normalizeDocumentEditorStepConfig,
-  type DocumentEditorStepOutput,
-} from "./schema";
+import type { DocumentEditorStepOutput } from "./schema";
 import type { DocumentEditorStepState } from "./server";
 
 type DocumentEditorStepComponentProps = {
@@ -24,6 +22,7 @@ type DocumentEditorStepComponentProps = {
   }) => Promise<DocumentEditorStepState>;
   matterId: string;
   onComplete: (output: DocumentEditorStepOutput) => void;
+  onExitReview?: () => void;
   onSavedToDocuments?: () => Promise<void>;
   saveArtifact: (input: {
     artifactId: string;
@@ -49,14 +48,14 @@ type DocumentEditorSurfaceProps = {
   description?: string;
   disabled?: boolean;
   errorFallback: string;
-  isChronologyEditor?: boolean;
+  exportButtonLabel?: string;
+  initialSaveStatus?: "saved" | "unsaved";
   isLoading: boolean;
+  onDone: () => void;
   onSave: (payload: DocumentEditorSavePayload) => Promise<void>;
-  saveButtonLabel: string;
+  saveButtonLabel?: string;
   savedStatusLabel: string;
   title: string;
-  toolbarFooterPosition?: "beforeSave" | "afterSave";
-  toolbarFooter?: ReactNode;
   unsavedStatusLabel: string;
 };
 
@@ -69,14 +68,22 @@ function toolbarButtonClass(isActive = false) {
   ].join(" ");
 }
 
-function editorContentClass(isChronologyEditor: boolean) {
-  return [
-    "min-h-[28rem] rounded-b-xl border-x border-b border-[#E3DEEA] bg-white px-5 py-4 text-sm leading-7 text-[#211B27] outline-none prose prose-sm max-w-none",
-    isChronologyEditor ? "chronology-editor" : "",
-  ].filter(Boolean).join(" ");
+function documentActionButtonClass(variant: "primary" | "secondary" = "secondary") {
+  const baseClass =
+    "inline-flex h-10 w-full items-center justify-center rounded-lg px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed";
+
+  if (variant === "primary") {
+    return `${baseClass} bg-[#5F4B76] text-white hover:bg-[#4B3861] disabled:bg-[#CFC5DA]`;
+  }
+
+  return `${baseClass} border border-[#CFC5DA] bg-white text-[#4B3861] hover:bg-[#FBFAFC] disabled:text-[#A79AB4]`;
 }
 
-const ChronologyParagraph = Paragraph.extend({
+function editorContentClass() {
+  return "document-editor min-h-[28rem] rounded-b-xl border-x border-b border-[#E3DEEA] bg-white px-5 py-4 text-sm leading-7 text-[#211B27] outline-none prose prose-sm max-w-none";
+}
+
+const DocumentParagraph = Paragraph.extend({
   addAttributes() {
     return {
       nodeType: {
@@ -88,7 +95,7 @@ const ChronologyParagraph = Paragraph.extend({
           }
 
           return {
-            class: "chronology-source",
+            class: "document-citation",
             "data-node-type": "citation",
           };
         },
@@ -102,39 +109,50 @@ export function DocumentEditorSurface({
   description,
   disabled = false,
   errorFallback,
-  isChronologyEditor = false,
+  exportButtonLabel = "Export",
+  initialSaveStatus = "saved",
   isLoading,
+  onDone,
   onSave,
-  saveButtonLabel,
+  saveButtonLabel = "Save",
   savedStatusLabel,
   title,
-  toolbarFooterPosition = "beforeSave",
-  toolbarFooter,
   unsavedStatusLabel,
 }: DocumentEditorSurfaceProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("unsaved");
   const [errorMessage, setErrorMessage] = useState("");
+  const [showUnsavedChangesWarning, setShowUnsavedChangesWarning] = useState(false);
+  const initialSaveStatusRef = useRef(initialSaveStatus);
+  const lastSavedContentMarkdownRef = useRef<string | null>(null);
   const editor = useEditor({
     content: contentHtml,
     editorProps: {
       attributes: {
-        class: editorContentClass(isChronologyEditor),
+        class: editorContentClass(),
       },
     },
     extensions: [
       StarterKit.configure({
         paragraph: false,
       }),
-      ChronologyParagraph,
+      DocumentParagraph,
       Link.configure({
         openOnClick: false,
       }),
     ],
     immediatelyRender: false,
-    onUpdate: () => {
-      setSaveStatus("unsaved");
+    onUpdate: ({ editor: updatedEditor }) => {
+      const lastSavedContentMarkdown = lastSavedContentMarkdownRef.current;
+      const currentContentMarkdown = editorHtmlToMarkdown(updatedEditor.getHTML());
+
+      setSaveStatus(
+        lastSavedContentMarkdown !== null &&
+          currentContentMarkdown === lastSavedContentMarkdown
+          ? "saved"
+          : "unsaved",
+      );
     },
   });
   const toolbarState = useEditorState({
@@ -161,12 +179,29 @@ export function DocumentEditorSurface({
   };
 
   useEffect(() => {
+    initialSaveStatusRef.current = initialSaveStatus;
+  }, [initialSaveStatus]);
+
+  useEffect(() => {
     if (!editor || isLoading) {
       return;
     }
 
     editor.commands.setContent(contentHtml);
-    setSaveStatus("saved");
+    let isCurrent = true;
+    const loadedContentMarkdown = editorHtmlToMarkdown(contentHtml);
+    queueMicrotask(() => {
+      if (isCurrent) {
+        const nextInitialSaveStatus = initialSaveStatusRef.current;
+        lastSavedContentMarkdownRef.current =
+          nextInitialSaveStatus === "saved" ? loadedContentMarkdown : null;
+        setSaveStatus(nextInitialSaveStatus);
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
   }, [contentHtml, editor, isLoading]);
 
   async function saveDocument() {
@@ -179,10 +214,13 @@ export function DocumentEditorSurface({
     setErrorMessage("");
 
     try {
+      const contentMarkdown = editorHtmlToMarkdown(editor.getHTML());
+
       await onSave({
-        contentMarkdown: editorHtmlToMarkdown(editor.getHTML()),
+        contentMarkdown,
         editorJson: JSON.parse(JSON.stringify(editor.getJSON())),
       });
+      lastSavedContentMarkdownRef.current = contentMarkdown;
       setSaveStatus("saved");
     } catch (error) {
       setSaveStatus("unsaved");
@@ -218,6 +256,17 @@ export function DocumentEditorSurface({
     } finally {
       setIsExporting(false);
     }
+  }
+
+  const hasUnsavedChanges = saveStatus !== "saved";
+
+  function done() {
+    if (hasUnsavedChanges) {
+      setShowUnsavedChangesWarning(true);
+      return;
+    }
+
+    onDone();
   }
 
   return (
@@ -332,10 +381,9 @@ export function DocumentEditorSurface({
         </p>
       ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        {toolbarFooterPosition === "beforeSave" ? toolbarFooter : null}
+      <div className="grid gap-2 sm:grid-cols-3">
         <button
-          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+          className={documentActionButtonClass("primary")}
           data-testid="document-editor-save"
           disabled={isLoading || isSaving || disabled || !editor}
           onClick={() => {
@@ -346,7 +394,7 @@ export function DocumentEditorSurface({
           {isSaving ? "Saving..." : saveButtonLabel}
         </button>
         <button
-          className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+          className={documentActionButtonClass()}
           data-testid="document-editor-export-docx"
           disabled={isLoading || isExporting || disabled || !editor}
           onClick={() => {
@@ -354,10 +402,30 @@ export function DocumentEditorSurface({
           }}
           type="button"
         >
-          {isExporting ? "Exporting..." : "Export DOCX"}
+          {isExporting ? "Exporting..." : exportButtonLabel}
         </button>
-        {toolbarFooterPosition === "afterSave" ? toolbarFooter : null}
+        <button
+          className={documentActionButtonClass()}
+          data-testid="document-editor-continue"
+          onClick={done}
+          type="button"
+        >
+          Done
+        </button>
       </div>
+      <WarningModal
+        cancelLabel="Cancel"
+        cancelTestId="cancel-unsaved-document"
+        confirmLabel="Leave without saving"
+        confirmTestId="leave-unsaved-document"
+        message="You have unsaved changes to this document. If you leave now, those changes may be lost."
+        onCancel={() => setShowUnsavedChangesWarning(false)}
+        onConfirm={onDone}
+        open={showUnsavedChangesWarning}
+        testId="unsaved-document-dialog"
+        title="Unsaved document changes"
+        variant="warning"
+      />
     </section>
   );
 }
@@ -366,21 +434,17 @@ export function DocumentEditorStepComponent({
   loadStepState,
   matterId,
   onComplete,
+  onExitReview,
   onSavedToDocuments,
   saveArtifact,
   step,
   workflowDefinitionId,
   workflowRunId,
 }: DocumentEditorStepComponentProps) {
-  const config = useMemo(
-    () => normalizeDocumentEditorStepConfig(step.parameters),
-    [step.parameters],
-  );
   const [state, setState] = useState<DocumentEditorStepState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [latestOutput, setLatestOutput] = useState<DocumentEditorStepOutput | null>(null);
-  const isChronologyEditor = config.artifactOutputKey === "chronologyArtifactId";
 
   useEffect(() => {
     let isCurrent = true;
@@ -446,7 +510,18 @@ export function DocumentEditorStepComponent({
     });
   }
 
-  const canContinue = latestOutput?.status === "completed";
+  function completeReviewStep() {
+    if (latestOutput) {
+      onComplete(latestOutput);
+      return;
+    }
+
+    if (!onExitReview) {
+      throw new Error("Leaving a document editor step without saved output requires an exit handler.");
+    }
+
+    onExitReview();
+  }
 
   return (
     <section data-testid="document-editor-step">
@@ -464,28 +539,13 @@ export function DocumentEditorStepComponent({
           description={step.description}
           disabled={!state}
           errorFallback="Matter Layer could not save the reviewed document."
-          isChronologyEditor={isChronologyEditor}
+          exportButtonLabel="Export"
+          initialSaveStatus={latestOutput ? "saved" : "unsaved"}
           isLoading={isLoading}
+          onDone={completeReviewStep}
           onSave={saveDocument}
-          saveButtonLabel="Save to Documents"
           savedStatusLabel={latestOutput?.savedMatterDocumentId ? "Saved to Documents" : "Not saved to Documents"}
           title={step.name}
-          toolbarFooter={
-        <button
-          className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
-          data-testid="document-editor-continue"
-          disabled={!canContinue}
-          onClick={() => {
-            if (latestOutput) {
-              onComplete(latestOutput);
-            }
-          }}
-          type="button"
-        >
-          Continue
-        </button>
-          }
-          toolbarFooterPosition="afterSave"
           unsavedStatusLabel={latestOutput?.savedMatterDocumentId ? "Unsaved changes" : "Not saved to Documents"}
         />
       )}

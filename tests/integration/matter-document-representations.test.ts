@@ -8,6 +8,7 @@ import { afterAll, expect, test } from "vitest";
 
 import { uploadMatterDocuments } from "../../workflow-steps/file-selector/server";
 import { defaultFileSelectorConfig } from "../../workflow-steps/file-selector/schema";
+import { deleteMatterDocument } from "../../services/matter-documents/matter-document-service";
 import {
   ensureMatterDocumentRepresentation,
   generateMatterDocumentMarkdown,
@@ -425,6 +426,80 @@ test("representation content is explicit and matter-scoped", async () => {
         type: MatterDocumentRepresentationType.MARKDOWN,
       }),
     ).rejects.toThrow("Matter document was not found for this matter.");
+  } finally {
+    await cleanupMatter(matter.id);
+    await prisma.matter.delete({
+      where: {
+        id: otherMatter.id,
+      },
+    });
+  }
+});
+
+test("matter documents can be deleted only from their owning matter", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const otherMatter = await prisma.matter.create({
+    data: {
+      name: `Other Delete Matter ${Date.now()}`,
+    },
+  });
+
+  try {
+    const document = await uploadFixture({
+      bytes: Buffer.from("Delete scoped notes."),
+      fileName: "delete-scoped.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await ensureMatterDocumentRepresentation({
+      matterDocumentId: document.id,
+      matterId: matter.id,
+      type: MatterDocumentRepresentationType.MARKDOWN,
+    });
+
+    await expect(
+      deleteMatterDocument({
+        matterDocumentId: document.id,
+        matterId: otherMatter.id,
+      }),
+    ).rejects.toThrow("Matter document does not belong to the current matter.");
+
+    await expect(
+      prisma.matterDocument.findUnique({
+        where: {
+          id: document.id,
+        },
+      }),
+    ).resolves.not.toBeNull();
+
+    await deleteMatterDocument({
+      matterDocumentId: document.id,
+      matterId: matter.id,
+    });
+
+    await expect(
+      prisma.matterDocument.findUnique({
+        where: {
+          id: document.id,
+        },
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      prisma.matterDocumentRepresentation.findMany({
+        where: {
+          matterDocumentId: document.id,
+        },
+      }),
+    ).resolves.toHaveLength(0);
+    await expect(
+      prisma.matterDocumentContent.findUnique({
+        where: {
+          matterDocumentId: document.id,
+        },
+      }),
+    ).resolves.toBeNull();
   } finally {
     await cleanupMatter(matter.id);
     await prisma.matter.delete({

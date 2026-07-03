@@ -6,7 +6,10 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { getMatterDocumentStorageProvider } from "@/services/matter-documents/storage";
+import {
+  getMatterDocumentStorageProvider,
+  type MatterFileStorageProviderName,
+} from "@/services/matter-documents/storage";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
 
 export type MatterDocumentSection = "workProduct" | "sourceDocument";
@@ -43,6 +46,11 @@ export type SaveWorkflowMatterDocumentInput = {
 export type SaveMatterDocumentEditsInput = {
   contentMarkdown: string;
   editorJson?: unknown;
+  matterDocumentId: string;
+  matterId: string;
+};
+
+export type DeleteMatterDocumentInput = {
   matterDocumentId: string;
   matterId: string;
 };
@@ -309,6 +317,56 @@ export async function saveMatterDocumentEdits(
   });
 
   return getEditableMatterDocument(input);
+}
+
+export async function deleteMatterDocument(input: DeleteMatterDocumentInput) {
+  const document = await prisma.matterDocument.findUnique({
+    select: {
+      id: true,
+      matterId: true,
+      storageKey: true,
+      storageProvider: true,
+    },
+    where: {
+      id: input.matterDocumentId,
+    },
+  });
+
+  if (!document) {
+    throw new Error("Matter document was not found.");
+  }
+
+  if (document.matterId !== input.matterId) {
+    throw new Error("Matter document does not belong to the current matter.");
+  }
+
+  const matter = await prisma.matter.findUnique({
+    select: {
+      id: true,
+    },
+    where: {
+      id: input.matterId,
+    },
+  });
+
+  if (!matter) {
+    throw new Error("Matter was not found.");
+  }
+
+  const storageProvider = getMatterDocumentStorageProvider(
+    document.storageProvider as MatterFileStorageProviderName,
+  );
+
+  await storageProvider.delete({
+    matterDocumentId: document.id,
+    storageKey: document.storageKey,
+  });
+
+  await prisma.matterDocument.delete({
+    where: {
+      id: document.id,
+    },
+  });
 }
 
 export async function saveWorkflowMatterDocument(

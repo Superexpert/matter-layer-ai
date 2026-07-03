@@ -3,6 +3,7 @@
 import { unstable_noStore as noStore } from "next/cache";
 
 import {
+  deleteMatterDocument,
   getEditableMatterDocument,
   listMatterDocuments,
   saveMatterDocumentEdits,
@@ -85,6 +86,16 @@ export async function saveMatterDocumentEditsAction(input: {
   await requireCurrentUser();
 
   return saveMatterDocumentEdits(input);
+}
+
+export async function deleteMatterDocumentAction(input: {
+  matterDocumentId: string;
+  matterId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  await deleteMatterDocument(input);
 }
 
 export async function loadFileSelectorStepStateAction(input: {

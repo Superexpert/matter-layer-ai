@@ -9,7 +9,7 @@ export function markdownToEditorHtml(markdown: string) {
 
   return html.replace(
     /<p>(Source:\s[\s\S]*?)<\/p>/g,
-    '<p class="chronology-source" data-node-type="citation">$1</p>',
+    '<p class="document-citation" data-node-type="citation">$1</p>',
   );
 }
 
