@@ -1,8 +1,14 @@
 import { UserRole } from "@prisma/client";
+import Link from "next/link";
 
 import { listAIProviderConfigs } from "@/services/ai/ai-settings-service";
 import { AI_PROVIDER_REGISTRY } from "@/services/ai/provider-registry";
 import { getCurrentUser } from "@/services/users";
+import {
+  listAdminWorkflowSummaries,
+  type AdminWorkflowSummary,
+} from "@/services/workflows/admin-workflow-catalog";
+import { syncBuiltInWorkflows } from "@/services/workflows/catalog-service";
 
 import { AdminAISettingsForm } from "./AdminAISettingsForm";
 import { AdminTabs } from "./AdminTabs";
@@ -16,8 +22,51 @@ type AdminPageProps = {
   searchParams: Promise<{
     error?: string;
     saved?: string;
+    tab?: string;
   }>;
 };
+
+function AdminWorkflowsPanel({
+  workflows,
+}: {
+  workflows: AdminWorkflowSummary[];
+}) {
+  if (workflows.length === 0) {
+    return (
+      <div
+        className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-4"
+        data-testid="admin-workflows-empty"
+      >
+        <h3 className="text-base font-semibold text-[#211B27]">
+          No workflows registered
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-[#74677F]">
+          Registered workflows will appear here once the catalog is populated.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3" data-testid="admin-workflow-list">
+      {workflows.map((workflow) => (
+        <Link
+          className="block rounded-lg border border-[#E3DEEA] bg-white p-4 shadow-[0_1px_2px_rgba(40,29,52,0.04)] transition-colors hover:border-[#B8A9C8] hover:bg-[#FBFAFC]"
+          data-testid={`admin-workflow-card-${workflow.id}`}
+          href={`/app/admin/workflows/${workflow.id}`}
+          key={workflow.id}
+        >
+          <h3 className="text-base font-semibold text-[#211B27]">
+            {workflow.name}
+          </h3>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-[#74677F]">
+            {workflow.description}
+          </p>
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const currentUser = await getCurrentUser();
@@ -38,10 +87,14 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     );
   }
 
-  const [{ error, saved }, aiProviderConfigs] = await Promise.all([
+  await syncBuiltInWorkflows();
+
+  const [{ error, saved, tab }, aiProviderConfigs, workflows] = await Promise.all([
     searchParams,
     listAIProviderConfigs(),
+    listAdminWorkflowSummaries(),
   ]);
+  const initialTab = tab === "workflows" ? "Workflows" : "AI Providers";
 
   return (
     <section className="grid gap-4" data-testid="admin-page">
@@ -92,6 +145,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             />
           </>
         }
+        initialTab={initialTab}
+        workflowsPanel={<AdminWorkflowsPanel workflows={workflows} />}
       />
     </section>
   );

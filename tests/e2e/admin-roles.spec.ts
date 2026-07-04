@@ -195,10 +195,62 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
       "Workflows",
     );
     await expect(page.getByTestId("admin-workflows-panel")).toContainText(
-      "Workflow configuration will appear here.",
+      "Workflow Builder",
+    );
+    await expect(page.getByTestId("admin-workflows-panel")).toContainText(
+      "Chronology",
+    );
+    await expect(
+      page.getByTestId("admin-workflow-card-chronology"),
+    ).toHaveAttribute("href", "/app/admin/workflows/chronology");
+    await expect(
+      page.getByTestId("admin-workflow-card-chronology"),
+    ).toContainText("Create a chronology from selected matter documents.");
+    await expect(
+      page.getByTestId("admin-workflow-card-chronology"),
+    ).not.toContainText("3 steps");
+    await expect(
+      page.getByTestId("admin-workflow-card-workflow-builder"),
+    ).not.toContainText("workflow-builder");
+    await expect(
+      page.getByTestId("admin-workflows-panel"),
+    ).not.toContainText("Default workflow");
+    await page.getByTestId("admin-workflow-card-chronology").click();
+    await expect(page).toHaveURL(`${server.baseURL}/app/admin/workflows/chronology`);
+    await expect(page.getByTestId("admin-workflow-detail-page")).toContainText(
+      "Chronology",
+    );
+    await expect(page.getByTestId("admin-workflow-detail-page")).toContainText(
+      "Create a chronology from selected matter documents.",
+    );
+    await expect(page.getByTestId("admin-workflow-step")).toHaveCount(3);
+    await expect(page.getByTestId("admin-workflow-step").nth(0)).toContainText(
+      "Select source documents",
+    );
+    await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
+      "Prepare source documents",
+    );
+    await expect(page.getByTestId("admin-workflow-step").nth(2)).toContainText(
+      "Review chronology",
+    );
+    await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
+      "Uses output from select-source-files.",
+    );
+    await page.goto(`${server.baseURL}/app/admin/workflows/missing-workflow`);
+    await expect(page.getByTestId("admin-workflow-not-found")).toContainText(
+      "Workflow not found",
+    );
+    await page.getByRole("link", { name: "Back to workflows" }).click();
+    await expect(page).toHaveURL(`${server.baseURL}/app/admin?tab=workflows`);
+    await expect(page.getByTestId("admin-tab-workflows")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("admin-workflows-panel")).toContainText(
+      "Chronology",
     );
     await expect(page.getByTestId("admin-side-panel")).toContainText(
-      "Workflow configuration controls which workflows are available to matters.",
+      "Review the workflow catalog.",
     );
     await expect(page.getByTestId("ai-provider-form")).toHaveCount(0);
     await page.getByTestId("admin-tab-ai-providers").click();

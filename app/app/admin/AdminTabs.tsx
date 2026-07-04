@@ -13,6 +13,8 @@ type AdminTab = "AI Providers" | "Workflows";
 
 type AdminTabsProps = {
   aiProvidersPanel: ReactNode;
+  initialTab?: AdminTab;
+  workflowsPanel: ReactNode;
 };
 
 const ADMIN_TABS = [
@@ -28,16 +30,20 @@ const ADMIN_TABS = [
   },
 ] as const;
 
-export function AdminTabs({ aiProvidersPanel }: AdminTabsProps) {
-  const [selectedTab, setSelectedTab] = useState<AdminTab>("AI Providers");
+export function AdminTabs({
+  aiProvidersPanel,
+  initialTab = "AI Providers",
+  workflowsPanel,
+}: AdminTabsProps) {
+  const [selectedTab, setSelectedTab] = useState<AdminTab>(initialTab);
   const panelDescription =
     selectedTab === "AI Providers"
       ? "Configure the providers Matter Layer can use for chat and workflows."
-      : "Workflow configuration will appear here.";
+      : "Inspect registered workflows and their execution steps.";
   const canvasDescription =
     selectedTab === "AI Providers"
       ? "Configure system-wide settings for AI providers and workflows."
-      : "Workflow configuration controls which workflows are available to matters.";
+      : "Review the workflow catalog.";
 
   return (
     <div>
@@ -93,14 +99,7 @@ export function AdminTabs({ aiProvidersPanel }: AdminTabsProps) {
               </section>
             ) : (
               <section data-testid="admin-workflows-panel">
-                <div className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-4">
-                  <h3 className="text-base font-semibold text-[#211B27]">
-                    Workflows
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-[#74677F]">
-                    Workflow configuration will appear here.
-                  </p>
-                </div>
+                {workflowsPanel}
               </section>
             )}
           </div>
