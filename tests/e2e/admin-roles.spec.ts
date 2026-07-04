@@ -153,7 +153,60 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
 
     await page.goto(`${server.baseURL}/app/admin`);
     await expect(page.getByTestId("admin-page")).toBeVisible();
+    await expect(page.getByTestId("admin-header-panel")).toHaveCount(0);
+    await expect(page.getByTestId("admin-context-header")).toContainText("Admin");
+    await expect(page.getByTestId("admin-context-header")).toContainText(
+      "Manage app-wide Matter Layer settings.",
+    );
     await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+    await expect(page.getByTestId("nav-admin")).toBeVisible();
+    await expect(page.getByTestId("nav-settings")).toBeVisible();
+    await expect(page.getByTestId("logout-button")).toBeVisible();
+    await expect(page.getByTestId("admin-tabs").getByRole("button")).toHaveText([
+      "AI Providers",
+      "Workflows",
+    ]);
+    await expect(page.getByTestId("admin-tab-ai-providers")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("admin-ai-providers-panel")).toBeVisible();
+    await expect(page.getByTestId("admin-workspace-layout")).toBeVisible();
+    await expect(page.getByTestId("admin-main-panel")).toBeVisible();
+    await expect(page.getByTestId("admin-main-panel")).toContainText("ADMIN");
+    await expect(page.getByTestId("admin-main-panel")).toContainText(
+      "AI Providers",
+    );
+    await expect(page.getByTestId("admin-main-panel")).toContainText(
+      "Configure the providers Matter Layer can use for chat and workflows.",
+    );
+    await expect(page.getByTestId("admin-side-panel")).toContainText("Canvas");
+    await expect(page.getByTestId("admin-side-panel")).toContainText("Admin");
+    await expect(page.getByTestId("admin-side-panel")).toContainText(
+      "Configure system-wide settings for AI providers and workflows.",
+    );
+    await expect(page.getByTestId("ai-provider-form")).toBeVisible();
+    await page.getByTestId("admin-tab-workflows").click();
+    await expect(page.getByTestId("admin-tab-workflows")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("admin-workflows-panel")).toContainText(
+      "Workflows",
+    );
+    await expect(page.getByTestId("admin-workflows-panel")).toContainText(
+      "Workflow configuration will appear here.",
+    );
+    await expect(page.getByTestId("admin-side-panel")).toContainText(
+      "Workflow configuration controls which workflows are available to matters.",
+    );
+    await expect(page.getByTestId("ai-provider-form")).toHaveCount(0);
+    await page.getByTestId("admin-tab-ai-providers").click();
+    await expect(page.getByTestId("admin-tab-ai-providers")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("ai-provider-form")).toBeVisible();
 
     await page.context().clearCookies();
     await addTestAuthSession(page, server.baseURL, {
