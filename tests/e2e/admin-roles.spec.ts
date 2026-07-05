@@ -187,6 +187,7 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     );
     await expect(page.getByTestId("ai-provider-form")).toBeVisible();
     await page.getByTestId("admin-tab-workflows").click();
+    await expect(page).toHaveURL(`${server.baseURL}/app/admin?tab=workflows`);
     await expect(page.getByTestId("admin-tab-workflows")).toHaveAttribute(
       "aria-current",
       "page",

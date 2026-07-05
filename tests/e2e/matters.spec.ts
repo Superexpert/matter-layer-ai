@@ -506,6 +506,16 @@ test("authenticated user can create a matter", async ({ page }) => {
     await expect(page.getByTestId("workflow-preview-empty")).toContainText(
       "No workflow drafted yet",
     );
+    await page.getByTestId("matter-tab-workflows").click();
+    await expect(page.getByTestId("available-workflows-panel")).toContainText(
+      "Available workflows",
+    );
+    await expect(page.getByTestId("workflow-define-goal-panel")).toHaveCount(0);
+
+    await page.getByTestId("workflow-chip-workflow-builder").click();
+    await expect(page.getByTestId("workflow-define-goal-panel")).toContainText(
+      "Describe the business outcome",
+    );
     await expect(
       page
         .getByTestId("active-workflow-canvas")

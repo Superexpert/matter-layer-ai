@@ -535,6 +535,23 @@ export function MatterChat({
     setIsPending(false);
   }
 
+  function selectMatterTab(tab: MatterTab) {
+    setSelectedTab(tab);
+
+    if (tab !== "Workflows") {
+      return;
+    }
+
+    setActiveWorkflow(null);
+    setEditorWorkflow(null);
+    setOpenWorkflowMenuId(null);
+    setDeleteCandidateWorkflow(null);
+    setStepParameterErrors({});
+    setStepParameterText({});
+    setSelectedWorkflowStepIndex(0);
+    setWorkflowGoalInput("");
+  }
+
   function parameterTextFromWorkflow(workflow: WorkflowDefinition) {
     return Object.fromEntries(
       workflow.steps.map((step) => [
@@ -1380,7 +1397,7 @@ export function MatterChat({
               }
               data-testid={`matter-tab-${tab.toLowerCase()}`}
               key={tab}
-              onClick={() => setSelectedTab(tab)}
+              onClick={() => selectMatterTab(tab)}
               type="button"
             >
               {tab}

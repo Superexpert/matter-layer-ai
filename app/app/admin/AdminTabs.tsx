@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { AppTabs } from "@/components/app-tabs";
 import {
@@ -35,6 +36,7 @@ export function AdminTabs({
   initialTab = "AI Providers",
   workflowsPanel,
 }: AdminTabsProps) {
+  const router = useRouter();
   const [selectedTab, setSelectedTab] = useState<AdminTab>(initialTab);
   const panelDescription =
     selectedTab === "AI Providers"
@@ -49,7 +51,13 @@ export function AdminTabs({
     <div>
       <AppTabs
         ariaLabel="Admin navigation"
-        onSelect={setSelectedTab}
+        onSelect={(tab) => {
+          setSelectedTab(tab);
+
+          if (tab === "Workflows") {
+            router.push("/app/admin?tab=workflows");
+          }
+        }}
         selectedTab={selectedTab}
         tabs={ADMIN_TABS}
         testId="admin-tabs"
