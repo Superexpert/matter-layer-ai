@@ -25,8 +25,7 @@ function conciseError(error: unknown) {
 }
 
 function defaultAIWindowTimeoutMs() {
-  const rawValue = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS ??
-    process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS;
+  const rawValue = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS;
 
   if (!rawValue) {
     return 90_000;
@@ -44,8 +43,7 @@ function defaultAIWindowTimeoutMs() {
 }
 
 function defaultAIHeartbeatMs() {
-  const rawValue = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_HEARTBEAT_MS ??
-    process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS;
+  const rawValue = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_HEARTBEAT_MS;
 
   if (!rawValue) {
     return 10_000;

@@ -13,13 +13,42 @@ export const extractionParameterSchema: WorkflowSchema = {
     inputStepId: {
       type: "string",
     },
+    outputKey: {
+      type: ["string", "null"],
+    },
     profile: {
-      enum: ["chronology"],
       type: "string",
     },
     representationType: {
       enum: ["MARKDOWN"],
       type: "string",
+    },
+    taskId: {
+      type: "string",
+    },
+    ui: {
+      additionalProperties: false,
+      properties: {
+        profileLine: {
+          type: ["string", "null"],
+        },
+        queuedDocumentMessage: {
+          type: "string",
+        },
+        retryButtonLabel: {
+          type: "string",
+        },
+        runButtonLabel: {
+          type: "string",
+        },
+        runningButtonLabel: {
+          type: "string",
+        },
+        runningDocumentLabel: {
+          type: "string",
+        },
+      },
+      type: "object",
     },
   },
   required: ["inputStepId", "profile", "representationType"],
@@ -27,14 +56,11 @@ export const extractionParameterSchema: WorkflowSchema = {
 };
 
 export const extractionOutputSchema: WorkflowSchema = {
-  additionalProperties: false,
+  additionalProperties: true,
   description: "Prepared representation counts and extraction run id.",
   properties: {
     artifactReferences: {
       type: "object",
-    },
-    chronologyArtifactId: {
-      type: ["string", "null"],
     },
     collapsedEventCount: {
       type: "integer",
@@ -90,6 +116,9 @@ export const extractionOutputSchema: WorkflowSchema = {
     profile: {
       type: "string",
     },
+    outputKey: {
+      type: ["string", "null"],
+    },
     profileOutput: {
       type: ["object", "array", "string", "number", "boolean", "null"],
     },
@@ -115,7 +144,6 @@ export const extractionOutputSchema: WorkflowSchema = {
     },
   },
   required: [
-    "chronologyArtifactId",
     "artifactReferences",
     "collapsedEventCount",
     "collapsedEvents",
@@ -129,6 +157,7 @@ export const extractionOutputSchema: WorkflowSchema = {
     "failedDocumentIds",
     "failedRepresentationCount",
     "preparedDocumentIds",
+    "outputKey",
     "profile",
     "profileOutput",
     "progress",

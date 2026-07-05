@@ -1,7 +1,7 @@
-import { workflowBuilderDefinition } from "@/workflows";
+import { builtInWorkflows } from "@/workflows";
 
 export { workflowBuilderDefinition } from "@/workflows";
 
-export const builtInWorkflowDefinitions = [
-  workflowBuilderDefinition,
-];
+export const builtInWorkflowDefinitions = builtInWorkflows.map(
+  (workflow) => workflow.definition,
+);

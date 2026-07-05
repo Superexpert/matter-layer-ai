@@ -99,8 +99,15 @@ export function createDefaultWorkflowStep(
       "Extract structured facts or events from selected matter documents.",
       {
         inputStepId: "select-files-1",
+        outputKey: "chronologyArtifactId",
         profile: "chronology",
         representationType: "MARKDOWN",
+        taskId: "chronology",
+        ui: {
+          profileLine: null,
+          runButtonLabel: "Extract chronology facts",
+          runningDocumentLabel: "Extracting facts",
+        },
       },
     );
   }
@@ -246,8 +253,15 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
           "Convert the selected documents into AI-readable Markdown for chronology extraction.",
           {
             inputStepId: "select-files",
+            outputKey: "chronologyArtifactId",
             profile: "chronology",
             representationType: "MARKDOWN",
+            taskId: "chronology",
+            ui: {
+              profileLine: null,
+              runButtonLabel: "Extract chronology facts",
+              runningDocumentLabel: "Extracting facts",
+            },
           },
           {
             autorun: true,

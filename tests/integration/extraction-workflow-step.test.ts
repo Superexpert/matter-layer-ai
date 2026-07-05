@@ -195,6 +195,7 @@ async function saveSelection(input: {
   documentIds: string[];
   matterId: string;
   userId: string;
+  workflowDefinitionId?: string;
   workflowRunId: string;
 }) {
   return saveFileSelectorStepSelection({
@@ -204,7 +205,7 @@ async function saveSelection(input: {
     stepId: "select-source-files",
     uploadedDuringStepMatterDocumentIds: [],
     userId: input.userId,
-    workflowDefinitionId: "chronology",
+    workflowDefinitionId: input.workflowDefinitionId ?? "chronology",
     workflowRunId: input.workflowRunId,
   });
 }
@@ -307,6 +308,51 @@ function mockChronologyAI(options?: {
   };
 }
 
+function mockEminentDomainAI(): MockAIService {
+  let callCount = 0;
+
+  return {
+    get callCount() {
+      return callCount;
+    },
+    generateText: async (): Promise<MockGenerateTextResponse> => {
+      callCount += 1;
+
+      return {
+        content: JSON.stringify({
+          assessments: [
+            {
+              matterOverview: {
+                condemningAuthority: "City of Austin",
+                propertyOwner: "Jane Owner",
+              },
+              proceduralFlags: [
+                {
+                  explanation: "The selected documents do not include a served petition.",
+                  issue: "Petition service cannot be confirmed.",
+                  severity: "medium",
+                  sourceCitation: "Correspondence, p. 1",
+                },
+              ],
+              recommendedNextActions: ["Request the petition and service packet."],
+              timeline: [
+                {
+                  confidence: "high",
+                  date: "2026-01-15",
+                  event: "Initial offer letter sent.",
+                  sourceCitation: "Offer Letter, p. 1",
+                },
+              ],
+            },
+          ],
+        }),
+        model: "mock-model",
+        provider: "mock",
+      };
+    },
+  };
+}
+
 async function waitForCondition(
   predicate: () => Promise<boolean>,
   timeoutMs = 3000,
@@ -334,6 +380,105 @@ test("extraction step is registered", () => {
   expect(registeredExtractionStep.parameterSchema.required).toContain(
     "inputStepId",
   );
+});
+
+test("generic extraction step runs eminent domain assessment with configured output key", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `eminent-domain-extraction-run-${Date.now()}`;
+  const eminentDomainExtractionStep: WorkflowStepDefinition = {
+    autorun: true,
+    description:
+      "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected documents.",
+    id: "analyze-case-documents",
+    name: "Analyze Case Documents",
+    parameters: {
+      inputStepId: "select-source-files",
+      outputKey: "eminentDomainCaseAssessment",
+      profile: "eminent-domain-case-assessment",
+      representationType: "MARKDOWN",
+      taskId: "eminent-domain-case-assessment",
+      ui: {
+        profileLine: null,
+        runButtonLabel: "Analyze case documents",
+        runningDocumentLabel: "Analyzing",
+      },
+    },
+    type: "extraction",
+  };
+
+  try {
+    const textDocument = await uploadFixture({
+      bytes: Buffer.from("Offer letter from City of Austin to Jane Owner."),
+      fileName: "offer-letter.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [textDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockEminentDomainAI(),
+      matterId: matter.id,
+      step: eminentDomainExtractionStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    expect(output).toMatchObject({
+      artifactReferences: {},
+      outputKey: "eminentDomainCaseAssessment",
+      profile: "eminent-domain-case-assessment",
+      readyRepresentationCount: 1,
+      status: "completed",
+    });
+    expect(output.eminentDomainCaseAssessment).toMatchObject({
+      assessments: [
+        {
+          assessment: {
+            matterOverview: {
+              condemningAuthority: "City of Austin",
+              propertyOwner: "Jane Owner",
+            },
+          },
+          sourceDocumentId: textDocument.id,
+          sourceFileName: "offer-letter.txt",
+        },
+      ],
+    });
+    expect(output.factsByType).toEqual({
+      eminent_domain_case_assessment: 1,
+    });
+
+    const extractionRun = await prisma.workflowExtractionRun.findUniqueOrThrow({
+      where: {
+        id: output.extractionRunId,
+      },
+    });
+
+    expect(extractionRun).toMatchObject({
+      matterId: matter.id,
+      profile: "eminent-domain-case-assessment",
+      representationType: "MARKDOWN",
+      status: WorkflowExtractionRunStatus.COMPLETED,
+      stepId: eminentDomainExtractionStep.id,
+      workflowRunId,
+    });
+    expect(extractionRun.metadataJson).toMatchObject({
+      itemCountsByType: {
+        eminent_domain_case_assessment: 1,
+      },
+      selectedDocumentCount: 1,
+    });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
 });
 
 test("autorun starts extraction in the background and exposes activity for the active step", async () => {
@@ -530,7 +675,10 @@ test("extraction step prepares TXT and PDF representations and persists output",
       selectedMatterDocumentIds: [textDocument.id, pdfDocument.id],
       status: "completed",
     });
-    expect(output.chronologyArtifactId).toEqual(expect.any(String));
+    const chronologyArtifactId = output.artifactReferences.chronologyArtifactId;
+
+    expect(chronologyArtifactId).toEqual(expect.any(String));
+    expect(output.chronologyArtifactId).toBe(chronologyArtifactId);
 
     const extractionRun = await prisma.workflowExtractionRun.findUniqueOrThrow({
       where: {
@@ -551,7 +699,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
       aiProvider: "mock",
       collapsedEventCount: 2,
       artifactReferences: {
-        chronologyArtifactId: output.chronologyArtifactId,
+        chronologyArtifactId,
       },
       itemCount: 2,
       itemCountsByType: {
@@ -579,7 +727,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
 
     const artifact = await prisma.workflowArtifact.findUniqueOrThrow({
       where: {
-        id: output.chronologyArtifactId ?? "",
+        id: chronologyArtifactId ?? "",
       },
     });
 
@@ -673,7 +821,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
     });
 
     expect(stepOutput.outputJson).toMatchObject({
-      chronologyArtifactId: output.chronologyArtifactId,
+      chronologyArtifactId,
       collapsedEventCount: 2,
       extractedFactCount: 2,
       extractionRunId: output.extractionRunId,
@@ -706,7 +854,9 @@ test("extraction step prepares TXT and PDF representations and persists output",
     });
 
     expect(rerunOutput.extractionRunId).not.toBe(output.extractionRunId);
-    expect(rerunOutput.chronologyArtifactId).not.toBe(output.chronologyArtifactId);
+    expect(rerunOutput.artifactReferences.chronologyArtifactId).not.toBe(
+      chronologyArtifactId,
+    );
     expect(rerunRepresentations.map((representation) =>
       representation.updatedAt.getTime(),
     )).toEqual(representationUpdatedAt);
@@ -719,11 +869,11 @@ test("chronology extraction runs documents with bounded parallelism and preserve
   const { matter, user } = await createUserAndMatter();
   const workflowRunId = `parallel-extraction-run-${Date.now()}`;
   const previousConcurrency =
-    process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
+    process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY;
   let activeCallCount = 0;
   let maxActiveCallCount = 0;
 
-  process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY = "2";
+  process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY = "2";
 
   try {
     const firstDocument = await uploadFixture({
@@ -773,10 +923,10 @@ test("chronology extraction runs documents with bounded parallelism and preserve
     ]);
   } finally {
     if (previousConcurrency) {
-      process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY =
+      process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY =
         previousConcurrency;
     } else {
-      delete process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
+      delete process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY;
     }
 
     await cleanupMatter(matter.id);
@@ -969,11 +1119,11 @@ test("window extraction activity exposes per-window progress and failures", asyn
 test("hung AI window calls time out and persist failed output", async () => {
   const { matter, user } = await createUserAndMatter();
   const workflowRunId = `window-timeout-extraction-run-${Date.now()}`;
-  const previousTimeout = process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS;
-  const previousHeartbeat = process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS;
+  const previousTimeout = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS;
+  const previousHeartbeat = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_HEARTBEAT_MS;
 
-  process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS = "75";
-  process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS = "25";
+  process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS = "75";
+  process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_HEARTBEAT_MS = "25";
 
   try {
     const textDocument = await uploadFixture({
@@ -1047,15 +1197,15 @@ test("hung AI window calls time out and persist failed output", async () => {
     );
   } finally {
     if (previousTimeout) {
-      process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS = previousTimeout;
+      process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS = previousTimeout;
     } else {
-      delete process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_TIMEOUT_MS;
+      delete process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS;
     }
 
     if (previousHeartbeat) {
-      process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS = previousHeartbeat;
+      process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_HEARTBEAT_MS = previousHeartbeat;
     } else {
-      delete process.env.MATTER_LAYER_CHRONOLOGY_AI_WINDOW_HEARTBEAT_MS;
+      delete process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_HEARTBEAT_MS;
     }
 
     await cleanupMatter(matter.id);

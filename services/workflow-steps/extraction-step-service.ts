@@ -299,8 +299,7 @@ function extractionServiceLog(message: string, metadata: Record<string, unknown>
 }
 
 function extractionDocumentConcurrency() {
-  const rawValue = process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY ??
-    process.env.MATTER_LAYER_CHRONOLOGY_DOCUMENT_CONCURRENCY;
+  const rawValue = process.env.MATTER_LAYER_EXTRACTION_DOCUMENT_CONCURRENCY;
 
   if (!rawValue) {
     return 3;
@@ -403,12 +402,12 @@ function autorunJobKey(input: RunExtractionStepInput) {
 const backgroundExtractionJobs = new Map<string, Promise<ExtractionStepOutput>>();
 
 function autorunStartingOutput(input: {
+  outputKey: ExtractionStepOutput["outputKey"];
   profile: ExtractionStepOutput["profile"];
   workflowRunId: string;
 }): ExtractionStepOutput {
   return {
     artifactReferences: {},
-    chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
     documentResults: [],
@@ -422,6 +421,7 @@ function autorunStartingOutput(input: {
     failedDocumentIds: [],
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
+    outputKey: input.outputKey,
     profile: input.profile,
     profileOutput: null,
     progress: {
@@ -443,6 +443,7 @@ function failedOutput(input: {
   error: WorkflowStepError;
   extractionRunId: string;
   failedRepresentationCount: number;
+  outputKey: ExtractionStepOutput["outputKey"];
   progress?: WorkflowStepProgress | null;
   profile: ExtractionStepOutput["profile"];
   readyRepresentationCount: number;
@@ -450,7 +451,6 @@ function failedOutput(input: {
 }): ExtractionStepOutput {
   return {
     artifactReferences: {},
-    chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
     documentResults: [],
@@ -464,6 +464,7 @@ function failedOutput(input: {
     failedDocumentIds: input.selectedMatterDocumentIds,
     failedRepresentationCount: input.failedRepresentationCount,
     preparedDocumentIds: [],
+    outputKey: input.outputKey,
     profile: input.profile,
     profileOutput: null,
     progress: input.progress ?? null,
@@ -476,13 +477,13 @@ function failedOutput(input: {
 
 function runningOutput(input: {
   extractionRunId: string;
+  outputKey: ExtractionStepOutput["outputKey"];
   progress: WorkflowStepProgress;
   profile: ExtractionStepOutput["profile"];
   selectedMatterDocumentIds: string[];
 }): ExtractionStepOutput {
   return {
     artifactReferences: {},
-    chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
     documentResults: [],
@@ -496,6 +497,7 @@ function runningOutput(input: {
     failedDocumentIds: [],
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
+    outputKey: input.outputKey,
     profile: input.profile,
     profileOutput: null,
     progress: input.progress,
@@ -618,8 +620,7 @@ async function ensureWorkflowRun(input: {
 }
 
 function testExtractionAIServiceFromEnv(): NonNullable<RunExtractionStepInput["aiService"]> | null {
-  const content = process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE ??
-    process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
+  const content = process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE;
 
   if (!content) {
     return null;
@@ -754,6 +755,7 @@ async function recoverUnhandledExtractionFailure(input: {
         error: errorMessage,
         matterId: input.matterId,
         metadataJson: toWorkflowJsonValue({
+          extractionTaskId: config.taskId,
           recovery: "unhandled_exception",
         }),
         profile: config.profile,
@@ -802,6 +804,7 @@ async function recoverUnhandledExtractionFailure(input: {
     error,
     extractionRunId,
     failedRepresentationCount: selectedMatterDocumentIds.length,
+    outputKey: config.outputKey,
     progress: buildProgress({
       items: progressItems,
       message: "Preparation failed.",
@@ -829,6 +832,7 @@ async function recoverUnhandledExtractionFailure(input: {
     level: "error",
     message: `Preparation failed: ${errorMessage}`,
     metadata: {
+      extractionTaskId: config.taskId,
       error: errorMessage,
       recovery: "unhandled_exception",
     },
@@ -1092,6 +1096,7 @@ export async function runExtractionStep(
   }
 
   return autorunStartingOutput({
+    outputKey: config.outputKey,
     profile: config.profile,
     workflowRunId: input.workflowRunId,
   });
@@ -1184,6 +1189,7 @@ async function executeExtractionStep(
     level: "info",
     message: "Started extraction preparation.",
     metadata: {
+      extractionTaskId: config.taskId,
       profile: config.profile,
       representationType: config.representationType,
     },
@@ -1197,6 +1203,7 @@ async function executeExtractionStep(
         metadataJson: toWorkflowJsonValue({
           profileDescription: profile.description,
           profileLabel: profile.label,
+          extractionTaskId: config.taskId,
         }),
         profile: config.profile,
         representationType: config.representationType,
@@ -1217,6 +1224,7 @@ async function executeExtractionStep(
       error,
       extractionRunId: extractionRun.id,
       failedRepresentationCount: 0,
+      outputKey: config.outputKey,
       progress: buildProgress({
         items: [],
         message: "Preparation failed.",
@@ -1278,6 +1286,7 @@ async function executeExtractionStep(
         metadataJson: toWorkflowJsonValue({
           profileDescription: profile.description,
           profileLabel: profile.label,
+          extractionTaskId: config.taskId,
         }),
         profile: config.profile,
         representationType: config.representationType,
@@ -1309,6 +1318,7 @@ async function executeExtractionStep(
       error,
       extractionRunId: extractionRun.id,
       failedRepresentationCount: missingDocumentIds.length,
+      outputKey: config.outputKey,
       progress: buildProgress({
         items: selectedMatterDocumentIds.map((matterDocumentId) => ({
           error: {
@@ -1389,6 +1399,7 @@ async function executeExtractionStep(
     data: {
       matterId: input.matterId,
         metadataJson: toWorkflowJsonValue({
+          extractionTaskId: config.taskId,
           profileDescription: profile.description,
           profileLabel: profile.label,
         }),
@@ -1407,6 +1418,7 @@ async function executeExtractionStep(
   }) {
     const output = runningOutput({
       extractionRunId: extractionRun.id,
+      outputKey: config.outputKey,
       progress: buildProgress({
         currentItemLabel: progressInput.currentItemLabel,
         items: progressItems,
@@ -1553,7 +1565,7 @@ async function executeExtractionStep(
             : `Created Markdown representation for ${documentName}.`,
         });
         progressItems = updateProgressItem(progressItems, matterDocumentId, {
-          message: "Waiting to extract extraction items...",
+          message: `Waiting to extract ${profile.itemPluralLabel}...`,
           phase: "queued",
           percentComplete: 50,
           status: "waiting",
@@ -2151,7 +2163,6 @@ async function executeExtractionStep(
   });
   const output: ExtractionStepOutput = {
     artifactReferences,
-    chronologyArtifactId: artifactReferences.chronologyArtifactId ?? null,
     collapsedEventCount: postprocessResult.stepOutputPatch?.collapsedEventCount ?? 0,
     collapsedEvents: postprocessResult.stepOutputPatch?.collapsedEvents ?? [],
     documentResults: documentExtractionOutcomes.map((outcome) => ({
@@ -2177,6 +2188,7 @@ async function executeExtractionStep(
       : failedDocumentIds,
     failedRepresentationCount,
     preparedDocumentIds: finalPreparedDocumentIds,
+    outputKey: config.outputKey,
     profile: config.profile,
     profileOutput: postprocessResult.profileOutput,
     progress: finalProgress,
@@ -2185,6 +2197,12 @@ async function executeExtractionStep(
     selectedMatterDocumentIds,
     status: outputStatusFromRunStatus(status),
   };
+  if (config.outputKey) {
+    output[config.outputKey] = postprocessResult.profileOutput;
+  }
+  for (const [outputKey, artifactId] of Object.entries(artifactReferences)) {
+    output[outputKey] = artifactId;
+  }
 
   extractionServiceLog("extraction run update started", {
     extractionRunId: extractionRun.id,

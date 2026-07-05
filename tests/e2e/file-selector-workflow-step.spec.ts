@@ -29,8 +29,8 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
     "Requires DATABASE_URL and a migrated PostgreSQL database.",
   );
 
-  const previousTestAIResponse = process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
-  process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE = JSON.stringify({
+  const previousTestAIResponse = process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE;
+  process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE = JSON.stringify({
     facts: [
       {
         actors: ["Test Lawyer"],
@@ -399,9 +399,9 @@ test("File Selector renders, validates, uploads, auto-selects, and persists sele
       },
     });
     if (previousTestAIResponse === undefined) {
-      delete process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE;
+      delete process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE;
     } else {
-      process.env.MATTER_LAYER_TEST_CHRONOLOGY_AI_RESPONSE = previousTestAIResponse;
+      process.env.MATTER_LAYER_TEST_EXTRACTION_AI_RESPONSE = previousTestAIResponse;
     }
     await server.stop();
   }

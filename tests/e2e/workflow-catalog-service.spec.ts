@@ -18,7 +18,7 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
-test("built-in workflow sync upserts Workflow Builder into the database", async () => {
+test("built-in workflow sync upserts built-in workflows into the database", async () => {
   test.skip(!process.env.DATABASE_URL, "Requires DATABASE_URL.");
 
   await syncBuiltInWorkflows();
@@ -47,6 +47,41 @@ test("built-in workflow sync upserts Workflow Builder into the database", async 
 
   expect(workflowBuilderCatalogItem?.isBuiltIn).toBe(true);
   expect(workflowBuilderCatalogItem?.source).toBe("builtIn");
+
+  const eminentDomainWorkflow = await prisma.workflow.findUniqueOrThrow({
+    where: {
+      slug: "eminent-domain-case-assessment",
+    },
+  });
+
+  expect(eminentDomainWorkflow.source).toBe(WorkflowSource.builtIn);
+  expect(eminentDomainWorkflow.isSystem).toBe(false);
+  expect(eminentDomainWorkflow.isEnabled).toBe(true);
+  expect(eminentDomainWorkflow.builtInVersion).toBe(1);
+
+  expect(
+    workflowDefinitions.some(
+      (workflow) =>
+        workflow.id === "eminent-domain-case-assessment" &&
+        workflow.name === "Eminent Domain Case Assessment" &&
+        workflow.steps.length === 2 &&
+        workflow.steps[0]?.type === "fileSelector" &&
+        workflow.steps[1]?.type === "extraction" &&
+        workflow.steps[1]?.name === "Analyze Case Documents",
+    ),
+  ).toBe(true);
+
+  const eminentDomainCatalogItem = workflowCatalog.find(
+    (workflow) => workflow.id === "eminent-domain-case-assessment",
+  );
+
+  expect(eminentDomainCatalogItem).toMatchObject({
+    description:
+      "Assess an eminent domain matter by starting with the relevant case documents.",
+    isBuiltIn: true,
+    name: "Eminent Domain Case Assessment",
+    source: "builtIn",
+  });
 });
 
 test("custom workflows are saved with unique slugs and can be exported", async () => {

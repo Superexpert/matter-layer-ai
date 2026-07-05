@@ -14,7 +14,6 @@ import type { ExtractionStepOutput } from "../../workflow-steps/extraction/schem
 function outputWith(input: Partial<ExtractionStepOutput>): ExtractionStepOutput {
   return {
     artifactReferences: {},
-    chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
     documentResults: [],
@@ -28,6 +27,7 @@ function outputWith(input: Partial<ExtractionStepOutput>): ExtractionStepOutput 
     failedDocumentIds: [],
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
+    outputKey: null,
     profile: "chronology",
     profileOutput: null,
     progress: null,

@@ -29,8 +29,15 @@ export const chronologyDefinition: WorkflowDefinition = {
       name: "Prepare source documents",
       parameters: {
         inputStepId: "select-source-files",
+        outputKey: "chronologyArtifactId",
         profile: "chronology",
         representationType: "MARKDOWN",
+        taskId: "chronology",
+        ui: {
+          profileLine: null,
+          runButtonLabel: "Extract chronology facts",
+          runningDocumentLabel: "Extracting facts",
+        },
       },
       type: "extraction",
     },

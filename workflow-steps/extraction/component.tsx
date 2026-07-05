@@ -37,7 +37,10 @@ type ExtractionStepComponentProps = {
   }) => Promise<ExtractionStepOutput>;
 };
 
-function progressItemLabel(item: WorkflowStepProgressItem | null | undefined) {
+function progressItemLabel(
+  item: WorkflowStepProgressItem | null | undefined,
+  runningDocumentLabel: string,
+) {
   if (!item) {
     return null;
   }
@@ -52,7 +55,7 @@ function progressItemLabel(item: WorkflowStepProgressItem | null | undefined) {
 
   if (item.status === "running") {
     if (item.phase === "extracting") {
-      return "Extracting facts";
+      return runningDocumentLabel;
     }
 
     if (item.phase === "converting") {
@@ -178,12 +181,12 @@ function documentRowMessage(input: {
 
 function localRunningOutput(input: {
   documents: ExtractionStepState["documents"];
+  outputKey: ExtractionStepOutput["outputKey"];
   profile: ExtractionStepOutput["profile"];
   workflowRunId: string;
 }): ExtractionStepOutput {
   return {
     artifactReferences: {},
-    chronologyArtifactId: null,
     collapsedEventCount: 0,
     collapsedEvents: [],
     documentResults: [],
@@ -197,6 +200,7 @@ function localRunningOutput(input: {
     failedDocumentIds: [],
     failedRepresentationCount: 0,
     preparedDocumentIds: [],
+    outputKey: input.outputKey,
     profile: input.profile,
     profileOutput: null,
     progress: {
@@ -235,6 +239,11 @@ export function ExtractionStepComponent({
     () => normalizeExtractionStepConfig(step.parameters),
     [step.parameters],
   );
+  const runningDocumentLabel = config.ui.runningDocumentLabel ?? "Extracting";
+  const runningButtonLabel = config.ui.runningButtonLabel ?? "Extracting...";
+  const retryButtonLabel = config.ui.retryButtonLabel ?? "Retry extraction";
+  const runButtonLabel = config.ui.runButtonLabel ?? "Run extraction";
+  const profileLine = config.ui.profileLine;
   const [state, setState] = useState<ExtractionStepState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
@@ -301,6 +310,7 @@ export function ExtractionStepComponent({
               ...currentState,
               latestOutput: localRunningOutput({
                 documents: currentDocuments,
+                outputKey: config.outputKey,
                 profile: config.profile,
                 workflowRunId,
               }),
@@ -357,6 +367,7 @@ export function ExtractionStepComponent({
       setIsRunning(false);
     }
   }, [
+    config.outputKey,
     config.profile,
     loadStepState,
     matterId,
@@ -536,9 +547,11 @@ export function ExtractionStepComponent({
         <h3 className="text-base font-semibold text-[#211B27]">
           Selected documents
         </h3>
-        <p className="mt-2 text-sm leading-6 text-[#74677F]">
-          Profile: {config.profile}
-        </p>
+        {profileLine ? (
+          <p className="mt-2 text-sm leading-6 text-[#74677F]">
+            {profileLine}
+          </p>
+        ) : null}
 
         {isLoading ? (
           <p className="mt-4 rounded-lg border border-[#E3DEEA] bg-white p-3 text-sm leading-6 text-[#74677F]">
@@ -550,7 +563,7 @@ export function ExtractionStepComponent({
               const progressItem = progressItemsByDocumentId.get(document.id);
               const outputDocumentError = documentErrorsByDocumentId.get(document.id);
               const documentStatusLabel =
-                progressItemLabel(progressItem) ??
+                progressItemLabel(progressItem, runningDocumentLabel) ??
                 (step.autorun ? "Queued" : document.representationStatus);
               const documentMessage = documentRowMessage({
                 documentError: document.error,
@@ -667,12 +680,12 @@ export function ExtractionStepComponent({
             type="button"
           >
             {isRunning
-              ? "Extracting..."
+              ? runningButtonLabel
               : step.autorun
-                ? "Retry extraction"
+                ? retryButtonLabel
                 : latestOutput?.status === "failed" || latestOutput?.status === "partial_failed"
                   ? "Try preparing again"
-                  : "Extract chronology facts"}
+                  : runButtonLabel}
           </button>
         ) : (
           <div />

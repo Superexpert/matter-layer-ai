@@ -123,6 +123,15 @@ export type ExtractionProfilePostprocessResult = {
   };
 };
 
+export type ExtractionProfileUICopy = {
+  profileLine?: string | null;
+  runButtonLabel?: string;
+  runningButtonLabel?: string;
+  retryButtonLabel?: string;
+  runningDocumentLabel?: string;
+  queuedDocumentMessage?: string;
+};
+
 export type ExtractionProfile<TItem = unknown> = {
   buildUserPrompt: (window: ExtractionMarkdownWindow) => string;
   createWindows?: (input: {
@@ -153,4 +162,6 @@ export type ExtractionProfile<TItem = unknown> = {
   };
   jsonRepairInstructions?: string;
   systemPrompt: string;
+  taskId?: string;
+  ui?: ExtractionProfileUICopy;
 };
