@@ -141,6 +141,15 @@ export const extractionOutputSchema: WorkflowSchema = {
 };
 
 export const extractionStep: WorkflowStepRegistration = {
+  adminSettings: [
+    {
+      defaultValue: null,
+      description: "Use a specific AI Provider for this step, or use the app default.",
+      key: "aiProviderId",
+      label: "AI Provider",
+      type: "aiProvider",
+    },
+  ],
   CanvasComponent: {
     kind: "placeholder",
     label: "Extraction canvas",

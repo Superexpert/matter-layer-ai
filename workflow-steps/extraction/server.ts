@@ -1,4 +1,5 @@
 export {
+  createExtractionAIService,
   loadExtractionStepState,
   runExtractionStep,
 } from "@/services/workflow-steps/extraction-step-service";

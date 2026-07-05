@@ -230,11 +230,14 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
       "Prepare source documents",
     );
+    await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
+      "AI Provider",
+    );
+    await expect(
+      page.getByTestId("admin-setting-input-extract-chronology-aiProviderId"),
+    ).toContainText("Use default AI Provider");
     await expect(page.getByTestId("admin-workflow-step").nth(2)).toContainText(
       "Review chronology",
-    );
-    await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
-      "Uses output from select-source-files.",
     );
     await page.goto(`${server.baseURL}/app/admin/workflows/missing-workflow`);
     await expect(page.getByTestId("admin-workflow-not-found")).toContainText(

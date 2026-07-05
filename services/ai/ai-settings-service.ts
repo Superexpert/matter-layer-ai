@@ -1,7 +1,5 @@
 import "server-only";
 
-import { redirect } from "next/navigation";
-
 import { prisma } from "@/lib/prisma";
 
 import {
@@ -233,11 +231,80 @@ export async function getConfiguredAISettings(): Promise<ConfiguredAISettings> {
   };
 }
 
+export async function getConfiguredAISettingsById(
+  configId: string,
+): Promise<ConfiguredAISettings | null> {
+  await backfillLegacyAISettingsIfNeeded();
+
+  const config = await prisma.aiProviderConfig.findUnique({
+    where: {
+      id: configId,
+    },
+  });
+
+  if (!config) {
+    return null;
+  }
+
+  const provider = config.provider.trim();
+  const model = config.model.trim();
+  const apiKey = config.apiKey?.trim() ?? "";
+  const baseUrl = config.baseUrl?.trim() ?? "";
+
+  if (!provider || !model) {
+    throw new AISettingsConfigurationError("AI provider config is incomplete.");
+  }
+
+  if (!isRegisteredAIProvider(provider)) {
+    throw new AISettingsConfigurationError(
+      `AI provider "${provider}" is not registered.`,
+    );
+  }
+
+  if (!isRegisteredAIModel(provider, model)) {
+    throw new AISettingsConfigurationError(
+      `AI model "${model}" is not registered for provider "${provider}".`,
+    );
+  }
+
+  if (providerRequiresApiKey(provider) && !apiKey) {
+    throw new AISettingsConfigurationError("AI provider config is incomplete.");
+  }
+
+  if (providerRequiresBaseUrl(provider) && !baseUrl) {
+    throw new AISettingsConfigurationError("AI provider config is incomplete.");
+  }
+
+  return {
+    apiKey: apiKey ? decodeApiKey(apiKey) : null,
+    baseUrl: baseUrl || null,
+    model,
+    provider,
+  };
+}
+
+export async function aiProviderConfigExists(configId: string) {
+  await backfillLegacyAISettingsIfNeeded();
+
+  const config = await prisma.aiProviderConfig.findUnique({
+    select: {
+      id: true,
+    },
+    where: {
+      id: configId,
+    },
+  });
+
+  return Boolean(config);
+}
+
 export async function requireConfiguredAISettings() {
   try {
     return await getConfiguredAISettings();
   } catch (error) {
     if (error instanceof AISettingsConfigurationError) {
+      const { redirect } = await import("next/navigation");
+
       redirect("/app/admin");
     }
 

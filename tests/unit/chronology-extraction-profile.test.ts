@@ -9,7 +9,10 @@ import {
   sortChronologyFacts,
   validateChronologyFact,
 } from "../../workflow-steps/extraction/profiles/chronology/schema";
-import { runChronologyExtraction } from "../../workflow-steps/extraction/profiles/chronology/extractor";
+import {
+  chronologyRunnerProfile,
+  runChronologyExtraction,
+} from "../../workflow-steps/extraction/profiles/chronology/extractor";
 import { createChronologyMarkdownWindows } from "../../workflow-steps/extraction/profiles/chronology/windowing";
 
 const simpleDatedFact = {
@@ -38,6 +41,34 @@ const legacyDatedEvent = {
   sourcePages: [1, 2],
   sourceQuote: "On January 12, 2024, I observed...",
 };
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertOpenAIStrictObjectSchema(schema: unknown) {
+  if (!isObjectRecord(schema)) {
+    return;
+  }
+
+  if (schema.type === "object") {
+    expect(schema.additionalProperties).toBe(false);
+    const properties = isObjectRecord(schema.properties) ? schema.properties : {};
+    const required = Array.isArray(schema.required) ? schema.required : [];
+
+    expect([...required].sort()).toEqual(Object.keys(properties).sort());
+  }
+
+  if (isObjectRecord(schema.properties)) {
+    for (const propertySchema of Object.values(schema.properties)) {
+      assertOpenAIStrictObjectSchema(propertySchema);
+    }
+  }
+
+  if (schema.type === "array") {
+    assertOpenAIStrictObjectSchema(schema.items);
+  }
+}
 
 describe("chronology fact schemas", () => {
   it("accepts simple dated chronology facts", () => {
@@ -135,6 +166,10 @@ describe("chronology Markdown windowing", () => {
 });
 
 describe("chronology prompts and parser", () => {
+  it("uses an OpenAI strict-compatible response schema", () => {
+    assertOpenAIStrictObjectSchema(chronologyRunnerProfile.responseFormat?.schema);
+  });
+
   it("asks for sourced chronology facts, not entity taxonomy records", () => {
     const prompt = buildChronologyUserPrompt({
       documentId: "doc_123",

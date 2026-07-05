@@ -12,6 +12,7 @@ import {
   classifyAIProviderError,
   isAIProviderError,
 } from "@/services/ai/provider-errors";
+import type { ConfiguredAISettings } from "@/services/ai/ai-settings-service";
 import { ensureMatterDocumentRepresentation } from "@/services/matter-documents/representations";
 import {
   clearWorkflowStepActivityEvents,
@@ -26,6 +27,11 @@ import {
   toWorkflowJsonValue,
   writeWorkflowStepOutput,
 } from "@/services/workflows/workflow-step-output-service";
+import {
+  effectiveWorkflowStepProvider,
+  resolveWorkflowStepAIProvider,
+  type EffectiveWorkflowStepProvider,
+} from "@/services/workflows/workflow-step-settings-service";
 import {
   activeProgressItem,
   completedProgressItemCount,
@@ -91,6 +97,7 @@ type DocumentProfileExtractionOutcome = {
 export type ExtractionStepState = {
   activityEvents: WorkflowActivityEvent[];
   documents: ExtractionDocumentState[];
+  effectiveAIProvider: EffectiveWorkflowStepProvider | null;
   latestOutput: ExtractionStepOutput | null;
   latestRunStatus: string | null;
 };
@@ -107,6 +114,7 @@ export type RunExtractionStepInput = {
       provider: string;
     }>;
   };
+  aiServiceFactory?: (settings: ConfiguredAISettings) => RunExtractionStepInput["aiService"];
   executionMode?: "autorun" | "manual";
   matterId: string;
   onProgress?: (output: ExtractionStepOutput) => Promise<void> | void;
@@ -626,7 +634,7 @@ function testExtractionAIServiceFromEnv(): NonNullable<RunExtractionStepInput["a
   };
 }
 
-async function extractionAIService(input: RunExtractionStepInput) {
+export async function createExtractionAIService(input: RunExtractionStepInput) {
   if (input.aiService) {
     return input.aiService;
   }
@@ -638,8 +646,32 @@ async function extractionAIService(input: RunExtractionStepInput) {
   }
 
   const { createAIService } = await import("@/services/ai/ai-service");
+  const { createAIServiceFromSettings } = await import("@/services/ai/ai-service");
 
   try {
+    const resolvedProvider = await resolveWorkflowStepAIProvider({
+      stepId: input.step.id,
+      workflowId: input.workflowDefinitionId,
+    });
+
+    if (resolvedProvider.warning) {
+      console.warn("[extraction] AI Provider override warning", {
+        source: resolvedProvider.source,
+        stepId: input.step.id,
+        warning: resolvedProvider.warning,
+        workflowDefinitionId: input.workflowDefinitionId,
+        workflowRunId: input.workflowRunId,
+      });
+    }
+
+    if (input.aiServiceFactory) {
+      return input.aiServiceFactory(resolvedProvider.settings);
+    }
+
+    if (resolvedProvider.source === "override") {
+      return createAIServiceFromSettings(resolvedProvider.settings);
+    }
+
     return await createAIService();
   } catch (error) {
     throw classifyAIProviderError(error);
@@ -873,7 +905,13 @@ export async function loadExtractionStepState(
     matterId: input.matterId,
     workflowRunId: input.workflowRunId,
   });
-  const [documents, latestOutput, latestRun, activityEvents] = await Promise.all([
+  const [
+    documents,
+    latestOutput,
+    latestRun,
+    activityEvents,
+    effectiveAIProvider,
+  ] = await Promise.all([
     prisma.matterDocument.findMany({
       orderBy: {
         createdAt: "asc",
@@ -919,6 +957,10 @@ export async function loadExtractionStepState(
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     }),
+    effectiveWorkflowStepProvider({
+      stepId: input.step.id,
+      workflowId: input.workflowDefinitionId,
+    }),
   ]);
 
   if (documents.length !== selectedMatterDocumentIds.length) {
@@ -945,6 +987,7 @@ export async function loadExtractionStepState(
     latestOutput: isObjectRecord(latestOutput?.outputJson)
       ? (latestOutput.outputJson as ExtractionStepOutput)
       : null,
+    effectiveAIProvider,
     latestRunStatus: latestRun?.status ?? null,
   };
 }
@@ -1648,7 +1691,7 @@ async function executeExtractionStep(
   let profileResult = emptyExtractionResultAggregate();
   const extractionDocumentErrors: WorkflowStepDocumentError[] = [];
   const aiService = readyRepresentationCount > 0
-    ? await extractionAIService(input)
+    ? await createExtractionAIService(input)
     : null;
   const documentConcurrency = extractionDocumentConcurrency();
 

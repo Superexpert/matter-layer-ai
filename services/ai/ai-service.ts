@@ -1,7 +1,11 @@
 import "server-only";
 
 import type { AIProvider } from "./providers/ai-provider";
-import { createConfiguredAIProvider } from "./providers/provider-factory";
+import type { ConfiguredAISettings } from "./ai-settings-service";
+import {
+  createConfiguredAIProvider,
+  createConfiguredAIProviderFromSettings,
+} from "./providers/provider-factory";
 import type { AIRequest, AIResponse, AIStreamEvent } from "./types";
 import { classifyAIProviderError } from "./provider-errors";
 
@@ -79,4 +83,8 @@ export class AIService {
 
 export async function createAIService() {
   return new AIService(await createConfiguredAIProvider());
+}
+
+export function createAIServiceFromSettings(settings: ConfiguredAISettings) {
+  return new AIService(createConfiguredAIProviderFromSettings(settings));
 }

@@ -95,10 +95,35 @@ export type WorkflowStepCanvasPlaceholder = {
   label: string;
 };
 
+export type WorkflowStepAdminSettingOption = {
+  label: string;
+  value: string;
+};
+
+export type WorkflowStepAdminSettingDefinition = {
+  key: string;
+  label: string;
+  description: string;
+  defaultValue: unknown;
+} & (
+  | {
+      type: "aiProvider";
+    }
+  | {
+      type: "select";
+      options: WorkflowStepAdminSettingOption[];
+    }
+  | {
+      type: "text" | "textarea";
+      placeholder?: string;
+    }
+);
+
 export type WorkflowStepRegistration = {
   type: WorkflowStepType;
   displayName: string;
   description: string;
+  adminSettings?: WorkflowStepAdminSettingDefinition[];
   parameterSchema: WorkflowSchema;
   inputSchema: WorkflowSchema;
   outputSchema: WorkflowSchema;

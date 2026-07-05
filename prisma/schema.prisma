@@ -127,6 +127,19 @@ model Workflow {
   @@index([isEnabled])
 }
 
+model WorkflowStepSetting {
+  id         String   @id @default(cuid())
+  workflowId String
+  stepId     String
+  settingKey String
+  valueJson  Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([workflowId, stepId, settingKey])
+  @@index([workflowId, stepId])
+}
+
 model MatterDocument {
   id                 String                         @id @default(cuid())
   matterId           String

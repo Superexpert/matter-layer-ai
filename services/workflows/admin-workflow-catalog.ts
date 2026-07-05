@@ -6,9 +6,11 @@ import { getWorkflowStepRegistration, isWorkflowStepType } from "./registry";
 import type {
   WorkflowCatalogSource,
   WorkflowDefinition,
+  WorkflowStepAdminSettingDefinition,
   WorkflowStepDefinition,
 } from "./types";
 import { isWorkflowDefinition, validateWorkflowDefinitionDraft } from "./validation";
+import { resolveAdminSettingsForStep } from "./workflow-step-settings-service";
 
 export type AdminWorkflowSummary = {
   id: string;
@@ -27,11 +29,19 @@ export type AdminWorkflowStepDetail = {
   type: string;
   typeLabel: string;
   description: string | null;
+  adminSettings: AdminWorkflowStepSettingDetail[];
   configurationSummary: string[];
 };
 
 export type AdminWorkflowDetail = AdminWorkflowSummary & {
   steps: AdminWorkflowStepDetail[];
+};
+
+export type AdminWorkflowStepSettingDetail = {
+  definition: WorkflowStepAdminSettingDefinition;
+  isPersisted: boolean;
+  value: unknown;
+  warning: string | null;
 };
 
 type AdminWorkflowRow = {
@@ -175,6 +185,16 @@ export function normalizeAdminWorkflowDetail(
         : titleCaseIdentifier(step.type);
 
       return {
+        adminSettings: isWorkflowStepType(step.type)
+          ? (getWorkflowStepRegistration(step.type).adminSettings ?? []).map(
+              (definition) => ({
+                definition,
+                isPersisted: false,
+                value: definition.defaultValue,
+                warning: null,
+              }),
+            )
+          : [],
         configurationSummary: summarizeWorkflowStepConfiguration(step),
         description: step.description?.trim() || null,
         id: step.id,
@@ -223,4 +243,48 @@ export async function getAdminWorkflowDetail(workflowId: string) {
   });
 
   return row ? normalizeAdminWorkflowDetail(row) : null;
+}
+
+export async function getAdminWorkflowDetailWithSettings(workflowId: string) {
+  const row = await prisma.workflow.findUnique({
+    select: {
+      definitionJson: true,
+      isEnabled: true,
+      isSystem: true,
+      slug: true,
+      source: true,
+    },
+    where: {
+      slug: workflowId,
+    },
+  });
+
+  if (!row) {
+    return null;
+  }
+
+  const workflow = workflowDefinitionFromJson(row.definitionJson);
+  const detail = normalizeAdminWorkflowDetail(row);
+  const steps = await Promise.all(
+    detail.steps.map(async (stepDetail) => {
+      const step = workflow.steps.find((candidateStep) => candidateStep.id === stepDetail.id);
+
+      if (!step) {
+        throw new Error(`Workflow step "${stepDetail.id}" was not found.`);
+      }
+
+      return {
+        ...stepDetail,
+        adminSettings: await resolveAdminSettingsForStep({
+          step,
+          workflowId: row.slug,
+        }),
+      };
+    }),
+  );
+
+  return {
+    ...detail,
+    steps,
+  };
 }

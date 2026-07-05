@@ -85,6 +85,42 @@ function progressBadgeClass(status: WorkflowStepProgressItem["status"]) {
   return "border-[#CFC5DA] bg-[#FBFAFC] text-[#4B3861]";
 }
 
+function aiProviderIndicatorText(
+  provider: ExtractionStepState["effectiveAIProvider"] | null | undefined,
+) {
+  if (!provider) {
+    return null;
+  }
+
+  if (provider.source === "missing") {
+    return provider.warning ?? "No AI Provider configured";
+  }
+
+  if (provider.warning) {
+    return provider.warning;
+  }
+
+  const providerLabel = provider.modelName ?? provider.providerName ?? provider.providerId;
+
+  if (!providerLabel) {
+    return null;
+  }
+
+  return provider.source === "default"
+    ? `AI Provider: ${providerLabel} default`
+    : `AI Provider: ${providerLabel}`;
+}
+
+function aiProviderIndicatorClassName(
+  provider: ExtractionStepState["effectiveAIProvider"] | null | undefined,
+) {
+  if (provider?.source === "missing" || provider?.warning) {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+
+  return "border-[#E3DEEA] bg-white text-[#74677F]";
+}
+
 function debugWorkflowActivityUi(message: string, metadata: Record<string, unknown> = {}) {
   if (process.env.NODE_ENV !== "development") {
     return;
@@ -354,6 +390,7 @@ export function ExtractionStepComponent({
     !step.autorun ||
     latestOutput?.status === "failed" ||
     latestOutput?.status === "partial_failed";
+  const providerIndicatorText = aiProviderIndicatorText(state?.effectiveAIProvider);
 
   useEffect(() => {
     if (!step.autorun || isLoading || isRunning || !state?.documents.length) {
@@ -474,14 +511,24 @@ export function ExtractionStepComponent({
 
   return (
     <section className="grid gap-5" data-testid="extraction-step">
-      <div>
-        <h2 className="text-lg font-semibold text-[#211B27]">
-          {step.name}
-        </h2>
-        {step.description ? (
-          <p className="mt-1 text-sm leading-6 text-[#74677F]">
-            {step.description}
-          </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-[#211B27]">
+            {step.name}
+          </h2>
+          {step.description ? (
+            <p className="mt-1 text-sm leading-6 text-[#74677F]">
+              {step.description}
+            </p>
+          ) : null}
+        </div>
+        {providerIndicatorText ? (
+          <span
+            className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${aiProviderIndicatorClassName(state?.effectiveAIProvider)}`}
+            data-testid="extraction-ai-provider-indicator"
+          >
+            {providerIndicatorText}
+          </span>
         ) : null}
       </div>
 

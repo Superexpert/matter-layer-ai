@@ -87,6 +87,19 @@ describe("admin workflow catalog normalization", () => {
       "Uses output from select-source-files.",
       "Extraction profile: Chronology.",
     ]);
+    expect(detail.steps[0].adminSettings).toEqual([]);
+    expect(detail.steps[1].adminSettings).toMatchObject([
+      {
+        definition: {
+          key: "aiProviderId",
+          label: "AI Provider",
+          type: "aiProvider",
+        },
+        isPersisted: false,
+        value: null,
+        warning: null,
+      },
+    ]);
   });
 
   it("summarizes only useful configuration labels", () => {

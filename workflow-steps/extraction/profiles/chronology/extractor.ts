@@ -25,7 +25,7 @@ const chronologyFactJsonSchema = {
   properties: {
     facts: {
       items: {
-        additionalProperties: true,
+        additionalProperties: false,
         properties: {
           confidence: {
             type: ["string", "null"],
@@ -88,6 +88,7 @@ const chronologyFactJsonSchema = {
           "sourcePages",
           "sourceQuote",
           "confidence",
+          "labels",
         ],
         type: "object",
       },
