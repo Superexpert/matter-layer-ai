@@ -64,11 +64,13 @@ function optionalString(value: unknown, fieldName: string) {
     return undefined;
   }
 
-  if (typeof value !== "string" || !value.trim()) {
+  if (typeof value !== "string") {
     throw new Error(`Eminent domain assessment ${fieldName} must be a string.`);
   }
 
-  return value.trim();
+  const trimmedValue = value.trim();
+
+  return trimmedValue || undefined;
 }
 
 function optionalStringArray(value: unknown, fieldName: string) {

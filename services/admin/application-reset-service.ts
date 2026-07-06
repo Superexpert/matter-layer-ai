@@ -3,7 +3,10 @@ import "server-only";
 import { Prisma, UserRole } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { createDefaultSampleMatters } from "@/services/matters/sample-matters-service";
+import {
+  createDefaultSampleMatters,
+  seedDefaultSampleMatterEvidence,
+} from "@/services/matters/sample-matters-service";
 import { getMatterDocumentStorageProvider } from "@/services/matter-documents/storage";
 import { getCurrentUser } from "@/services/users/user-service";
 
@@ -83,6 +86,20 @@ export async function resetMatterLayerApplication(input: {
   );
 
   await deleteLocalStoredDocuments(localStoredDocuments);
+
+  try {
+    await seedDefaultSampleMatterEvidence({
+      uploadedByUserId: currentUser.id,
+    });
+  } catch (error) {
+    console.error("Sample evidence recreation failed after reset.", {
+      errorName: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw new ApplicationResetError(
+      "Application reset completed, but sample evidence recreation failed.",
+    );
+  }
 }
 
 async function deleteLocalStoredDocuments(documents: LocalStoredDocument[]) {

@@ -5,6 +5,7 @@ import {
   documentRepresentationError,
   EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE,
   INVALID_JSON_PROVIDER_USER_MESSAGE,
+  SCHEMA_VALIDATION_PROVIDER_USER_MESSAGE,
   extractionProviderError,
   extractionStepErrorForDocuments,
   suggestedActionForError,
@@ -184,6 +185,37 @@ describe("extraction step errors", () => {
 
     expect(error.message).toBe(rawError);
     expect(error.userMessage).toBe(INVALID_JSON_PROVIDER_USER_MESSAGE);
+  });
+
+  it("maps schema validation failures separately from provider configuration errors", () => {
+    const rawError =
+      "Window 1 for 2026-04-15 Owner Notes Access Concerns.txt: Eminent domain assessment timeline event is required.";
+    const error = extractionStepErrorForDocuments({
+      documentErrors: [
+        {
+          code: "EXTRACTION_SCHEMA_VALIDATION_FAILED",
+          fileName: "2026-04-15 Owner Notes Access Concerns.txt",
+          matterDocumentId: "doc_schema_failed",
+          message: rawError,
+          userMessage:
+            "Matter Layer could not validate the structured extraction data for this document.",
+        },
+      ],
+      partial: false,
+    });
+    const output = outputWith({
+      error,
+      failedDocumentIds: ["doc_schema_failed"],
+      status: "failed",
+    });
+
+    expect(error).toMatchObject({
+      code: "EXTRACTION_SCHEMA_VALIDATION_FAILED",
+      userMessage: SCHEMA_VALIDATION_PROVIDER_USER_MESSAGE,
+    });
+    expect(error?.userMessage).not.toContain("AI provider model or settings");
+    expect(summaryForOutput(output)).toBe(SCHEMA_VALIDATION_PROVIDER_USER_MESSAGE);
+    expect(suggestedActionForError(error)).toContain("extraction schema");
   });
 
   it("surfaces classified AI provider errors with safe user-facing text", () => {

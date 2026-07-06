@@ -50,7 +50,9 @@ import {
 } from "@/workflow-steps/extraction/schema";
 import {
   documentRepresentationError,
+  EXTRACTION_DOCUMENT_JSON_PARSE_USER_MESSAGE,
   EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE,
+  EXTRACTION_DOCUMENT_SCHEMA_VALIDATION_USER_MESSAGE,
   extractionProviderError,
   extractionStepErrorForDocuments,
   safeUnknownExtractionError,
@@ -524,6 +526,7 @@ function emptyExtractionResultAggregate(): ExtractionResultAggregate {
   return {
     error: null,
     errorCode: null,
+    errorKind: null,
     errorProvider: null,
     errorStatus: null,
     errorUserMessage: null,
@@ -565,6 +568,7 @@ function mergeExtractionResult(
   return {
     error: aggregate.error ?? nextResult.error,
     errorCode: aggregate.errorCode ?? nextResult.errorCode,
+    errorKind: aggregate.errorKind ?? nextResult.errorKind,
     errorProvider: aggregate.errorProvider ?? nextResult.errorProvider,
     errorStatus: aggregate.errorStatus ?? nextResult.errorStatus,
     errorUserMessage: aggregate.errorUserMessage ?? nextResult.errorUserMessage,
@@ -581,6 +585,24 @@ function mergeExtractionResult(
     ],
     windowCount,
   };
+}
+
+function documentUserMessageForExtractionError(
+  result: ExtractionResultAggregate,
+) {
+  if (result.errorKind === "json_parse") {
+    return EXTRACTION_DOCUMENT_JSON_PARSE_USER_MESSAGE;
+  }
+
+  if (result.errorKind === "schema_validation") {
+    return EXTRACTION_DOCUMENT_SCHEMA_VALIDATION_USER_MESSAGE;
+  }
+
+  if (result.errorCode?.startsWith("AI_PROVIDER_") && result.errorUserMessage) {
+    return result.errorUserMessage;
+  }
+
+  return EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE;
 }
 
 async function assertMatterExists(matterId: string) {
@@ -1905,6 +1927,7 @@ async function executeExtractionStep(
             ...metadata,
             error: event.error,
             errorCode: event.errorCode,
+            errorKind: event.errorKind,
             errorProvider: event.errorProvider,
             errorStatus: event.errorStatus,
             errorUserMessage: event.errorUserMessage,
@@ -1927,10 +1950,10 @@ async function executeExtractionStep(
     });
 
     if (documentProfileResult.status !== "COMPLETED") {
-      const userMessage = EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE;
+      const userMessage = documentUserMessageForExtractionError(documentProfileResult);
       progressItems = updateProgressItem(progressItems, matterDocumentId, {
         error: {
-          code: "EXTRACTION_PROVIDER_FAILED",
+          code: documentProfileResult.errorCode ?? "EXTRACTION_PROVIDER_FAILED",
           userMessage,
         },
         message: "Failed",
@@ -1946,6 +1969,7 @@ async function executeExtractionStep(
         message: `Extraction failed for ${readyDocument.fileName}.`,
         metadata: {
           errorCode: documentProfileResult.errorCode,
+          errorKind: documentProfileResult.errorKind,
           error: documentProfileResult.error,
           errorProvider: documentProfileResult.errorProvider,
           errorStatus: documentProfileResult.errorStatus,
@@ -1960,11 +1984,7 @@ async function executeExtractionStep(
         matterDocumentId,
         message: documentProfileResult.error ??
           "The extraction provider failed for this document.",
-        userMessage:
-          documentProfileResult.errorCode?.startsWith("AI_PROVIDER_") &&
-          documentProfileResult.errorUserMessage
-            ? documentProfileResult.errorUserMessage
-            : userMessage,
+        userMessage,
       };
       await persistRunningProgress({
         currentItemLabel: readyDocument.fileName,
@@ -2227,6 +2247,7 @@ async function executeExtractionStep(
         windowCount: profileResult.windowCount,
         failedRepresentationCount,
         failedWindowCount: profileResult.failedWindowCount,
+        firstErrorKind: profileResult.errorKind,
         profileDescription: profile.description,
         profileLabel: profile.label,
         readyRepresentationCount,

@@ -22,12 +22,28 @@ type PdfjsModule = {
 
 let pdfjsPromise: Promise<PdfjsModule> | null = null;
 
+async function ensurePdfjsNodeGlobals() {
+  const globalScope = globalThis as unknown as Record<string, unknown>;
+
+  if (globalScope["DOMMatrix"] && globalScope["ImageData"] && globalScope["Path2D"]) {
+    return;
+  }
+
+  const canvas = await import("@napi-rs/canvas");
+
+  globalScope["DOMMatrix"] ??= canvas.DOMMatrix;
+  globalScope["ImageData"] ??= canvas.ImageData;
+  globalScope["Path2D"] ??= canvas.Path2D;
+}
+
 async function getPdfjs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = Promise.all([
-      import("pdfjs-dist/legacy/build/pdf.mjs") as Promise<PdfjsModule>,
-      import("pdfjs-dist/legacy/build/pdf.worker.mjs"),
-    ]).then(([pdfjs, worker]) => {
+    pdfjsPromise = ensurePdfjsNodeGlobals().then(async () => {
+      const [pdfjs, worker] = await Promise.all([
+        import("pdfjs-dist/legacy/build/pdf.mjs") as Promise<PdfjsModule>,
+        import("pdfjs-dist/legacy/build/pdf.worker.mjs"),
+      ]);
+
       (
         globalThis as typeof globalThis & {
           pdfjsWorker?: unknown;

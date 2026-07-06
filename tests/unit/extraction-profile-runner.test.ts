@@ -134,11 +134,42 @@ describe("generic extraction profile runner", () => {
 
     expect(callCount).toBe(1);
     expect(result).toMatchObject({
-      errorCode: "AI_PROVIDER_REQUEST_FAILED",
+      errorCode: "EXTRACTION_SCHEMA_VALIDATION_FAILED",
+      errorKind: "schema_validation",
       failedWindowCount: 1,
       status: "FAILED",
     });
     expect(result.error).toContain("Issue item must include issue text.");
+  });
+
+  it("classifies provider request failures separately from schema validation failures", async () => {
+    const providerError = Object.assign(new Error("invalid request: unsupported model"), {
+      status: 400,
+    });
+
+    const result = await runExtractionProfile(testIssuesProfile, {
+      aiService: {
+        generateText: async () => {
+          throw providerError;
+        },
+      },
+      readyDocuments: [
+        {
+          fileName: "Motion.pdf",
+          id: "doc_issues",
+          markdown: "The stop lacked reasonable suspicion.",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      errorCode: "AI_PROVIDER_CONFIGURATION_FAILED",
+      errorKind: "provider",
+      errorUserMessage:
+        "Matter Layer could not use the configured AI provider model or settings. Ask an admin to review the AI provider configuration.",
+      failedWindowCount: 1,
+      status: "FAILED",
+    });
   });
 
   it("retries once with a JSON repair prompt after invalid JSON", async () => {

@@ -6,9 +6,13 @@ import {
   UserRole,
   WorkflowArtifactType,
 } from "@prisma/client";
+import { readdir } from "node:fs/promises";
 import { afterAll, beforeEach, expect, test, vi } from "vitest";
 
-import { DEFAULT_SAMPLE_MATTER_NAMES } from "../../services/matters/sample-matters-service";
+import {
+  DEFAULT_SAMPLE_MATTER_NAMES,
+  SAMPLE_MATTER_DEFINITIONS,
+} from "../../services/matters/sample-matters-service";
 
 const authMock = vi.hoisted(() => vi.fn());
 
@@ -134,9 +138,13 @@ test("successful reset deletes matter data and preserves admin auth and AI setti
   await expect(prisma.workflowArtifact.count()).resolves.toBe(0);
   await expect(prisma.workflowExtractionRun.count()).resolves.toBe(0);
   await expect(prisma.workflowRun.count()).resolves.toBe(0);
-  await expect(prisma.matterDocumentRepresentation.count()).resolves.toBe(0);
-  await expect(prisma.matterDocumentContent.count()).resolves.toBe(0);
-  await expect(prisma.matterDocument.count()).resolves.toBe(0);
+  await expect(
+    prisma.matterDocument.count({
+      where: {
+        fileName: "reset-fixture.txt",
+      },
+    }),
+  ).resolves.toBe(0);
   await expect(prisma.matter.count()).resolves.toBe(2);
   await expect(
     prisma.matter.findMany({
@@ -152,6 +160,7 @@ test("successful reset deletes matter data and preserves admin auth and AI setti
       name,
     })),
   );
+  await expectSampleDocumentsToMatchEvidenceFolders();
 
   await expect(
     prisma.user.findUnique({
@@ -193,6 +202,40 @@ async function createUser(email: string, role: UserRole) {
       role,
     },
   });
+}
+
+async function expectSampleDocumentsToMatchEvidenceFolders() {
+  for (const definition of SAMPLE_MATTER_DEFINITIONS) {
+    await expect(listSampleDocumentNames(definition.name)).resolves.toEqual(
+      await listExpectedEvidenceFileNames(definition.evidenceDirectory),
+    );
+  }
+}
+
+async function listSampleDocumentNames(matterName: string) {
+  const documents = await prisma.matterDocument.findMany({
+    orderBy: {
+      fileName: "asc",
+    },
+    select: {
+      fileName: true,
+    },
+    where: {
+      matter: {
+        name: matterName,
+      },
+    },
+  });
+
+  return documents.map((document) => document.fileName);
+}
+
+async function listExpectedEvidenceFileNames(evidenceDirectory: string) {
+  const fileNames = await readdir(evidenceDirectory);
+
+  return fileNames
+    .filter((fileName) => !fileName.startsWith("."))
+    .sort();
 }
 
 async function seedMatterRuntimeData(userId: string) {

@@ -235,7 +235,9 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     await page.getByTestId("reset-application-confirm-button").click();
     await expect(
       page.getByTestId("reset-application-success-message"),
-    ).toContainText("Sample matters have been recreated.");
+    ).toContainText(
+      "Sample matters and sample evidence have been recreated.",
+    );
     await expect(prisma.matter.count()).resolves.toBe(2);
     await expect(
       prisma.matter.findMany({

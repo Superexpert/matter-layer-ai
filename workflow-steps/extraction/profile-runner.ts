@@ -197,6 +197,7 @@ export async function runExtractionProfile<TItem>(
   const warnings: ExtractionProfileRunResult<TItem>["warnings"] = [];
   const providerErrors: ReturnType<typeof classifyAIProviderError>[] = [];
   const errorCodes: string[] = [];
+  const errorKinds: Array<"json_parse" | "provider" | "schema_validation"> = [];
   let itemCountsByType: Record<string, number> = {};
   let provider: string | null = null;
   let model: string | null = null;
@@ -233,6 +234,8 @@ export async function runExtractionProfile<TItem>(
       windowCount: windows.length,
       windowIndex: window.windowIndex + 1,
     });
+
+    let failureKindHint: "provider" | "schema_validation" = "provider";
 
     try {
       let response = await withAIWindowMonitoring({
@@ -273,6 +276,7 @@ export async function runExtractionProfile<TItem>(
       let parsed: ExtractionModelParseResult<TItem>;
 
       try {
+        failureKindHint = "schema_validation";
         parsed = parseWindowOutput(profile, response.content, window);
       } catch (error) {
         if (!(error instanceof JsonModelOutputParseError)) {
@@ -293,6 +297,7 @@ export async function runExtractionProfile<TItem>(
           throw error;
         }
 
+        failureKindHint = "provider";
         const repairResponse = await withAIWindowMonitoring({
           heartbeatMs: aiHeartbeatMs,
           onHeartbeat: (elapsedMs) =>
@@ -337,6 +342,7 @@ export async function runExtractionProfile<TItem>(
         });
 
         response = repairResponse;
+        failureKindHint = "schema_validation";
         parsed = parseWindowOutput(profile, repairResponse.content, window);
         console.info("[extraction:ai-window] model output JSON repair succeeded", {
           ...windowDescription,
@@ -368,30 +374,53 @@ export async function runExtractionProfile<TItem>(
       });
     } catch (error) {
       const parseError = error instanceof JsonModelOutputParseError ? error : null;
-      const providerError = classifyAIProviderError(error);
-      const errorMessage = conciseError(providerError);
+      const errorKind = parseError
+        ? "json_parse"
+        : failureKindHint === "provider"
+          ? "provider"
+          : "schema_validation";
+      const providerError = errorKind === "provider"
+        ? classifyAIProviderError(error)
+        : null;
+      const errorCode = parseError
+        ? "EXTRACTION_JSON_PARSE_FAILED"
+        : errorKind === "schema_validation"
+          ? "EXTRACTION_SCHEMA_VALIDATION_FAILED"
+          : providerError?.code ?? "AI_PROVIDER_REQUEST_FAILED";
+      const errorMessage = providerError
+        ? conciseError(providerError)
+        : conciseError(error);
+      const errorUserMessage = providerError?.userMessage ??
+        (errorKind === "json_parse"
+          ? "The AI provider returned JSON Matter Layer could not parse."
+          : "The AI provider returned structured extraction data that did not match the expected schema.");
 
       errors.push(
         `Window ${window.windowIndex + 1} for ${window.fileName}: ${errorMessage}`,
       );
-      errorCodes.push(parseError ? "EXTRACTION_JSON_PARSE_FAILED" : providerError.code);
-      providerErrors.push(providerError);
+      errorCodes.push(errorCode);
+      errorKinds.push(errorKind);
+      if (providerError) {
+        providerErrors.push(providerError);
+      }
       console.error("[extraction:ai-window] extraction window failed", {
         ...windowDescription,
         diagnostics: parseError?.diagnostics,
-        errorCode: providerError.code,
+        errorCode,
+        errorKind,
         errorMessage,
-        errorProvider: providerError.provider,
-        errorStatus: providerError.status,
-        errorUserMessage: providerError.userMessage,
+        errorProvider: providerError?.provider ?? null,
+        errorStatus: providerError?.status ?? null,
+        errorUserMessage,
       });
       await context.onWindowProgress?.({
         documentId: window.documentId,
         error: errorMessage,
-        errorCode: parseError ? "EXTRACTION_JSON_PARSE_FAILED" : providerError.code,
-        errorProvider: providerError.provider,
-        errorStatus: providerError.status,
-        errorUserMessage: providerError.userMessage,
+        errorCode,
+        errorKind,
+        errorProvider: providerError?.provider ?? null,
+        errorStatus: providerError?.status ?? null,
+        errorUserMessage,
         failedWindowCount: errors.length,
         fileName: window.fileName,
         pageEnd: window.pageEnd,
@@ -406,6 +435,7 @@ export async function runExtractionProfile<TItem>(
   return {
     error: errors[0] ?? null,
     errorCode: errorCodes[0] ?? null,
+    errorKind: errorKinds[0] ?? null,
     errorProvider: providerErrors[0]?.provider ?? null,
     errorStatus: providerErrors[0]?.status ?? null,
     errorUserMessage: providerErrors[0]?.userMessage ?? null,

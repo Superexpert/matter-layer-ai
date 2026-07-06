@@ -14,6 +14,13 @@ export type DocumentEditorStepConfig = {
   documentFileName: string | null;
   documentTitle: string | null;
   editor: DocumentEditorEditor;
+  generatedArtifact: {
+    extractionOutputKey: string;
+    extractionStepId: string;
+    kind: "eminent-domain-client-summary" | "eminent-domain-lawyer-memo";
+    reviewedAssessmentStepId?: string;
+    reviewedLawyerMemoStepId?: string;
+  } | null;
   inputStepId: string;
   saveMode: DocumentEditorSaveMode;
 };
@@ -87,6 +94,7 @@ export function normalizeDocumentEditorStepConfig(
         ? rawConfig.documentTitle.trim()
         : null,
     editor: enumValue(rawConfig.editor, "editor", DOCUMENT_EDITOR_EDITORS, "tiptap"),
+    generatedArtifact: normalizeGeneratedArtifact(rawConfig.generatedArtifact),
     inputStepId: requireString(rawConfig.inputStepId, "inputStepId"),
     saveMode: enumValue(
       rawConfig.saveMode,
@@ -94,6 +102,46 @@ export function normalizeDocumentEditorStepConfig(
       DOCUMENT_EDITOR_SAVE_MODES,
       "revision",
     ),
+  };
+}
+
+function normalizeGeneratedArtifact(value: unknown): DocumentEditorStepConfig["generatedArtifact"] {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (!isObjectRecord(value)) {
+    throw new Error("Document editor step generatedArtifact must be an object.");
+  }
+
+  const kind = requireString(value.kind, "generatedArtifact.kind");
+  if (
+    kind !== "eminent-domain-lawyer-memo" &&
+    kind !== "eminent-domain-client-summary"
+  ) {
+    throw new Error(`Unsupported document editor generated artifact kind: ${kind}`);
+  }
+
+  return {
+    extractionOutputKey: requireString(
+      value.extractionOutputKey,
+      "generatedArtifact.extractionOutputKey",
+    ),
+    extractionStepId: requireString(
+      value.extractionStepId,
+      "generatedArtifact.extractionStepId",
+    ),
+    kind,
+    reviewedAssessmentStepId:
+      typeof value.reviewedAssessmentStepId === "string" &&
+      value.reviewedAssessmentStepId.trim()
+        ? value.reviewedAssessmentStepId.trim()
+        : undefined,
+    reviewedLawyerMemoStepId:
+      typeof value.reviewedLawyerMemoStepId === "string" &&
+      value.reviewedLawyerMemoStepId.trim()
+        ? value.reviewedLawyerMemoStepId.trim()
+        : undefined,
   };
 }
 

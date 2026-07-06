@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { saveWorkflowMatterDocument } from "@/services/matter-documents/matter-document-service";
 import { emitWorkflowActivityEvent } from "@/services/workflows/workflow-activity-service";
 import {
+  createWorkflowMarkdownArtifact,
   createWorkflowArtifactRevision,
   getWorkflowMarkdownArtifact,
   overwriteWorkflowArtifact,
@@ -17,8 +18,12 @@ import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversio
 import {
   assertDocumentEditorStepOutput,
   normalizeDocumentEditorStepConfig,
+  type DocumentEditorStepConfig,
   type DocumentEditorStepOutput,
 } from "@/workflow-steps/document-editor/schema";
+import { composeEminentDomainClientSummary } from "@/workflow-steps/extraction/profiles/eminent-domain/client-summary-document";
+import { composeEminentDomainLawyerMemo } from "@/workflow-steps/extraction/profiles/eminent-domain/lawyer-memo-document";
+import type { EminentDomainAssessmentItem } from "@/workflow-steps/extraction/profiles/eminent-domain/schema";
 
 export type DocumentEditorStepState = {
   artifactId: string;
@@ -58,6 +63,26 @@ function savedMatterDocumentIdFromOutput(output: unknown) {
   }
 
   return null;
+}
+
+function completedDocumentEditorOutput(output: unknown) {
+  if (!isObjectRecord(output) || output.status !== "completed") {
+    return null;
+  }
+
+  return assertDocumentEditorStepOutput(output);
+}
+
+function generatedArtifactIdFromOutput(output: unknown, artifactOutputKey: string) {
+  if (!isObjectRecord(output)) {
+    return null;
+  }
+
+  const artifactId = output[artifactOutputKey];
+
+  return typeof artifactId === "string" && artifactId.trim()
+    ? artifactId.trim()
+    : null;
 }
 
 function defaultDocumentFileName(title: string) {
@@ -102,23 +127,193 @@ async function assertWorkflowRun(input: {
 
 async function inputStepArtifactId(input: BaseDocumentEditorInput) {
   const config = normalizeDocumentEditorStepConfig(input.step.parameters);
+  const currentOutput = await readWorkflowStepOutput({
+    stepId: input.step.id,
+    workflowRunId: input.workflowRunId,
+  });
+  const currentArtifactId = generatedArtifactIdFromOutput(
+    currentOutput?.outputJson,
+    config.artifactOutputKey,
+  );
+
+  if (currentArtifactId) {
+    return currentArtifactId;
+  }
+
   const previousOutput = await readWorkflowStepOutput({
     stepId: config.inputStepId,
     workflowRunId: input.workflowRunId,
   });
 
   if (!isObjectRecord(previousOutput?.outputJson)) {
-    throw new Error(`Document editor input step output was not found: ${config.inputStepId}`);
+    throw new Error(
+      "This document cannot be generated until the previous workflow step is complete.",
+    );
   }
 
   const artifactId = previousOutput.outputJson[config.artifactOutputKey];
   if (typeof artifactId !== "string" || !artifactId.trim()) {
+    if (config.generatedArtifact) {
+      return createConfiguredGeneratedArtifact({
+        config,
+        input,
+      });
+    }
+
     throw new Error(
-      `Document editor input step output does not include ${config.artifactOutputKey}.`,
+      "The previous workflow step has not generated this document yet.",
     );
   }
 
   return artifactId.trim();
+}
+
+function eminentDomainAssessmentItemsFromOutput(
+  extractionOutput: unknown,
+  extractionOutputKey: string,
+) {
+  if (!isObjectRecord(extractionOutput)) {
+    throw new Error("Extraction output was not found for this document.");
+  }
+
+  const keyedOutput = extractionOutput[extractionOutputKey];
+  const profileOutput = isObjectRecord(keyedOutput)
+    ? keyedOutput
+    : isObjectRecord(extractionOutput.profileOutput)
+      ? extractionOutput.profileOutput
+      : null;
+  const assessments = profileOutput?.assessments;
+
+  if (!Array.isArray(assessments)) {
+    throw new Error("Extraction output does not include eminent domain assessment data.");
+  }
+
+  return assessments.filter((item): item is EminentDomainAssessmentItem => {
+    if (!isObjectRecord(item) || !isObjectRecord(item.assessment)) {
+      return false;
+    }
+
+    return (
+      typeof item.sourceDocumentId === "string" &&
+      typeof item.sourceFileName === "string"
+    );
+  });
+}
+
+async function reviewedArtifactMarkdown(input: {
+  matterId: string;
+  reviewedStepId?: string;
+  workflowRunId: string;
+}) {
+  if (!input.reviewedStepId) {
+    return null;
+  }
+
+  const reviewedOutput = await readWorkflowStepOutput({
+    stepId: input.reviewedStepId,
+    workflowRunId: input.workflowRunId,
+  });
+
+  if (!isObjectRecord(reviewedOutput?.outputJson)) {
+    return null;
+  }
+
+  const artifactId =
+    typeof reviewedOutput.outputJson.reviewedArtifactId === "string"
+      ? reviewedOutput.outputJson.reviewedArtifactId
+      : typeof reviewedOutput.outputJson.sourceArtifactId === "string"
+        ? reviewedOutput.outputJson.sourceArtifactId
+        : null;
+
+  if (!artifactId) {
+    return null;
+  }
+
+  const artifact = await getWorkflowMarkdownArtifact({
+    artifactId,
+    matterId: input.matterId,
+    workflowRunId: input.workflowRunId,
+  });
+
+  return artifact.currentRevision?.content ?? artifact.content ?? null;
+}
+
+async function createConfiguredGeneratedArtifact(input: {
+  config: DocumentEditorStepConfig;
+  input: BaseDocumentEditorInput;
+}) {
+  const generatedArtifact = input.config.generatedArtifact;
+
+  if (!generatedArtifact) {
+    throw new Error("Document editor generated artifact configuration was not found.");
+  }
+
+  const extractionOutput = await readWorkflowStepOutput({
+    stepId: generatedArtifact.extractionStepId,
+    workflowRunId: input.input.workflowRunId,
+  });
+
+  if (!isObjectRecord(extractionOutput?.outputJson)) {
+    throw new Error(
+      "This document cannot be generated until the extraction step is complete.",
+    );
+  }
+
+  if (extractionOutput.outputJson.status !== "completed") {
+    throw new Error(
+      "This document cannot be generated until the extraction step is complete.",
+    );
+  }
+
+  const assessmentItems = eminentDomainAssessmentItemsFromOutput(
+    extractionOutput.outputJson,
+    generatedArtifact.extractionOutputKey,
+  );
+  const reviewedAssessmentMarkdown = await reviewedArtifactMarkdown({
+    matterId: input.input.matterId,
+    reviewedStepId: generatedArtifact.reviewedAssessmentStepId,
+    workflowRunId: input.input.workflowRunId,
+  });
+  const reviewedLawyerMemoMarkdown = await reviewedArtifactMarkdown({
+    matterId: input.input.matterId,
+    reviewedStepId: generatedArtifact.reviewedLawyerMemoStepId,
+    workflowRunId: input.input.workflowRunId,
+  });
+  const content = generatedArtifact.kind === "eminent-domain-lawyer-memo"
+    ? composeEminentDomainLawyerMemo({
+        items: assessmentItems,
+        reviewedCaseAssessmentMarkdown: reviewedAssessmentMarkdown,
+      })
+    : composeEminentDomainClientSummary({
+        items: assessmentItems,
+        reviewedCaseAssessmentMarkdown: reviewedAssessmentMarkdown,
+        reviewedLawyerMemoMarkdown,
+      });
+  const artifact = await createWorkflowMarkdownArtifact({
+    content,
+    matterId: input.input.matterId,
+    metadataJson: {
+      generatedFromAssessmentCount: assessmentItems.length,
+      generatedFromReviewedCaseAssessment: Boolean(reviewedAssessmentMarkdown),
+      generatedFromReviewedLawyerMemo: Boolean(reviewedLawyerMemoMarkdown),
+      generatedArtifactKind: generatedArtifact.kind,
+      profile: "eminent-domain-case-assessment",
+    },
+    stepId: input.input.step.id,
+    title: input.config.documentTitle ?? "Generated Work Product",
+    workflowRunId: input.input.workflowRunId,
+  });
+
+  await writeWorkflowStepOutput({
+    outputJson: {
+      [input.config.artifactOutputKey]: artifact.id,
+      status: "generated",
+    },
+    stepId: input.input.step.id,
+    workflowRunId: input.input.workflowRunId,
+  });
+
+  return artifact.id;
 }
 
 async function loadConfiguredArtifact(input: BaseDocumentEditorInput) {
@@ -161,9 +356,7 @@ export async function loadDocumentEditorStepState(
     contentMarkdown,
     contentType: "MARKDOWN",
     editorContentHtml: markdownToEditorHtml(contentMarkdown),
-    latestOutput: isObjectRecord(latestOutput?.outputJson)
-      ? assertDocumentEditorStepOutput(latestOutput.outputJson)
-      : null,
+    latestOutput: completedDocumentEditorOutput(latestOutput?.outputJson),
     saveMode: config.saveMode,
     title: artifact.title,
   };

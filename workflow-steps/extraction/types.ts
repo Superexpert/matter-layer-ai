@@ -45,6 +45,7 @@ export type ExtractionWindowProgressEvent = {
   elapsedMs?: number;
   error?: string;
   errorCode?: string;
+  errorKind?: "json_parse" | "provider" | "schema_validation";
   errorProvider?: string | null;
   errorStatus?: number | null;
   errorUserMessage?: string;
@@ -86,6 +87,7 @@ export type ExtractionRunStatus = "COMPLETED" | "FAILED" | "PARTIAL_FAILED";
 export type ExtractionProfileRunResult<TItem = unknown> = {
   error: string | null;
   errorCode: string | null;
+  errorKind: "json_parse" | "provider" | "schema_validation" | null;
   errorProvider: string | null;
   errorStatus: number | null;
   errorUserMessage: string | null;

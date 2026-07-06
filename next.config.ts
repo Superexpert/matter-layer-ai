@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdfjs-dist"],
+  outputFileTracingIncludes: {
+    "/*": ["sample-evidence/**/*"],
+  },
+  serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
 };
 
 export default nextConfig;

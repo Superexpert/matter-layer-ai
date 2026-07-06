@@ -3,10 +3,20 @@ import {
   buildEminentDomainUserPrompt,
   eminentDomainSystemPrompt,
 } from "./prompts";
+import { composeEminentDomainCaseAssessment } from "./case-assessment-document";
 import {
   parseEminentDomainAssessmentOutput,
   type EminentDomainAssessmentItem,
 } from "./schema";
+
+const nullableStringSchema = {
+  type: ["string", "null"],
+};
+
+const nullableStringArraySchema = {
+  items: { type: "string" },
+  type: ["array", "null"],
+};
 
 const eminentDomainCaseAssessmentJsonSchema = {
   additionalProperties: false,
@@ -18,19 +28,24 @@ const eminentDomainCaseAssessmentJsonSchema = {
           matterOverview: {
             additionalProperties: false,
             properties: {
-              condemningAuthority: { type: "string" },
-              county: { type: "string" },
-              proceduralPosture: { type: "string" },
-              projectName: { type: "string" },
-              propertyAddress: { type: "string" },
-              propertyOwner: { type: "string" },
+              condemningAuthority: nullableStringSchema,
+              county: nullableStringSchema,
+              proceduralPosture: nullableStringSchema,
+              projectName: nullableStringSchema,
+              propertyAddress: nullableStringSchema,
+              propertyOwner: nullableStringSchema,
             },
-            type: "object",
+            required: [
+              "propertyOwner",
+              "condemningAuthority",
+              "projectName",
+              "propertyAddress",
+              "county",
+              "proceduralPosture",
+            ],
+            type: ["object", "null"],
           },
-          missingDocuments: {
-            items: { type: "string" },
-            type: "array",
-          },
+          missingDocuments: nullableStringArraySchema,
           proceduralFlags: {
             items: {
               additionalProperties: false,
@@ -38,71 +53,90 @@ const eminentDomainCaseAssessmentJsonSchema = {
                 explanation: { type: "string" },
                 issue: { type: "string" },
                 severity: {
-                  enum: ["high", "medium", "low"],
-                  type: "string",
+                  enum: ["high", "medium", "low", null],
+                  type: ["string", "null"],
                 },
-                sourceCitation: { type: "string" },
+                sourceCitation: nullableStringSchema,
               },
-              required: ["issue", "explanation"],
+              required: ["issue", "explanation", "severity", "sourceCitation"],
               type: "object",
             },
-            type: "array",
+            type: ["array", "null"],
           },
-          recommendedNextActions: {
-            items: { type: "string" },
-            type: "array",
-          },
+          recommendedNextActions: nullableStringArraySchema,
           takingSummary: {
             additionalProperties: false,
             properties: {
-              areaTaken: { type: "string" },
-              estateTaken: { type: "string" },
-              keyConcerns: {
-                items: { type: "string" },
-                type: "array",
-              },
-              projectPurpose: { type: "string" },
-              remainderProperty: { type: "string" },
-              typeOfTaking: { type: "string" },
+              areaTaken: nullableStringSchema,
+              estateTaken: nullableStringSchema,
+              keyConcerns: nullableStringArraySchema,
+              projectPurpose: nullableStringSchema,
+              remainderProperty: nullableStringSchema,
+              typeOfTaking: nullableStringSchema,
             },
-            type: "object",
+            required: [
+              "typeOfTaking",
+              "estateTaken",
+              "areaTaken",
+              "remainderProperty",
+              "projectPurpose",
+              "keyConcerns",
+            ],
+            type: ["object", "null"],
           },
           timeline: {
             items: {
               additionalProperties: false,
               properties: {
                 confidence: {
-                  enum: ["high", "medium", "low"],
-                  type: "string",
+                  enum: ["high", "medium", "low", null],
+                  type: ["string", "null"],
                 },
-                date: { type: "string" },
+                date: nullableStringSchema,
                 event: { type: "string" },
-                sourceCitation: { type: "string" },
+                sourceCitation: nullableStringSchema,
               },
-              required: ["event"],
+              required: ["date", "event", "sourceCitation", "confidence"],
               type: "object",
             },
-            type: "array",
+            type: ["array", "null"],
           },
           valuationSummary: {
             additionalProperties: false,
             properties: {
-              condemnorAppraisal: { type: "string" },
-              costToCure: { type: "string" },
-              finalOffer: { type: "string" },
-              initialOffer: { type: "string" },
-              ownerAppraisal: { type: "string" },
-              partTakenValue: { type: "string" },
-              remainderDamages: { type: "string" },
-              temporaryDamages: { type: "string" },
-              valuationGaps: {
-                items: { type: "string" },
-                type: "array",
-              },
+              condemnorAppraisal: nullableStringSchema,
+              costToCure: nullableStringSchema,
+              finalOffer: nullableStringSchema,
+              initialOffer: nullableStringSchema,
+              ownerAppraisal: nullableStringSchema,
+              partTakenValue: nullableStringSchema,
+              remainderDamages: nullableStringSchema,
+              temporaryDamages: nullableStringSchema,
+              valuationGaps: nullableStringArraySchema,
             },
-            type: "object",
+            required: [
+              "initialOffer",
+              "finalOffer",
+              "condemnorAppraisal",
+              "ownerAppraisal",
+              "partTakenValue",
+              "remainderDamages",
+              "temporaryDamages",
+              "costToCure",
+              "valuationGaps",
+            ],
+            type: ["object", "null"],
           },
         },
+        required: [
+          "matterOverview",
+          "timeline",
+          "takingSummary",
+          "valuationSummary",
+          "proceduralFlags",
+          "missingDocuments",
+          "recommendedNextActions",
+        ],
         type: "object",
       },
       type: "array",
@@ -114,8 +148,9 @@ const eminentDomainCaseAssessmentJsonSchema = {
 
 const eminentDomainJsonRepairInstructions = [
   "Return a JSON object with exactly this top-level shape:",
-  "{\"assessments\":[{\"matterOverview\":{},\"timeline\":[{\"event\":\"event text\"}],\"takingSummary\":{},\"valuationSummary\":{},\"proceduralFlags\":[{\"issue\":\"issue\",\"explanation\":\"explanation\"}],\"missingDocuments\":[],\"recommendedNextActions\":[]}]}",
-  "Omit unsupported optional fields.",
+  "{\"assessments\":[{\"matterOverview\":{\"propertyOwner\":null,\"condemningAuthority\":null,\"projectName\":null,\"propertyAddress\":null,\"county\":null,\"proceduralPosture\":null},\"timeline\":[{\"date\":null,\"event\":\"event text\",\"sourceCitation\":null,\"confidence\":null}],\"takingSummary\":{\"typeOfTaking\":null,\"estateTaken\":null,\"areaTaken\":null,\"remainderProperty\":null,\"projectPurpose\":null,\"keyConcerns\":[]},\"valuationSummary\":{\"initialOffer\":null,\"finalOffer\":null,\"condemnorAppraisal\":null,\"ownerAppraisal\":null,\"partTakenValue\":null,\"remainderDamages\":null,\"temporaryDamages\":null,\"costToCure\":null,\"valuationGaps\":[]},\"proceduralFlags\":[{\"issue\":\"issue\",\"explanation\":\"explanation\",\"severity\":null,\"sourceCitation\":null}],\"missingDocuments\":[],\"recommendedNextActions\":[]}]}",
+  "Use null for unsupported optional scalar or object fields.",
+  "Use empty arrays when no items exist.",
   "Every timeline item must include event.",
   "Every procedural flag must include issue and explanation.",
 ].join("\n");
@@ -147,6 +182,17 @@ export const eminentDomainCaseAssessmentProfile = {
   postProcess: (input: {
     items: EminentDomainAssessmentItem[];
   }) => ({
+    artifacts: [
+      {
+        content: composeEminentDomainCaseAssessment(input.items),
+        metadataJson: {
+          generatedFromAssessmentCount: input.items.length,
+          profile: "eminent-domain-case-assessment",
+        },
+        outputKey: "eminentDomainCaseAssessmentArtifactId",
+        title: "Eminent Domain Case Assessment",
+      },
+    ],
     displayItems: input.items.map((item) => ({ ...item })),
     itemCount: input.items.length,
     itemCountsByType: {

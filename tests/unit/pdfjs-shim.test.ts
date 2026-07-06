@@ -43,6 +43,36 @@ describe("pdfjs extraction", () => {
     expect(result.pageTexts[1]).toContain("Second page text");
   });
 
+  it("extracts text from bundled criminal sample PDFs", async () => {
+    const result = await extractPdfPages(
+      readFileSync(
+        path.join(
+          process.cwd(),
+          "sample-evidence",
+          "criminal",
+          "04_CAD_Dispatch_Log.pdf",
+        ),
+      ),
+    );
+
+    expect(result.pageCount).toBe(1);
+    expect(result.pageTexts[0]).toContain("Computer-Aided Dispatch");
+    expect(result.pageTexts[0]).toContain("CAD-26-0114-7821");
+  });
+
+  it("initializes Node canvas globals before importing pdfjs", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "services", "matter-documents", "pdfjs.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('import("@napi-rs/canvas")');
+    expect(source).toContain('globalScope["DOMMatrix"]');
+    expect(source.indexOf("ensurePdfjsNodeGlobals().then")).toBeLessThan(
+      source.indexOf('import("pdfjs-dist/legacy/build/pdf.mjs")'),
+    );
+  });
+
   it("does not use a runtime require fallback in the representation service", () => {
     const source = readFileSync(
       path.join(

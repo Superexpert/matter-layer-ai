@@ -140,7 +140,7 @@ export async function resetApplicationAction(
   revalidatePath("/app/matters");
 
   return {
-    message: `Application reset complete. Sample matters have been recreated. Type ${RESET_APPLICATION_CONFIRMATION_PHRASE} again before running another reset.`,
+    message: `Application reset complete. Sample matters and sample evidence have been recreated. Type ${RESET_APPLICATION_CONFIRMATION_PHRASE} again before running another reset.`,
     status: "success",
   };
 }

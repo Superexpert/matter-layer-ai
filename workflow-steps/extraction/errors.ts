@@ -27,7 +27,9 @@ export const EXTRACTION_ERROR_ACTIONS: Record<string, string> = {
   EXTRACTION_PROVIDER_FAILED:
     "Try running preparation again. If the problem continues, check the configured AI provider.",
   EXTRACTION_JSON_PARSE_FAILED:
-    "Try running preparation again. If this continues, ask an admin to review the configured AI provider or model.",
+    "Try running preparation again. If this continues, ask an admin to review the extraction schema and server logs.",
+  EXTRACTION_SCHEMA_VALIDATION_FAILED:
+    "Try running preparation again. If this continues, ask an admin to review the extraction schema and server logs.",
   INTERNAL_ERROR:
     "Try running the preparation step again. If the problem continues, check the server logs for details.",
   PARTIAL_DOCUMENT_PREPARATION_FAILED:
@@ -45,7 +47,16 @@ export function suggestedActionForError(error: WorkflowStepError | null | undefi
 }
 
 export const INVALID_JSON_PROVIDER_USER_MESSAGE =
-  "The AI provider returned a response Matter Layer could not read. Try preparation again. If this continues, ask an admin to review the configured AI provider or model.";
+  "The AI provider returned a response Matter Layer could not read. Try preparation again. If this continues, ask an admin to review the extraction schema and server logs.";
+
+export const SCHEMA_VALIDATION_PROVIDER_USER_MESSAGE =
+  "The AI provider returned structured extraction data, but Matter Layer could not validate it against the expected schema.";
+
+export const EXTRACTION_DOCUMENT_JSON_PARSE_USER_MESSAGE =
+  "Matter Layer could not read the structured extraction response for this document.";
+
+export const EXTRACTION_DOCUMENT_SCHEMA_VALIDATION_USER_MESSAGE =
+  "Matter Layer could not validate the structured extraction data for this document.";
 
 export const EXTRACTION_DOCUMENT_PROVIDER_USER_MESSAGE =
   "Matter Layer could not extract facts from this document.";
@@ -120,12 +131,14 @@ export function extractionStepErrorForDocuments(input: {
     : "DOCUMENT_PREPARATION_FAILED";
   const firstUserMessage = input.documentErrors[0]?.userMessage;
   const providerUserMessage =
-    commonCode === "EXTRACTION_PROVIDER_FAILED" ||
-    commonCode === "EXTRACTION_JSON_PARSE_FAILED"
-    ? userMessageForExtractionProviderError(
+    commonCode === "EXTRACTION_SCHEMA_VALIDATION_FAILED"
+      ? SCHEMA_VALIDATION_PROVIDER_USER_MESSAGE
+      : commonCode === "EXTRACTION_PROVIDER_FAILED" ||
+          commonCode === "EXTRACTION_JSON_PARSE_FAILED"
+        ? userMessageForExtractionProviderError(
         input.documentErrors.find((error) => error.message)?.message,
       )
-    : null;
+        : null;
 
   if (input.partial) {
     return {

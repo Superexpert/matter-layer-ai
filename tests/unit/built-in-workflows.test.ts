@@ -6,7 +6,7 @@ import {
 } from "../../workflows";
 
 describe("built-in workflow registration", () => {
-  it("registers Eminent Domain Case Assessment with Select Documents and generic extraction steps", () => {
+  it("registers Eminent Domain Case Assessment with document editor review steps", () => {
     const builtInWorkflow = builtInWorkflows.find(
       (workflow) => workflow.slug === "eminent-domain-case-assessment",
     );
@@ -65,6 +65,74 @@ describe("built-in workflow registration", () => {
         },
         type: "extraction",
       },
+      {
+        description:
+          "Review, edit, and save the generated eminent domain case assessment.",
+        id: "review-case-assessment",
+        name: "Review Case Assessment",
+        parameters: {
+          artifactOutputKey: "eminentDomainCaseAssessmentArtifactId",
+          contentType: "MARKDOWN",
+          documentFileName: "Eminent Domain Case Assessment",
+          documentTitle: "Eminent Domain Case Assessment",
+          editor: "tiptap",
+          inputStepId: "analyze-case-documents",
+          saveMode: "revision",
+        },
+        type: "documentEditor",
+      },
+      {
+        description:
+          "Review and edit a lawyer-facing memo generated from the case assessment.",
+        id: "review-lawyer-memo",
+        name: "Review Lawyer Memo",
+        parameters: {
+          artifactOutputKey: "eminentDomainLawyerMemoArtifactId",
+          contentType: "MARKDOWN",
+          documentFileName: "Lawyer Memo",
+          documentTitle: "Lawyer Memo",
+          editor: "tiptap",
+          generatedArtifact: {
+            extractionOutputKey: "eminentDomainCaseAssessment",
+            extractionStepId: "analyze-case-documents",
+            kind: "eminent-domain-lawyer-memo",
+            reviewedAssessmentStepId: "review-case-assessment",
+          },
+          inputStepId: "analyze-case-documents",
+          saveMode: "revision",
+        },
+        type: "documentEditor",
+      },
+      {
+        description:
+          "Review and edit a client-facing summary generated from the case assessment.",
+        id: "review-client-summary",
+        name: "Review Client Summary",
+        parameters: {
+          artifactOutputKey: "eminentDomainClientSummaryArtifactId",
+          contentType: "MARKDOWN",
+          documentFileName: "Client Summary",
+          documentTitle: "Client Summary",
+          editor: "tiptap",
+          generatedArtifact: {
+            extractionOutputKey: "eminentDomainCaseAssessment",
+            extractionStepId: "analyze-case-documents",
+            kind: "eminent-domain-client-summary",
+            reviewedAssessmentStepId: "review-case-assessment",
+            reviewedLawyerMemoStepId: "review-lawyer-memo",
+          },
+          inputStepId: "analyze-case-documents",
+          saveMode: "revision",
+        },
+        type: "documentEditor",
+      },
+    ]);
+    expect(eminentDomainCaseAssessmentDefinition.steps.map((step) => step.name)).toEqual([
+      "Select Documents",
+      "Analyze Case Documents",
+      "Review Case Assessment",
+      "Review Lawyer Memo",
+      "Review Client Summary",
     ]);
   });
 });

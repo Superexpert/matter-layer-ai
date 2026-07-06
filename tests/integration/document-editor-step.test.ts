@@ -19,6 +19,7 @@ import {
 } from "../../workflow-steps/document-editor/server";
 import { documentEditorStep as registeredDocumentEditorStep } from "../../workflow-steps/document-editor/definition";
 import { chronologyDefinition } from "../../workflows/chronology.workflow";
+import { eminentDomainCaseAssessmentDefinition } from "../../workflows/eminent-domain-case-assessment.workflow";
 
 const prisma = new PrismaClient();
 
@@ -41,6 +42,49 @@ const documentEditorStep: WorkflowStepDefinition = {
   },
   type: "documentEditor",
 };
+
+function eminentDomainAssessmentFixture() {
+  return {
+    assessment: {
+      matterOverview: {
+        condemningAuthority: "Central Texas Mobility Authority",
+        county: "Travis County",
+        projectName: "FM 812 Expansion",
+        propertyOwner: "Parcel 14 owner",
+      },
+      missingDocuments: ["Owner appraisal has not been provided."],
+      proceduralFlags: [
+        {
+          explanation:
+            "The notice sets a special commissioners hearing date.",
+          issue: "Special commissioners hearing scheduled",
+          severity: "high",
+          sourceCitation: "Notice at 1",
+        },
+      ],
+      recommendedNextActions: ["Request backup for the traffic-control plan."],
+      takingSummary: {
+        keyConcerns: ["Driveway access and customer parking may be affected"],
+        typeOfTaking: "partial taking",
+      },
+      timeline: [
+        {
+          confidence: "high",
+          date: "2026-04-08",
+          event: "Special commissioners hearing notice was issued",
+          sourceCitation: "Notice at 1",
+        },
+      ],
+      valuationSummary: {
+        finalOffer: "$125,000",
+        initialOffer: "$100,000",
+        remainderDamages: "Parking loss may affect remainder value",
+      },
+    },
+    sourceDocumentId: "doc_notice",
+    sourceFileName: "2026-04-08 Special Commissioners Hearing Notice.pdf",
+  };
+}
 
 async function createFixture() {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -274,6 +318,635 @@ test("document editor loads artifact from previous step output and saves a revis
       sourceArtifactId: artifact.id,
       status: "completed",
     });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("eminent domain case assessment editor saves a work product without markdown extension", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const user = await prisma.user.create({
+    data: {
+      email: `case-assessment-editor-${suffix}@example.com`,
+      name: "Case Assessment Lawyer",
+    },
+  });
+  const matter = await prisma.matter.create({
+    data: {
+      name: `Eminent Domain Editor Matter ${suffix}`,
+    },
+  });
+  const workflowRunId = `eminent-domain-editor-run-${suffix}`;
+  const reviewStep = eminentDomainCaseAssessmentDefinition.steps.find(
+    (step) => step.id === "review-case-assessment",
+  );
+
+  if (!reviewStep) {
+    throw new Error("Review Case Assessment step was not found.");
+  }
+
+  await prisma.workflowRun.create({
+    data: {
+      id: workflowRunId,
+      matterId: matter.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+    },
+  });
+  const artifact = await prisma.workflowArtifact.create({
+    data: {
+      content: [
+        "# Eminent Domain Case Assessment",
+        "",
+        "## Case Overview",
+        "",
+        "Original assessment.",
+      ].join("\n"),
+      matterId: matter.id,
+      metadataJson: {
+        profile: "eminent-domain-case-assessment",
+      },
+      stepId: "analyze-case-documents",
+      title: "Eminent Domain Case Assessment",
+      type: WorkflowArtifactType.MARKDOWN,
+      workflowRunId,
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        eminentDomainCaseAssessmentArtifactId: artifact.id,
+        status: "completed",
+      },
+      stepId: "analyze-case-documents",
+      workflowRunId,
+    },
+  });
+
+  try {
+    const state = await loadDocumentEditorStepState({
+      matterId: matter.id,
+      step: reviewStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    expect(state).toMatchObject({
+      artifactId: artifact.id,
+      contentMarkdown: expect.stringContaining("# Eminent Domain Case Assessment"),
+      title: "Eminent Domain Case Assessment",
+    });
+    expect(state.editorContentHtml).toContain("<h1>Eminent Domain Case Assessment</h1>");
+
+    const output = await saveDocumentEditorArtifact({
+      artifactId: artifact.id,
+      contentMarkdown: [
+        "# Eminent Domain Case Assessment",
+        "",
+        "## Case Overview",
+        "",
+        "Edited assessment text.",
+      ].join("\n"),
+      editorJson: {
+        type: "doc",
+      },
+      matterId: matter.id,
+      step: reviewStep,
+      userId: user.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+    const documents = await listMatterDocuments({
+      matterId: matter.id,
+    });
+    const savedDocument = await getEditableMatterDocument({
+      matterDocumentId: output.savedMatterDocumentId,
+      matterId: matter.id,
+    });
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({
+      documentSection: "workProduct",
+      fileName: "Eminent Domain Case Assessment",
+    });
+    expect(documents[0]?.fileName).not.toContain(".md");
+    expect(savedDocument).toMatchObject({
+      contentMarkdown: expect.stringContaining("Edited assessment text."),
+      editorContentHtml: expect.stringContaining("<h1>Eminent Domain Case Assessment</h1>"),
+      fileName: "Eminent Domain Case Assessment",
+    });
+    await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("document editor explains when the extraction input has not completed", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const matter = await prisma.matter.create({
+    data: {
+      name: `Document Editor Missing Input Matter ${suffix}`,
+    },
+  });
+  const workflowRunId = `missing-editor-input-run-${suffix}`;
+  const reviewStep = eminentDomainCaseAssessmentDefinition.steps.find(
+    (step) => step.id === "review-case-assessment",
+  );
+
+  if (!reviewStep) {
+    throw new Error("Review Case Assessment step was not found.");
+  }
+
+  await prisma.workflowRun.create({
+    data: {
+      id: workflowRunId,
+      matterId: matter.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+    },
+  });
+
+  try {
+    await expect(
+      loadDocumentEditorStepState({
+        matterId: matter.id,
+        step: reviewStep,
+        workflowDefinitionId: "eminent-domain-case-assessment",
+        workflowRunId,
+      }),
+    ).rejects.toThrow(
+      "This document cannot be generated until the previous workflow step is complete.",
+    );
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("eminent domain lawyer memo editor generates from extraction output when case assessment is not reviewed", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const matter = await prisma.matter.create({
+    data: {
+      name: `Lawyer Memo Fallback Matter ${suffix}`,
+    },
+  });
+  const workflowRunId = `lawyer-memo-fallback-run-${suffix}`;
+  const lawyerMemoStep = eminentDomainCaseAssessmentDefinition.steps.find(
+    (step) => step.id === "review-lawyer-memo",
+  );
+
+  if (!lawyerMemoStep) {
+    throw new Error("Review Lawyer Memo step was not found.");
+  }
+
+  await prisma.workflowRun.create({
+    data: {
+      id: workflowRunId,
+      matterId: matter.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        eminentDomainCaseAssessment: {
+          assessments: [eminentDomainAssessmentFixture()],
+        },
+        status: "completed",
+      },
+      stepId: "analyze-case-documents",
+      workflowRunId,
+    },
+  });
+
+  try {
+    const state = await loadDocumentEditorStepState({
+      matterId: matter.id,
+      step: lawyerMemoStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+    const generatedOutput = await prisma.workflowRunStepOutput.findUniqueOrThrow({
+      where: {
+        workflowRunId_stepId: {
+          stepId: "review-lawyer-memo",
+          workflowRunId,
+        },
+      },
+    });
+
+    expect(state).toMatchObject({
+      contentMarkdown: expect.stringContaining("# Lawyer Memo"),
+      title: "Lawyer Memo",
+    });
+    expect(state.contentMarkdown).toContain("Property owner: Parcel 14 owner");
+    expect(generatedOutput.outputJson).toMatchObject({
+      eminentDomainLawyerMemoArtifactId: state.artifactId,
+      status: "generated",
+    });
+    await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("eminent domain lawyer memo editor saves reviewed memo without markdown extension", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const user = await prisma.user.create({
+    data: {
+      email: `lawyer-memo-editor-${suffix}@example.com`,
+      name: "Lawyer Memo Reviewer",
+    },
+  });
+  const matter = await prisma.matter.create({
+    data: {
+      name: `Lawyer Memo Editor Matter ${suffix}`,
+    },
+  });
+  const workflowRunId = `lawyer-memo-editor-run-${suffix}`;
+  const lawyerMemoStep = eminentDomainCaseAssessmentDefinition.steps.find(
+    (step) => step.id === "review-lawyer-memo",
+  );
+
+  if (!lawyerMemoStep) {
+    throw new Error("Review Lawyer Memo step was not found.");
+  }
+
+  await prisma.workflowRun.create({
+    data: {
+      id: workflowRunId,
+      matterId: matter.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        eminentDomainCaseAssessment: {
+          assessments: [eminentDomainAssessmentFixture()],
+        },
+        status: "completed",
+      },
+      stepId: "analyze-case-documents",
+      workflowRunId,
+    },
+  });
+  const caseAssessmentArtifact = await prisma.workflowArtifact.create({
+    data: {
+      content: "# Eminent Domain Case Assessment\n\nOriginal assessment.",
+      matterId: matter.id,
+      stepId: "review-case-assessment",
+      title: "Eminent Domain Case Assessment",
+      type: WorkflowArtifactType.MARKDOWN,
+      workflowRunId,
+    },
+  });
+  const caseAssessmentRevision = await prisma.workflowArtifactRevision.create({
+    data: {
+      artifactId: caseAssessmentArtifact.id,
+      content: [
+        "# Eminent Domain Case Assessment",
+        "",
+        "Lawyer edited assessment point about access leverage.",
+      ].join("\n"),
+      createdByUserId: user.id,
+      matterId: matter.id,
+      stepId: "review-case-assessment",
+      workflowRunId,
+    },
+  });
+  await prisma.workflowArtifact.update({
+    data: {
+      currentRevisionId: caseAssessmentRevision.id,
+    },
+    where: {
+      id: caseAssessmentArtifact.id,
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        reviewedArtifactId: caseAssessmentArtifact.id,
+        revisionId: caseAssessmentRevision.id,
+        savedMatterDocumentId: "reviewed-case-assessment-document-id",
+        sourceArtifactId: caseAssessmentArtifact.id,
+        status: "completed",
+      },
+      stepId: "review-case-assessment",
+      workflowRunId,
+    },
+  });
+
+  try {
+    const state = await loadDocumentEditorStepState({
+      matterId: matter.id,
+      step: lawyerMemoStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    expect(state.contentMarkdown).toContain(
+      "Lawyer edited assessment point about access leverage.",
+    );
+
+    const output = await saveDocumentEditorArtifact({
+      artifactId: state.artifactId,
+      contentMarkdown: [
+        "# Lawyer Memo",
+        "",
+        "## Issue Presented",
+        "",
+        "Edited lawyer memo text.",
+      ].join("\n"),
+      editorJson: {
+        type: "doc",
+      },
+      matterId: matter.id,
+      step: lawyerMemoStep,
+      userId: user.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+    const documents = await listMatterDocuments({
+      matterId: matter.id,
+    });
+    const savedDocument = await getEditableMatterDocument({
+      matterDocumentId: output.savedMatterDocumentId,
+      matterId: matter.id,
+    });
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({
+      documentSection: "workProduct",
+      fileName: "Lawyer Memo",
+    });
+    expect(documents[0]?.fileName).not.toContain(".md");
+    expect(savedDocument).toMatchObject({
+      contentMarkdown: expect.stringContaining("Edited lawyer memo text."),
+      editorContentHtml: expect.stringContaining("<h1>Lawyer Memo</h1>"),
+      fileName: "Lawyer Memo",
+    });
+    await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("eminent domain client summary editor generates from extraction output when prior reviews are unavailable", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const matter = await prisma.matter.create({
+    data: {
+      name: `Client Summary Fallback Matter ${suffix}`,
+    },
+  });
+  const workflowRunId = `client-summary-fallback-run-${suffix}`;
+  const clientSummaryStep = eminentDomainCaseAssessmentDefinition.steps.find(
+    (step) => step.id === "review-client-summary",
+  );
+
+  if (!clientSummaryStep) {
+    throw new Error("Review Client Summary step was not found.");
+  }
+
+  await prisma.workflowRun.create({
+    data: {
+      id: workflowRunId,
+      matterId: matter.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        eminentDomainCaseAssessment: {
+          assessments: [eminentDomainAssessmentFixture()],
+        },
+        status: "completed",
+      },
+      stepId: "analyze-case-documents",
+      workflowRunId,
+    },
+  });
+
+  try {
+    const state = await loadDocumentEditorStepState({
+      matterId: matter.id,
+      step: clientSummaryStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+    const generatedOutput = await prisma.workflowRunStepOutput.findUniqueOrThrow({
+      where: {
+        workflowRunId_stepId: {
+          stepId: "review-client-summary",
+          workflowRunId,
+        },
+      },
+    });
+
+    expect(state).toMatchObject({
+      contentMarkdown: expect.stringContaining("# Client Summary"),
+      title: "Client Summary",
+    });
+    expect(state.contentMarkdown).toContain("Parcel 14 owner");
+    expect(state.contentMarkdown).toContain(
+      "2026-04-08 Special Commissioners Hearing Notice.pdf",
+    );
+    expect(state.contentMarkdown).not.toContain("doc_notice");
+    expect(generatedOutput.outputJson).toMatchObject({
+      eminentDomainClientSummaryArtifactId: state.artifactId,
+      status: "generated",
+    });
+    await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("eminent domain client summary editor saves reviewed summary without markdown extension", async () => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const user = await prisma.user.create({
+    data: {
+      email: `client-summary-editor-${suffix}@example.com`,
+      name: "Client Summary Reviewer",
+    },
+  });
+  const matter = await prisma.matter.create({
+    data: {
+      name: `Client Summary Editor Matter ${suffix}`,
+    },
+  });
+  const workflowRunId = `client-summary-editor-run-${suffix}`;
+  const clientSummaryStep = eminentDomainCaseAssessmentDefinition.steps.find(
+    (step) => step.id === "review-client-summary",
+  );
+
+  if (!clientSummaryStep) {
+    throw new Error("Review Client Summary step was not found.");
+  }
+
+  await prisma.workflowRun.create({
+    data: {
+      id: workflowRunId,
+      matterId: matter.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        eminentDomainCaseAssessment: {
+          assessments: [eminentDomainAssessmentFixture()],
+        },
+        status: "completed",
+      },
+      stepId: "analyze-case-documents",
+      workflowRunId,
+    },
+  });
+
+  const caseAssessmentArtifact = await prisma.workflowArtifact.create({
+    data: {
+      content: "# Eminent Domain Case Assessment\n\nOriginal assessment.",
+      matterId: matter.id,
+      stepId: "review-case-assessment",
+      title: "Eminent Domain Case Assessment",
+      type: WorkflowArtifactType.MARKDOWN,
+      workflowRunId,
+    },
+  });
+  const caseAssessmentRevision = await prisma.workflowArtifactRevision.create({
+    data: {
+      artifactId: caseAssessmentArtifact.id,
+      content: [
+        "# Eminent Domain Case Assessment",
+        "",
+        "Lawyer edited assessment point for client context.",
+      ].join("\n"),
+      createdByUserId: user.id,
+      matterId: matter.id,
+      stepId: "review-case-assessment",
+      workflowRunId,
+    },
+  });
+  await prisma.workflowArtifact.update({
+    data: {
+      currentRevisionId: caseAssessmentRevision.id,
+    },
+    where: {
+      id: caseAssessmentArtifact.id,
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        reviewedArtifactId: caseAssessmentArtifact.id,
+        revisionId: caseAssessmentRevision.id,
+        savedMatterDocumentId: "reviewed-case-assessment-document-id",
+        sourceArtifactId: caseAssessmentArtifact.id,
+        status: "completed",
+      },
+      stepId: "review-case-assessment",
+      workflowRunId,
+    },
+  });
+
+  const lawyerMemoArtifact = await prisma.workflowArtifact.create({
+    data: {
+      content: "# Lawyer Memo\n\nOriginal lawyer memo.",
+      matterId: matter.id,
+      stepId: "review-lawyer-memo",
+      title: "Lawyer Memo",
+      type: WorkflowArtifactType.MARKDOWN,
+      workflowRunId,
+    },
+  });
+  const lawyerMemoRevision = await prisma.workflowArtifactRevision.create({
+    data: {
+      artifactId: lawyerMemoArtifact.id,
+      content: [
+        "# Lawyer Memo",
+        "",
+        "Lawyer edited memo point about next steps for client discussion.",
+      ].join("\n"),
+      createdByUserId: user.id,
+      matterId: matter.id,
+      stepId: "review-lawyer-memo",
+      workflowRunId,
+    },
+  });
+  await prisma.workflowArtifact.update({
+    data: {
+      currentRevisionId: lawyerMemoRevision.id,
+    },
+    where: {
+      id: lawyerMemoArtifact.id,
+    },
+  });
+  await prisma.workflowRunStepOutput.create({
+    data: {
+      outputJson: {
+        reviewedArtifactId: lawyerMemoArtifact.id,
+        revisionId: lawyerMemoRevision.id,
+        savedMatterDocumentId: "reviewed-lawyer-memo-document-id",
+        sourceArtifactId: lawyerMemoArtifact.id,
+        status: "completed",
+      },
+      stepId: "review-lawyer-memo",
+      workflowRunId,
+    },
+  });
+
+  try {
+    const state = await loadDocumentEditorStepState({
+      matterId: matter.id,
+      step: clientSummaryStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    expect(state.contentMarkdown).toContain(
+      "Lawyer edited assessment point for client context.",
+    );
+    expect(state.contentMarkdown).toContain(
+      "Lawyer edited memo point about next steps for client discussion.",
+    );
+
+    const output = await saveDocumentEditorArtifact({
+      artifactId: state.artifactId,
+      contentMarkdown: [
+        "# Client Summary",
+        "",
+        "## Overview",
+        "",
+        "Edited client summary text.",
+      ].join("\n"),
+      editorJson: {
+        type: "doc",
+      },
+      matterId: matter.id,
+      step: clientSummaryStep,
+      userId: user.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+    const documents = await listMatterDocuments({
+      matterId: matter.id,
+    });
+    const savedDocument = await getEditableMatterDocument({
+      matterDocumentId: output.savedMatterDocumentId,
+      matterId: matter.id,
+    });
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0]).toMatchObject({
+      documentSection: "workProduct",
+      fileName: "Client Summary",
+    });
+    expect(documents[0]?.fileName).not.toContain(".md");
+    expect(savedDocument).toMatchObject({
+      contentMarkdown: expect.stringContaining("Edited client summary text."),
+      editorContentHtml: expect.stringContaining("<h1>Client Summary</h1>"),
+      fileName: "Client Summary",
+    });
+    await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
   } finally {
     await cleanupMatter(matter.id);
   }
@@ -604,7 +1277,7 @@ test("document editor fails clearly when the configured artifact key is missing"
         workflowDefinitionId: "chronology",
         workflowRunId,
       }),
-    ).rejects.toThrow("chronologyArtifactId");
+    ).rejects.toThrow("The previous workflow step has not generated this document yet.");
   } finally {
     await cleanupMatter(matter.id);
   }
