@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from "react";
 type WarningModalProps = {
   cancelLabel: string;
   children?: ReactNode;
+  confirmDisabled?: boolean;
   confirmLabel: string;
   confirmTestId?: string;
   cancelTestId?: string;
@@ -22,6 +23,7 @@ export function WarningModal({
   cancelLabel,
   cancelTestId,
   children,
+  confirmDisabled = false,
   confirmLabel,
   confirmTestId,
   isPending = false,
@@ -97,7 +99,7 @@ export function WarningModal({
           <button
             className={confirmClass}
             data-testid={confirmTestId}
-            disabled={isPending}
+            disabled={isPending || confirmDisabled}
             onClick={onConfirm}
             type="button"
           >

@@ -21,6 +21,26 @@ describe("admin layout", () => {
     expect(adminTabsSource).toContain("AppMainPanel");
     expect(adminTabsSource).toContain("AppSidePanel");
     expect(adminTabsSource).toContain("Canvas");
+    expect(adminTabsSource).toContain('initialTab = "AI Providers"');
+    expect(adminTabsSource).toContain('label: "Retention"');
+    expect(adminTabsSource).toContain('data-testid="admin-retention-panel"');
+    expect(adminTabsSource).toContain('data-testid="reset-application-button"');
+    expect(adminTabsSource).toContain(
+      'testId="reset-application-confirmation-dialog"',
+    );
+    expect(adminTabsSource).toContain(
+      'confirmLabel="Permanently Reset Application"',
+    );
+    expect(adminTabsSource).toContain(
+      'data-testid="reset-application-success-message"',
+    );
+    expect(adminTabsSource).toContain(
+      'data-testid="reset-application-error-message"',
+    );
+    expect(adminTabsSource).toContain("Reset Application");
+    expect(adminTabsSource).toContain(
+      "Clicking Reset Application will permanently delete all",
+    );
     expect(adminTabsSource).not.toContain("border-b-2 border-[#5F4B76]");
   });
 });

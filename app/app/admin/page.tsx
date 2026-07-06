@@ -16,6 +16,7 @@ import {
   activateProviderConfig,
   createProviderConfig,
   deleteProviderConfig,
+  resetApplicationAction,
 } from "./actions";
 
 type AdminPageProps = {
@@ -94,7 +95,12 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     listAIProviderConfigs(),
     listAdminWorkflowSummaries(),
   ]);
-  const initialTab = tab === "workflows" ? "Workflows" : "AI Providers";
+  const initialTab =
+    tab === "workflows"
+      ? "Workflows"
+      : tab === "retention"
+        ? "Retention"
+        : "AI Providers";
 
   return (
     <section className="grid gap-4" data-testid="admin-page">
@@ -146,6 +152,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           </>
         }
         initialTab={initialTab}
+        resetApplicationAction={resetApplicationAction}
         workflowsPanel={<AdminWorkflowsPanel workflows={workflows} />}
       />
     </section>

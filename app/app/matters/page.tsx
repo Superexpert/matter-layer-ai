@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { requireConfiguredAISettings } from "@/services/ai/ai-settings-service";
+import { seedDefaultSampleMattersIfNoMattersExist } from "@/services/matters/sample-matters-service";
 
 import { NewMatterForm } from "./NewMatterForm";
 
 export default async function MattersPage() {
   await requireConfiguredAISettings();
+  await seedDefaultSampleMattersIfNoMattersExist();
 
   const { prisma } = await import("@/lib/prisma");
 

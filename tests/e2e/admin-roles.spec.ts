@@ -121,9 +121,10 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
 
   const adminEmail = uniqueEmail("nav-admin");
   const normalUserEmail = uniqueEmail("nav-user");
+  const matterName = `Admin Nav Matter ${Date.now()}`;
   const matter = await prisma.matter.create({
     data: {
-      name: `Admin Nav Matter ${Date.now()}`,
+      name: matterName,
     },
   });
 
@@ -158,13 +159,18 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     await expect(page.getByTestId("admin-context-header")).toContainText(
       "Manage app-wide Matter Layer settings.",
     );
-    await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
+    await expect(
+      page.getByTestId("admin-context-header").getByRole("heading", {
+        name: "Admin",
+      }),
+    ).toBeVisible();
     await expect(page.getByTestId("nav-admin")).toBeVisible();
     await expect(page.getByTestId("nav-settings")).toBeVisible();
     await expect(page.getByTestId("logout-button")).toBeVisible();
     await expect(page.getByTestId("admin-tabs").getByRole("button")).toHaveText([
       "AI Providers",
       "Workflows",
+      "Retention",
     ]);
     await expect(page.getByTestId("admin-tab-ai-providers")).toHaveAttribute(
       "aria-current",
@@ -173,7 +179,7 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     await expect(page.getByTestId("admin-ai-providers-panel")).toBeVisible();
     await expect(page.getByTestId("admin-workspace-layout")).toBeVisible();
     await expect(page.getByTestId("admin-main-panel")).toBeVisible();
-    await expect(page.getByTestId("admin-main-panel")).toContainText("ADMIN");
+    await expect(page.getByTestId("admin-main-panel")).toContainText("Admin");
     await expect(page.getByTestId("admin-main-panel")).toContainText(
       "AI Providers",
     );
@@ -186,13 +192,94 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
       "Configure system-wide settings for AI providers and workflows.",
     );
     await expect(page.getByTestId("ai-provider-form")).toBeVisible();
+    await page.getByTestId("admin-tab-retention").click();
+    await expect(page).toHaveURL(`${server.baseURL}/app/admin?tab=retention`);
+    await expect(page.getByTestId("admin-tab-retention")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("admin-retention-panel")).toBeVisible();
+    await expect(page.getByTestId("admin-retention-panel")).toContainText(
+      "Retention",
+    );
+    await expect(page.getByTestId("reset-application-button")).toHaveText(
+      "Reset Application",
+    );
+    await expect(page.getByTestId("admin-retention-panel")).toContainText(
+      "Clicking Reset Application will permanently delete all matters and all data stored in the Matter Layer database. This action is intended for resetting a development or test instance of Matter Layer.",
+    );
+    await page.getByTestId("reset-application-button").click();
+    await expect(
+      page.getByTestId("reset-application-confirmation-dialog"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("reset-application-confirmation-dialog"),
+    ).toContainText(
+      "This will permanently delete all matters and all data stored in the Matter Layer database. This action cannot be undone.",
+    );
+    await expect(
+      page.getByTestId("reset-application-confirm-button"),
+    ).toBeDisabled();
+    await page
+      .getByTestId("reset-application-confirmation-input")
+      .fill("RESET");
+    await expect(
+      page.getByTestId("reset-application-confirm-button"),
+    ).toBeDisabled();
+    await page
+      .getByTestId("reset-application-confirmation-input")
+      .fill("RESET MATTER LAYER");
+    await expect(
+      page.getByTestId("reset-application-confirm-button"),
+    ).toBeEnabled();
+    await page.getByTestId("reset-application-confirm-button").click();
+    await expect(
+      page.getByTestId("reset-application-success-message"),
+    ).toContainText("Sample matters have been recreated.");
+    await expect(prisma.matter.count()).resolves.toBe(2);
+    await expect(
+      prisma.matter.findMany({
+        orderBy: {
+          name: "asc",
+        },
+        select: {
+          name: true,
+        },
+      }),
+    ).resolves.toEqual([
+      {
+        name: "Criminal Matter (Sample)",
+      },
+      {
+        name: "Eminent Domain Matter (Sample)",
+      },
+    ]);
+    await expect(
+      prisma.user.findUnique({
+        where: {
+          email: adminEmail,
+        },
+      }),
+    ).resolves.toMatchObject({
+      role: UserRole.ADMIN,
+    });
+    await expect(prisma.aiProviderConfig.count()).resolves.toBe(1);
+    await page.goto(`${server.baseURL}/app/matters`);
+    await expect(page.getByTestId("matters-list")).toContainText(
+      "Criminal Matter (Sample)",
+    );
+    await expect(page.getByTestId("matters-list")).toContainText(
+      "Eminent Domain Matter (Sample)",
+    );
+    await expect(page.getByTestId("matters-list")).not.toContainText(matterName);
+    await page.goto(`${server.baseURL}/app/admin?tab=retention`);
     await page.getByTestId("admin-tab-workflows").click();
     await expect(page).toHaveURL(`${server.baseURL}/app/admin?tab=workflows`);
     await expect(page.getByTestId("admin-tab-workflows")).toHaveAttribute(
       "aria-current",
       "page",
     );
-    await expect(page.getByTestId("admin-workflows-panel")).toContainText(
+    await expect(page.getByTestId("admin-main-panel")).toContainText(
       "Workflows",
     );
     await expect(page.getByTestId("admin-workflows-panel")).toContainText(
