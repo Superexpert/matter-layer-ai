@@ -64,12 +64,13 @@ test("built-in workflow sync upserts built-in workflows into the database", asyn
       (workflow) =>
         workflow.id === "eminent-domain-case-assessment" &&
         workflow.name === "Eminent Domain Case Assessment" &&
-        workflow.steps.length === 5 &&
+        workflow.steps.length === 4 &&
         workflow.steps[0]?.type === "fileSelector" &&
         workflow.steps[1]?.type === "extraction" &&
         workflow.steps[1]?.name === "Analyze Case Documents" &&
         workflow.steps[2]?.type === "documentEditor" &&
-        workflow.steps[2]?.name === "Review Case Assessment",
+        workflow.steps[2]?.name === "Review Lawyer Memo" &&
+        workflow.steps[3]?.name === "Review Client Summary",
     ),
   ).toBe(true);
 

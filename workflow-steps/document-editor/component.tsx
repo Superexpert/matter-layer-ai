@@ -7,7 +7,6 @@ import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
-import { WarningModal } from "@/components/warning-modal";
 import { exportEditorContentToDocx } from "./docx-export";
 import { editorHtmlToMarkdown } from "./conversion";
 import type { DocumentEditorStepOutput } from "./schema";
@@ -44,6 +43,7 @@ type DocumentEditorSavePayload = {
 };
 
 type DocumentEditorSurfaceProps = {
+  completionButtonLabel?: string;
   contentHtml: string;
   description?: string;
   disabled?: boolean;
@@ -51,8 +51,8 @@ type DocumentEditorSurfaceProps = {
   exportButtonLabel?: string;
   initialSaveStatus?: "saved" | "unsaved";
   isLoading: boolean;
-  onDone: () => void;
-  onSave: (payload: DocumentEditorSavePayload) => Promise<void>;
+  onDone: (saveResult?: unknown) => void;
+  onSave: (payload: DocumentEditorSavePayload) => Promise<unknown>;
   saveButtonLabel?: string;
   savedStatusLabel: string;
   title: string;
@@ -80,7 +80,7 @@ function documentActionButtonClass(variant: "primary" | "secondary" = "secondary
 }
 
 function editorContentClass() {
-  return "document-editor min-h-[28rem] rounded-b-xl border-x border-b border-[#E3DEEA] bg-white px-5 py-4 text-sm leading-7 text-[#211B27] outline-none prose prose-sm max-w-none";
+  return "document-editor document-editor-content min-h-[28rem] rounded-b-xl border-x border-b border-[#E3DEEA] bg-white px-5 py-4 text-sm leading-7 text-[#211B27] outline-none prose prose-sm max-w-none";
 }
 
 const DocumentParagraph = Paragraph.extend({
@@ -105,6 +105,7 @@ const DocumentParagraph = Paragraph.extend({
 });
 
 export function DocumentEditorSurface({
+  completionButtonLabel = "Done",
   contentHtml,
   description,
   disabled = false,
@@ -123,7 +124,6 @@ export function DocumentEditorSurface({
   const [isExporting, setIsExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("unsaved");
   const [errorMessage, setErrorMessage] = useState("");
-  const [showUnsavedChangesWarning, setShowUnsavedChangesWarning] = useState(false);
   const initialSaveStatusRef = useRef(initialSaveStatus);
   const lastSavedContentMarkdownRef = useRef<string | null>(null);
   const editor = useEditor({
@@ -163,6 +163,7 @@ export function DocumentEditorSurface({
       return {
         bold: Boolean(currentEditor?.isActive("bold")),
         bulletList: Boolean(currentEditor?.isActive("bulletList")),
+        heading1: Boolean(currentEditor?.isActive("heading", { level: 1 })),
         heading2: Boolean(currentEditor?.isActive("heading", { level: 2 })),
         heading3: Boolean(currentEditor?.isActive("heading", { level: 3 })),
         italic: Boolean(currentEditor?.isActive("italic")),
@@ -172,6 +173,7 @@ export function DocumentEditorSurface({
   }) ?? {
     bold: false,
     bulletList: false,
+    heading1: false,
     heading2: false,
     heading3: false,
     italic: false,
@@ -234,6 +236,37 @@ export function DocumentEditorSurface({
     }
   }
 
+  async function saveAndDone() {
+    if (!editor) {
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveStatus("saving");
+    setErrorMessage("");
+
+    try {
+      const contentMarkdown = editorHtmlToMarkdown(editor.getHTML());
+
+      const saveResult = await onSave({
+        contentMarkdown,
+        editorJson: JSON.parse(JSON.stringify(editor.getJSON())),
+      });
+      lastSavedContentMarkdownRef.current = contentMarkdown;
+      setSaveStatus("saved");
+      onDone(saveResult);
+    } catch (error) {
+      setSaveStatus("unsaved");
+      setErrorMessage(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : errorFallback,
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function exportDocx() {
     if (!editor) {
       return;
@@ -256,17 +289,6 @@ export function DocumentEditorSurface({
     } finally {
       setIsExporting(false);
     }
-  }
-
-  const hasUnsavedChanges = saveStatus !== "saved";
-
-  function done() {
-    if (hasUnsavedChanges) {
-      setShowUnsavedChangesWarning(true);
-      return;
-    }
-
-    onDone();
   }
 
   return (
@@ -301,6 +323,14 @@ export function DocumentEditorSurface({
                 type="button"
               >
                 I
+              </button>
+              <button
+                className={toolbarButtonClass(toolbarState.heading1)}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+                type="button"
+              >
+                H1
               </button>
               <button
                 className={toolbarButtonClass(toolbarState.heading2)}
@@ -383,7 +413,7 @@ export function DocumentEditorSurface({
 
       <div className="grid gap-2 sm:grid-cols-3">
         <button
-          className={documentActionButtonClass("primary")}
+          className={documentActionButtonClass()}
           data-testid="document-editor-save"
           disabled={isLoading || isSaving || disabled || !editor}
           onClick={() => {
@@ -405,27 +435,17 @@ export function DocumentEditorSurface({
           {isExporting ? "Exporting..." : exportButtonLabel}
         </button>
         <button
-          className={documentActionButtonClass()}
+          className={documentActionButtonClass("primary")}
           data-testid="document-editor-continue"
-          onClick={done}
+          disabled={isLoading || isSaving || disabled || !editor}
+          onClick={() => {
+            void saveAndDone();
+          }}
           type="button"
         >
-          Done
+          {isSaving ? "Saving..." : completionButtonLabel}
         </button>
       </div>
-      <WarningModal
-        cancelLabel="Cancel"
-        cancelTestId="cancel-unsaved-document"
-        confirmLabel="Leave without saving"
-        confirmTestId="leave-unsaved-document"
-        message="You have unsaved changes to this document. If you leave now, those changes may be lost."
-        onCancel={() => setShowUnsavedChangesWarning(false)}
-        onConfirm={onDone}
-        open={showUnsavedChangesWarning}
-        testId="unsaved-document-dialog"
-        title="Unsaved document changes"
-        variant="warning"
-      />
     </section>
   );
 }
@@ -508,9 +528,16 @@ export function DocumentEditorStepComponent({
     void onSavedToDocuments?.().catch((error) => {
       console.error("Matter Layer could not refresh matter documents after save.", error);
     });
+
+    return output;
   }
 
-  function completeReviewStep() {
+  function completeReviewStep(saveResult?: unknown) {
+    if (saveResult) {
+      onComplete(saveResult as DocumentEditorStepOutput);
+      return;
+    }
+
     if (latestOutput) {
       onComplete(latestOutput);
       return;
@@ -535,6 +562,7 @@ export function DocumentEditorStepComponent({
         </p>
       ) : (
         <DocumentEditorSurface
+          completionButtonLabel={state?.completionButtonLabel}
           contentHtml={state?.editorContentHtml ?? ""}
           description={step.description}
           disabled={!state}

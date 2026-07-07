@@ -74,7 +74,9 @@ test("authenticated user can create a matter", async ({ page }) => {
         representations: {
           create: {
             content: [
-              "### January 12, 2024",
+              "# Chronology",
+              "",
+              "## January 12, 2024",
               "",
               "The chronology event occurred.",
               "",

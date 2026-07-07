@@ -24,10 +24,12 @@ describe("document editor schema", () => {
       }),
     ).toEqual({
       artifactOutputKey: "chronologyArtifactId",
+      completionButtonLabel: null,
       contentType: "MARKDOWN",
       documentFileName: null,
       documentTitle: null,
       editor: "tiptap",
+      generatedArtifact: null,
       inputStepId: "extract-chronology",
       saveMode: "revision",
     });
@@ -70,21 +72,35 @@ describe("document editor Markdown conversion", () => {
     const html = markdownToEditorHtml([
       "# Chronology",
       "",
+      "## Events",
+      "",
+      "### January 12, 2024",
+      "",
       "A **bold** paragraph.",
+      "",
+      "> Quoted note.",
       "",
       "Source: Incident Report, p. 1.",
       "",
       "* First source",
       "* Second source",
+      "",
+      "1. First numbered item",
+      "2. Second numbered item",
     ].join("\n"));
 
     expect(html).toContain("<h1>Chronology</h1>");
+    expect(html).toContain("<h2>Events</h2>");
+    expect(html).toContain("<h3>January 12, 2024</h3>");
     expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<blockquote>");
     expect(html).toContain(
       '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
     );
     expect(html).toContain("<ul>");
     expect(html).toContain("<li>First source</li>");
+    expect(html).toContain("<ol>");
+    expect(html).toContain("<li>First numbered item</li>");
   });
 
   it("converts editor HTML back into Markdown", () => {
@@ -99,6 +115,7 @@ describe("document editor Markdown conversion", () => {
     expect(markdown).toContain("* First source");
     expect(markdown).toContain("* Second source");
   });
+
 });
 
 describe("document editor styling boundary", () => {
@@ -113,10 +130,16 @@ describe("document editor styling boundary", () => {
     );
 
     expect(componentSource).toContain("document-editor");
+    expect(componentSource).toContain("document-editor-content");
     expect(componentSource).not.toMatch(/is[A-Z][A-Za-z]+Editor/);
     expect(componentSource).not.toContain("ChronologyParagraph");
     expect(componentSource).not.toContain("chronology-editor");
     expect(globalCss).toContain(".ProseMirror.document-editor");
+    expect(globalCss).toContain(".ProseMirror.document-editor h1");
+    expect(globalCss).toContain(".ProseMirror.document-editor h2");
+    expect(globalCss).toContain(".ProseMirror.document-editor ul");
+    expect(globalCss).toContain(".ProseMirror.document-editor ol");
+    expect(globalCss).toContain(".ProseMirror.document-editor blockquote");
     expect(globalCss).toContain('[data-node-type="citation"]');
     expect(globalCss).not.toContain(".ProseMirror.chronology-editor");
   });

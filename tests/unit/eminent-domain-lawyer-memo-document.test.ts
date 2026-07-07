@@ -57,13 +57,15 @@ describe("Eminent Domain Lawyer Memo composer", () => {
     expect(markdown).toContain("# Lawyer Memo");
     expect(markdown).toContain("## Issue Presented");
     expect(markdown).toContain("## Brief Answer");
-    expect(markdown).toContain("## Relevant Facts");
+    expect(markdown).toContain("## Key Facts");
+    expect(markdown).toContain("## Property and Taking Summary");
+    expect(markdown).toContain("## Offer History");
     expect(markdown).toContain("## Procedural Posture");
     expect(markdown).toContain("## Valuation and Damages Issues");
     expect(markdown).toContain("## Access, Parking, and Remainder-Damage Issues");
     expect(markdown).toContain("## Legal and Procedural Flags");
-    expect(markdown).toContain("## Missing Information");
-    expect(markdown).toContain("## Strategic Considerations");
+    expect(markdown).toContain("## Missing Documents and Open Questions");
+    expect(markdown).toContain("## Risks and Strategic Considerations");
     expect(markdown).toContain("## Recommended Next Steps");
     expect(markdown).toContain("## Source Notes");
     expect(markdown).toContain("$125,000");
@@ -73,20 +75,14 @@ describe("Eminent Domain Lawyer Memo composer", () => {
     expect(markdown).not.toContain('"assessment"');
   });
 
-  it("uses reviewed case assessment content when available", () => {
+  it("includes the assessment substance directly in the lawyer memo", () => {
     const markdown = composeEminentDomainLawyerMemo({
       items: [assessmentItem],
-      reviewedCaseAssessmentMarkdown: [
-        "# Eminent Domain Case Assessment",
-        "",
-        "## Case Overview",
-        "",
-        "- Lawyer edited assessment point about access leverage.",
-      ].join("\n"),
     });
 
-    expect(markdown).toContain("lawyer-edited narrative points");
-    expect(markdown).toContain("Lawyer edited assessment point about access leverage.");
+    expect(markdown).toContain("Taking concern: Driveway access and customer parking may be affected.");
+    expect(markdown).toContain("Initial offer: $100,000");
+    expect(markdown).toContain("Open question: Owner appraisal has not been provided.");
   });
 
   it("falls back to extraction output when reviewed assessment content is unavailable", () => {

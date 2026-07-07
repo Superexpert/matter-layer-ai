@@ -27,6 +27,7 @@ import type { EminentDomainAssessmentItem } from "@/workflow-steps/extraction/pr
 
 export type DocumentEditorStepState = {
   artifactId: string;
+  completionButtonLabel: string;
   contentMarkdown: string;
   contentType: "MARKDOWN";
   editorContentHtml: string;
@@ -269,24 +270,27 @@ async function createConfiguredGeneratedArtifact(input: {
     extractionOutput.outputJson,
     generatedArtifact.extractionOutputKey,
   );
-  const reviewedAssessmentMarkdown = await reviewedArtifactMarkdown({
-    matterId: input.input.matterId,
-    reviewedStepId: generatedArtifact.reviewedAssessmentStepId,
-    workflowRunId: input.input.workflowRunId,
-  });
   const reviewedLawyerMemoMarkdown = await reviewedArtifactMarkdown({
     matterId: input.input.matterId,
     reviewedStepId: generatedArtifact.reviewedLawyerMemoStepId,
     workflowRunId: input.input.workflowRunId,
   });
+
+  if (
+    generatedArtifact.kind === "eminent-domain-client-summary" &&
+    !reviewedLawyerMemoMarkdown
+  ) {
+    throw new Error(
+      "The client summary cannot be generated until the lawyer memo has been reviewed and saved.",
+    );
+  }
+
   const content = generatedArtifact.kind === "eminent-domain-lawyer-memo"
     ? composeEminentDomainLawyerMemo({
         items: assessmentItems,
-        reviewedCaseAssessmentMarkdown: reviewedAssessmentMarkdown,
       })
     : composeEminentDomainClientSummary({
         items: assessmentItems,
-        reviewedCaseAssessmentMarkdown: reviewedAssessmentMarkdown,
         reviewedLawyerMemoMarkdown,
       });
   const artifact = await createWorkflowMarkdownArtifact({
@@ -294,7 +298,6 @@ async function createConfiguredGeneratedArtifact(input: {
     matterId: input.input.matterId,
     metadataJson: {
       generatedFromAssessmentCount: assessmentItems.length,
-      generatedFromReviewedCaseAssessment: Boolean(reviewedAssessmentMarkdown),
       generatedFromReviewedLawyerMemo: Boolean(reviewedLawyerMemoMarkdown),
       generatedArtifactKind: generatedArtifact.kind,
       profile: "eminent-domain-case-assessment",
@@ -353,6 +356,7 @@ export async function loadDocumentEditorStepState(
 
   return {
     artifactId: artifact.id,
+    completionButtonLabel: config.completionButtonLabel ?? "Done",
     contentMarkdown,
     contentType: "MARKDOWN",
     editorContentHtml: markdownToEditorHtml(contentMarkdown),

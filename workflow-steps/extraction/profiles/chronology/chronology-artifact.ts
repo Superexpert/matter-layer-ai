@@ -305,7 +305,7 @@ export function generateChronologyMarkdown(events: CollapsedChronologyEventDraft
     throw new Error("Chronology artifact has no renderable events.");
   }
 
-  const lines: string[] = [];
+  const lines: string[] = ["# Chronology", ""];
   let currentDate = "";
   let hasUndatedHeading = false;
 
@@ -313,7 +313,7 @@ export function generateChronologyMarkdown(events: CollapsedChronologyEventDraft
     if (item.date) {
       if (item.date !== currentDate) {
         currentDate = item.date;
-        lines.push(`### ${formatDisplayDate(item.date)}`, "");
+        lines.push(`## ${formatDisplayDate(item.date)}`, "");
       }
 
       lines.push(markdownForEvent(item.event, item.date), "");
@@ -322,7 +322,7 @@ export function generateChronologyMarkdown(events: CollapsedChronologyEventDraft
 
     if (!hasUndatedHeading) {
       hasUndatedHeading = true;
-      lines.push("### Undated Events", "");
+      lines.push("## Undated Events", "");
     }
 
     lines.push(markdownForEvent(item.event, null), "");

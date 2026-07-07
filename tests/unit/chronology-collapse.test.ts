@@ -186,9 +186,9 @@ describe("chronology Markdown artifact", () => {
       },
     ]);
 
-    expect(markdown).toMatch(/^### January 14, 2026/);
+    expect(markdown).toMatch(/^# Chronology/);
+    expect(markdown).toContain("## January 14, 2026");
     expect(markdown).not.toContain("Chronology of Events");
-    expect(markdown).toContain("### January 14, 2026");
     expect(markdown).not.toContain("Generated from selected matter documents.");
     expect(markdown).not.toContain("Undated Events");
     expect(markdown).not.toContain("**Officer Tessa Benton responded as backup");
@@ -206,13 +206,12 @@ describe("chronology Markdown artifact", () => {
     expect(markdown).not.toContain("Unsupported unsourced event.");
 
     const editorHtml = markdownToEditorHtml(markdown);
-    expect(editorHtml).toContain("<h3>January 14, 2026</h3>");
+    expect(editorHtml).toContain("<h1>Chronology</h1>");
+    expect(editorHtml).toContain("<h2>January 14, 2026</h2>");
     expect(editorHtml).toContain("<p>Officer Tessa Benton responded");
     expect(editorHtml).toContain(
       '<p class="document-citation" data-node-type="citation">Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.</p>',
     );
-    expect(editorHtml).not.toContain("<h1>");
-    expect(editorHtml).not.toContain("<h2>");
     expect(editorHtml).not.toContain("<ul>");
     expect(editorHtml).not.toContain("<table>");
   });
@@ -244,8 +243,8 @@ describe("chronology Markdown artifact", () => {
       })),
     ]));
 
-    expect(markdown.indexOf("### January 14, 2026")).toBeLessThan(
-      markdown.indexOf("### January 15, 2026"),
+    expect(markdown.indexOf("## January 14, 2026")).toBeLessThan(
+      markdown.indexOf("## January 15, 2026"),
     );
     expect(markdown.indexOf("10:27 p.m.")).toBeLessThan(
       markdown.indexOf("traffic stop"),
@@ -273,8 +272,8 @@ describe("chronology Markdown artifact", () => {
     ]);
     const markdown = generateChronologyMarkdown(events);
 
-    expect(markdown.indexOf("### January 12, 2024")).toBeLessThan(
-      markdown.indexOf("### Undated Events"),
+    expect(markdown.indexOf("## January 12, 2024")).toBeLessThan(
+      markdown.indexOf("## Undated Events"),
     );
     expect(markdown).toContain("Source: Medical Records, p. 1.");
   });

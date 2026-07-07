@@ -67,26 +67,11 @@ describe("built-in workflow registration", () => {
       },
       {
         description:
-          "Review, edit, and save the generated eminent domain case assessment.",
-        id: "review-case-assessment",
-        name: "Review Case Assessment",
-        parameters: {
-          artifactOutputKey: "eminentDomainCaseAssessmentArtifactId",
-          contentType: "MARKDOWN",
-          documentFileName: "Eminent Domain Case Assessment",
-          documentTitle: "Eminent Domain Case Assessment",
-          editor: "tiptap",
-          inputStepId: "analyze-case-documents",
-          saveMode: "revision",
-        },
-        type: "documentEditor",
-      },
-      {
-        description:
-          "Review and edit a lawyer-facing memo generated from the case assessment.",
+          "Review and edit a lawyer-facing memo generated from the analyzed matter documents.",
         id: "review-lawyer-memo",
         name: "Review Lawyer Memo",
         parameters: {
+          completionButtonLabel: "Approve Memo & Generate Client Summary",
           artifactOutputKey: "eminentDomainLawyerMemoArtifactId",
           contentType: "MARKDOWN",
           documentFileName: "Lawyer Memo",
@@ -96,7 +81,6 @@ describe("built-in workflow registration", () => {
             extractionOutputKey: "eminentDomainCaseAssessment",
             extractionStepId: "analyze-case-documents",
             kind: "eminent-domain-lawyer-memo",
-            reviewedAssessmentStepId: "review-case-assessment",
           },
           inputStepId: "analyze-case-documents",
           saveMode: "revision",
@@ -105,10 +89,11 @@ describe("built-in workflow registration", () => {
       },
       {
         description:
-          "Review and edit a client-facing summary generated from the case assessment.",
+          "Review and edit a client-facing summary generated from the reviewed lawyer memo.",
         id: "review-client-summary",
         name: "Review Client Summary",
         parameters: {
+          completionButtonLabel: "Complete Workflow",
           artifactOutputKey: "eminentDomainClientSummaryArtifactId",
           contentType: "MARKDOWN",
           documentFileName: "Client Summary",
@@ -118,7 +103,6 @@ describe("built-in workflow registration", () => {
             extractionOutputKey: "eminentDomainCaseAssessment",
             extractionStepId: "analyze-case-documents",
             kind: "eminent-domain-client-summary",
-            reviewedAssessmentStepId: "review-case-assessment",
             reviewedLawyerMemoStepId: "review-lawyer-memo",
           },
           inputStepId: "analyze-case-documents",
@@ -130,7 +114,6 @@ describe("built-in workflow registration", () => {
     expect(eminentDomainCaseAssessmentDefinition.steps.map((step) => step.name)).toEqual([
       "Select Documents",
       "Analyze Case Documents",
-      "Review Case Assessment",
       "Review Lawyer Memo",
       "Review Client Summary",
     ]);

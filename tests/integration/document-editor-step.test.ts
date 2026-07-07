@@ -323,121 +323,66 @@ test("document editor loads artifact from previous step output and saves a revis
   }
 });
 
-test("eminent domain case assessment editor saves a work product without markdown extension", async () => {
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const user = await prisma.user.create({
-    data: {
-      email: `case-assessment-editor-${suffix}@example.com`,
-      name: "Case Assessment Lawyer",
-    },
-  });
-  const matter = await prisma.matter.create({
-    data: {
-      name: `Eminent Domain Editor Matter ${suffix}`,
-    },
-  });
-  const workflowRunId = `eminent-domain-editor-run-${suffix}`;
-  const reviewStep = eminentDomainCaseAssessmentDefinition.steps.find(
-    (step) => step.id === "review-case-assessment",
-  );
-
-  if (!reviewStep) {
-    throw new Error("Review Case Assessment step was not found.");
-  }
-
-  await prisma.workflowRun.create({
-    data: {
-      id: workflowRunId,
-      matterId: matter.id,
-      workflowDefinitionId: "eminent-domain-case-assessment",
-    },
-  });
-  const artifact = await prisma.workflowArtifact.create({
-    data: {
-      content: [
-        "# Eminent Domain Case Assessment",
-        "",
-        "## Case Overview",
-        "",
-        "Original assessment.",
-      ].join("\n"),
-      matterId: matter.id,
-      metadataJson: {
-        profile: "eminent-domain-case-assessment",
-      },
-      stepId: "analyze-case-documents",
-      title: "Eminent Domain Case Assessment",
-      type: WorkflowArtifactType.MARKDOWN,
-      workflowRunId,
-    },
-  });
-  await prisma.workflowRunStepOutput.create({
-    data: {
-      outputJson: {
-        eminentDomainCaseAssessmentArtifactId: artifact.id,
-        status: "completed",
-      },
-      stepId: "analyze-case-documents",
-      workflowRunId,
-    },
-  });
+test("document editor renders structurally generated chronology markdown", async () => {
+  const { artifact, matter, workflowRunId } = await createFixture();
 
   try {
+    await prisma.workflowArtifact.update({
+      data: {
+        content: [
+          "# Chronology",
+          "",
+          "## January 12, 2024",
+          "",
+          "The event occurred.",
+          "",
+          "Source: Incident Report, p. 1.",
+        ].join("\n"),
+        title: "Generated Chronology Draft",
+      },
+      where: {
+        id: artifact.id,
+      },
+    });
+
     const state = await loadDocumentEditorStepState({
       matterId: matter.id,
-      step: reviewStep,
-      workflowDefinitionId: "eminent-domain-case-assessment",
+      step: documentEditorStep,
+      workflowDefinitionId: "chronology",
       workflowRunId,
     });
 
-    expect(state).toMatchObject({
-      artifactId: artifact.id,
-      contentMarkdown: expect.stringContaining("# Eminent Domain Case Assessment"),
-      title: "Eminent Domain Case Assessment",
-    });
-    expect(state.editorContentHtml).toContain("<h1>Eminent Domain Case Assessment</h1>");
-
-    const output = await saveDocumentEditorArtifact({
-      artifactId: artifact.id,
-      contentMarkdown: [
-        "# Eminent Domain Case Assessment",
-        "",
-        "## Case Overview",
-        "",
-        "Edited assessment text.",
-      ].join("\n"),
-      editorJson: {
-        type: "doc",
-      },
-      matterId: matter.id,
-      step: reviewStep,
-      userId: user.id,
-      workflowDefinitionId: "eminent-domain-case-assessment",
-      workflowRunId,
-    });
-    const documents = await listMatterDocuments({
-      matterId: matter.id,
-    });
-    const savedDocument = await getEditableMatterDocument({
-      matterDocumentId: output.savedMatterDocumentId,
-      matterId: matter.id,
-    });
-
-    expect(documents).toHaveLength(1);
-    expect(documents[0]).toMatchObject({
-      documentSection: "workProduct",
-      fileName: "Eminent Domain Case Assessment",
-    });
-    expect(documents[0]?.fileName).not.toContain(".md");
-    expect(savedDocument).toMatchObject({
-      contentMarkdown: expect.stringContaining("Edited assessment text."),
-      editorContentHtml: expect.stringContaining("<h1>Eminent Domain Case Assessment</h1>"),
-      fileName: "Eminent Domain Case Assessment",
-    });
-    await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
+    expect(state.contentMarkdown).toBe([
+      "# Chronology",
+      "",
+      "## January 12, 2024",
+      "",
+      "The event occurred.",
+      "",
+      "Source: Incident Report, p. 1.",
+    ].join("\n"));
+    expect(state.editorContentHtml).toContain("<h1>Chronology</h1>");
+    expect(state.editorContentHtml).toContain("<h2>January 12, 2024</h2>");
+    expect(state.editorContentHtml).toContain(
+      '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
+    );
   } finally {
     await cleanupMatter(matter.id);
   }
+});
+
+test("eminent domain workflow does not register a separate case assessment review step", () => {
+  expect(
+    eminentDomainCaseAssessmentDefinition.steps.some(
+      (step) => step.id === "review-case-assessment",
+    ),
+  ).toBe(false);
+  expect(eminentDomainCaseAssessmentDefinition.steps.map((step) => step.name)).toEqual([
+    "Select Documents",
+    "Analyze Case Documents",
+    "Review Lawyer Memo",
+    "Review Client Summary",
+  ]);
 });
 
 test("document editor explains when the extraction input has not completed", async () => {
@@ -449,11 +394,11 @@ test("document editor explains when the extraction input has not completed", asy
   });
   const workflowRunId = `missing-editor-input-run-${suffix}`;
   const reviewStep = eminentDomainCaseAssessmentDefinition.steps.find(
-    (step) => step.id === "review-case-assessment",
+    (step) => step.id === "review-lawyer-memo",
   );
 
   if (!reviewStep) {
-    throw new Error("Review Case Assessment step was not found.");
+    throw new Error("Review Lawyer Memo step was not found.");
   }
 
   await prisma.workflowRun.create({
@@ -588,52 +533,6 @@ test("eminent domain lawyer memo editor saves reviewed memo without markdown ext
       workflowRunId,
     },
   });
-  const caseAssessmentArtifact = await prisma.workflowArtifact.create({
-    data: {
-      content: "# Eminent Domain Case Assessment\n\nOriginal assessment.",
-      matterId: matter.id,
-      stepId: "review-case-assessment",
-      title: "Eminent Domain Case Assessment",
-      type: WorkflowArtifactType.MARKDOWN,
-      workflowRunId,
-    },
-  });
-  const caseAssessmentRevision = await prisma.workflowArtifactRevision.create({
-    data: {
-      artifactId: caseAssessmentArtifact.id,
-      content: [
-        "# Eminent Domain Case Assessment",
-        "",
-        "Lawyer edited assessment point about access leverage.",
-      ].join("\n"),
-      createdByUserId: user.id,
-      matterId: matter.id,
-      stepId: "review-case-assessment",
-      workflowRunId,
-    },
-  });
-  await prisma.workflowArtifact.update({
-    data: {
-      currentRevisionId: caseAssessmentRevision.id,
-    },
-    where: {
-      id: caseAssessmentArtifact.id,
-    },
-  });
-  await prisma.workflowRunStepOutput.create({
-    data: {
-      outputJson: {
-        reviewedArtifactId: caseAssessmentArtifact.id,
-        revisionId: caseAssessmentRevision.id,
-        savedMatterDocumentId: "reviewed-case-assessment-document-id",
-        sourceArtifactId: caseAssessmentArtifact.id,
-        status: "completed",
-      },
-      stepId: "review-case-assessment",
-      workflowRunId,
-    },
-  });
-
   try {
     const state = await loadDocumentEditorStepState({
       matterId: matter.id,
@@ -642,9 +541,8 @@ test("eminent domain lawyer memo editor saves reviewed memo without markdown ext
       workflowRunId,
     });
 
-    expect(state.contentMarkdown).toContain(
-      "Lawyer edited assessment point about access leverage.",
-    );
+    expect(state.contentMarkdown).toContain("## Property and Taking Summary");
+    expect(state.contentMarkdown).toContain("## Risks and Strategic Considerations");
 
     const output = await saveDocumentEditorArtifact({
       artifactId: state.artifactId,
@@ -689,14 +587,14 @@ test("eminent domain lawyer memo editor saves reviewed memo without markdown ext
   }
 });
 
-test("eminent domain client summary editor generates from extraction output when prior reviews are unavailable", async () => {
+test("eminent domain client summary editor requires a reviewed lawyer memo", async () => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const matter = await prisma.matter.create({
     data: {
-      name: `Client Summary Fallback Matter ${suffix}`,
+      name: `Client Summary Missing Memo Matter ${suffix}`,
     },
   });
-  const workflowRunId = `client-summary-fallback-run-${suffix}`;
+  const workflowRunId = `client-summary-missing-memo-run-${suffix}`;
   const clientSummaryStep = eminentDomainCaseAssessmentDefinition.steps.find(
     (step) => step.id === "review-client-summary",
   );
@@ -726,34 +624,14 @@ test("eminent domain client summary editor generates from extraction output when
   });
 
   try {
-    const state = await loadDocumentEditorStepState({
+    await expect(loadDocumentEditorStepState({
       matterId: matter.id,
       step: clientSummaryStep,
       workflowDefinitionId: "eminent-domain-case-assessment",
       workflowRunId,
-    });
-    const generatedOutput = await prisma.workflowRunStepOutput.findUniqueOrThrow({
-      where: {
-        workflowRunId_stepId: {
-          stepId: "review-client-summary",
-          workflowRunId,
-        },
-      },
-    });
-
-    expect(state).toMatchObject({
-      contentMarkdown: expect.stringContaining("# Client Summary"),
-      title: "Client Summary",
-    });
-    expect(state.contentMarkdown).toContain("Parcel 14 owner");
-    expect(state.contentMarkdown).toContain(
-      "2026-04-08 Special Commissioners Hearing Notice.pdf",
+    })).rejects.toThrow(
+      "The client summary cannot be generated until the lawyer memo has been reviewed and saved.",
     );
-    expect(state.contentMarkdown).not.toContain("doc_notice");
-    expect(generatedOutput.outputJson).toMatchObject({
-      eminentDomainClientSummaryArtifactId: state.artifactId,
-      status: "generated",
-    });
     await expect(prisma.workflowExtractionRun.count({ where: { matterId: matter.id } })).resolves.toBe(0);
   } finally {
     await cleanupMatter(matter.id);
@@ -802,52 +680,6 @@ test("eminent domain client summary editor saves reviewed summary without markdo
     },
   });
 
-  const caseAssessmentArtifact = await prisma.workflowArtifact.create({
-    data: {
-      content: "# Eminent Domain Case Assessment\n\nOriginal assessment.",
-      matterId: matter.id,
-      stepId: "review-case-assessment",
-      title: "Eminent Domain Case Assessment",
-      type: WorkflowArtifactType.MARKDOWN,
-      workflowRunId,
-    },
-  });
-  const caseAssessmentRevision = await prisma.workflowArtifactRevision.create({
-    data: {
-      artifactId: caseAssessmentArtifact.id,
-      content: [
-        "# Eminent Domain Case Assessment",
-        "",
-        "Lawyer edited assessment point for client context.",
-      ].join("\n"),
-      createdByUserId: user.id,
-      matterId: matter.id,
-      stepId: "review-case-assessment",
-      workflowRunId,
-    },
-  });
-  await prisma.workflowArtifact.update({
-    data: {
-      currentRevisionId: caseAssessmentRevision.id,
-    },
-    where: {
-      id: caseAssessmentArtifact.id,
-    },
-  });
-  await prisma.workflowRunStepOutput.create({
-    data: {
-      outputJson: {
-        reviewedArtifactId: caseAssessmentArtifact.id,
-        revisionId: caseAssessmentRevision.id,
-        savedMatterDocumentId: "reviewed-case-assessment-document-id",
-        sourceArtifactId: caseAssessmentArtifact.id,
-        status: "completed",
-      },
-      stepId: "review-case-assessment",
-      workflowRunId,
-    },
-  });
-
   const lawyerMemoArtifact = await prisma.workflowArtifact.create({
     data: {
       content: "# Lawyer Memo\n\nOriginal lawyer memo.",
@@ -864,7 +696,13 @@ test("eminent domain client summary editor saves reviewed summary without markdo
       content: [
         "# Lawyer Memo",
         "",
-        "Lawyer edited memo point about next steps for client discussion.",
+        "## Key Facts",
+        "",
+        "- Lawyer edited memo point for client context.",
+        "",
+        "## Recommended Next Steps",
+        "",
+        "- Lawyer edited memo point about next steps for client discussion.",
       ].join("\n"),
       createdByUserId: user.id,
       matterId: matter.id,
@@ -903,7 +741,7 @@ test("eminent domain client summary editor saves reviewed summary without markdo
     });
 
     expect(state.contentMarkdown).toContain(
-      "Lawyer edited assessment point for client context.",
+      "Lawyer edited memo point for client context.",
     );
     expect(state.contentMarkdown).toContain(
       "Lawyer edited memo point about next steps for client discussion.",
@@ -1098,7 +936,9 @@ test("editing a saved chronology preserves citation editor structure", async () 
         representations: {
           create: {
             content: [
-              "### January 12, 2024",
+              "# Chronology",
+              "",
+              "## January 12, 2024",
               "",
               "The event occurred.",
               "",
@@ -1126,7 +966,9 @@ test("editing a saved chronology preserves citation editor structure", async () 
     });
     const updatedDocument = await saveMatterDocumentEdits({
       contentMarkdown: [
-        "### January 12, 2024",
+        "# Chronology",
+        "",
+        "## January 12, 2024",
         "",
         "The updated event occurred.",
         "",
@@ -1153,11 +995,15 @@ test("editing a saved chronology preserves citation editor structure", async () 
       matterId: matter.id,
     });
 
-    expect(loadedDocument.editorContentHtml).toContain("<h3>January 12, 2024</h3>");
+    expect(loadedDocument.contentMarkdown).toContain("# Chronology");
+    expect(loadedDocument.editorContentHtml).toContain("<h1>Chronology</h1>");
+    expect(loadedDocument.editorContentHtml).toContain("<h2>January 12, 2024</h2>");
     expect(loadedDocument.editorContentHtml).toContain(
       '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
     );
+    expect(updatedDocument.contentMarkdown).toContain("# Chronology");
     expect(updatedDocument.contentMarkdown).toContain("Source: Incident Report, p. 1.");
+    expect(updatedDocument.editorContentHtml).toContain("<h1>Chronology</h1>");
     expect(updatedDocument.editorContentHtml).toContain(
       'data-node-type="citation"',
     );

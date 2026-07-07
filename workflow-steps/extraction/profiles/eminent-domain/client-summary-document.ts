@@ -39,6 +39,52 @@ function reviewedWorkProductNotes(markdown: string | null | undefined) {
     .slice(0, 6);
 }
 
+function reviewedMemoSection(input: {
+  headings: string[];
+  markdown: string;
+  maxItems?: number;
+}) {
+  const lines = input.markdown.split("\n");
+  const sections = new Map<string, string[]>();
+  let activeHeading: string | null = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const headingMatch = line.match(/^##\s+(.+)$/);
+
+    if (headingMatch) {
+      activeHeading = headingMatch[1]?.trim() ?? null;
+      if (activeHeading && !sections.has(activeHeading)) {
+        sections.set(activeHeading, []);
+      }
+      continue;
+    }
+
+    if (!activeHeading || !line || line === CLIENT_SUMMARY_NOT_IDENTIFIED) {
+      continue;
+    }
+
+    sections.get(activeHeading)?.push(line.replace(/^[-*]\s+/, ""));
+  }
+
+  return unique(
+    input.headings.flatMap((heading) => sections.get(heading) ?? []),
+  ).slice(0, input.maxItems ?? 6);
+}
+
+function clientSafeMemoNotes(notes: string[]) {
+  return notes
+    .filter((note) => !/\b(strategy|strategic|privileged|work product)\b/i.test(note))
+    .map((note) =>
+      note
+        .replace(/\s*_\((Source:[^)]+)\)_/g, "")
+        .replace(/^Risk:\s*/i, "")
+        .replace(/^Strategic consideration:\s*/i, "")
+        .trim(),
+    )
+    .filter((note) => note.length > 0);
+}
+
 function reviewedDocuments(items: EminentDomainAssessmentItem[]) {
   return unique(items.map((item) => item.sourceFileName));
 }
@@ -149,30 +195,88 @@ export function composeEminentDomainClientSummary(input: {
   reviewedCaseAssessmentMarkdown?: string | null;
   reviewedLawyerMemoMarkdown?: string | null;
 }) {
-  const reviewedNotes = [
+  const reviewedMemoMarkdown = clean(input.reviewedLawyerMemoMarkdown);
+
+  if (!reviewedMemoMarkdown) {
+    throw new Error("A reviewed lawyer memo is required to compose a client summary.");
+  }
+
+  const overviewNotes = clientSafeMemoNotes([
+    ...reviewedMemoSection({
+      headings: ["Key Facts", "Property and Taking Summary"],
+      markdown: reviewedMemoMarkdown,
+      maxItems: 6,
+    }),
     ...reviewedWorkProductNotes(input.reviewedCaseAssessmentMarkdown),
-    ...reviewedWorkProductNotes(input.reviewedLawyerMemoMarkdown),
-  ];
+  ]);
+  const timelineNotes = clientSafeMemoNotes(
+    reviewedMemoSection({
+      headings: ["Procedural Posture"],
+      markdown: reviewedMemoMarkdown,
+      maxItems: 6,
+    }),
+  );
+  const issueNotes = clientSafeMemoNotes(
+    reviewedMemoSection({
+      headings: [
+        "Offer History",
+        "Valuation and Damages Issues",
+        "Access, Parking, and Remainder-Damage Issues",
+        "Legal and Procedural Flags",
+      ],
+      markdown: reviewedMemoMarkdown,
+      maxItems: 8,
+    }),
+  );
+  const questionNotes = clientSafeMemoNotes(
+    reviewedMemoSection({
+      headings: ["Missing Documents and Open Questions", "Missing Information"],
+      markdown: reviewedMemoMarkdown,
+      maxItems: 6,
+    }),
+  );
+  const nextStepNotes = clientSafeMemoNotes(
+    reviewedMemoSection({
+      headings: ["Recommended Next Steps"],
+      markdown: reviewedMemoMarkdown,
+      maxItems: 6,
+    }),
+  );
 
   return [
     "# Client Summary",
     "",
-    section("Overview", reviewedNotes.length ? reviewedNotes : overview(input.items)),
+    section("Overview", overviewNotes.length ? overviewNotes : overview(input.items)),
     "",
     section("What We Reviewed", reviewedDocuments(input.items)),
     "",
-    section("What Has Happened So Far", timeline(input.items)),
+    section(
+      "What Has Happened So Far",
+      timelineNotes.length ? timelineNotes : timeline(input.items),
+    ),
     "",
-    section("Important Issues", importantIssues(input.items)),
+    section(
+      "Important Issues",
+      issueNotes.length ? issueNotes : importantIssues(input.items),
+    ),
     "",
-    section("Questions or Missing Information", missingInformation(input.items)),
+    section(
+      "Questions or Missing Information",
+      questionNotes.length ? questionNotes : missingInformation(input.items),
+    ),
     "",
-    section("What We May Need From You", clientNeeds(input.items)),
+    section(
+      "What We May Need From You",
+      questionNotes.length ? questionNotes : clientNeeds(input.items),
+    ),
     "",
-    section("Possible Next Steps", nextSteps(input.items)),
+    section(
+      "Possible Next Steps",
+      nextStepNotes.length ? nextStepNotes : nextSteps(input.items),
+    ),
     "",
     "## Important Note",
     "",
-    "This summary is a draft prepared for attorney review. It should be reviewed and approved by the lawyer before being sent to the client.",
+    "This summary is based on the reviewed lawyer memo. It is intended for client communication and omits internal legal strategy.",
   ].join("\n");
 }

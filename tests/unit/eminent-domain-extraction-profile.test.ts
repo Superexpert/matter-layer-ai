@@ -272,7 +272,7 @@ describe("Eminent Domain extraction profile", () => {
     );
   });
 
-  it("postprocess creates a case assessment document editor artifact", () => {
+  it("postprocess keeps assessment data structured without creating a case assessment artifact", () => {
     const postprocessResult = eminentDomainCaseAssessmentProfile.postProcess?.({
       items: [
         {
@@ -288,15 +288,17 @@ describe("Eminent Domain extraction profile", () => {
       ],
     });
 
-    expect(postprocessResult?.artifacts).toEqual([
-      expect.objectContaining({
-        outputKey: "eminentDomainCaseAssessmentArtifactId",
-        title: "Eminent Domain Case Assessment",
-        content: expect.stringContaining("## Case Overview"),
-      }),
-    ]);
-    expect(postprocessResult?.artifacts?.[0]?.content).toContain(
-      "Central Texas Mobility Authority",
-    );
+    expect(postprocessResult?.artifacts).toEqual([]);
+    expect(postprocessResult?.profileOutput).toMatchObject({
+      assessments: [
+        expect.objectContaining({
+          assessment: expect.objectContaining({
+            matterOverview: expect.objectContaining({
+              condemningAuthority: "Central Texas Mobility Authority",
+            }),
+          }),
+        }),
+      ],
+    });
   });
 });

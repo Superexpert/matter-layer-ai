@@ -3,7 +3,6 @@ import {
   buildEminentDomainUserPrompt,
   eminentDomainSystemPrompt,
 } from "./prompts";
-import { composeEminentDomainCaseAssessment } from "./case-assessment-document";
 import {
   parseEminentDomainAssessmentOutput,
   type EminentDomainAssessmentItem,
@@ -182,17 +181,7 @@ export const eminentDomainCaseAssessmentProfile = {
   postProcess: (input: {
     items: EminentDomainAssessmentItem[];
   }) => ({
-    artifacts: [
-      {
-        content: composeEminentDomainCaseAssessment(input.items),
-        metadataJson: {
-          generatedFromAssessmentCount: input.items.length,
-          profile: "eminent-domain-case-assessment",
-        },
-        outputKey: "eminentDomainCaseAssessmentArtifactId",
-        title: "Eminent Domain Case Assessment",
-      },
-    ],
+    artifacts: [],
     displayItems: input.items.map((item) => ({ ...item })),
     itemCount: input.items.length,
     itemCountsByType: {

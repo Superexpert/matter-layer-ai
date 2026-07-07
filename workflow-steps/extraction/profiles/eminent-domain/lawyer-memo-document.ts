@@ -47,22 +47,6 @@ function section(heading: string, paragraphs: Array<string | null | undefined>) 
   return [`## ${heading}`, "", ...content.map((item) => `- ${item}`)].join("\n");
 }
 
-function reviewedAssessmentSummary(markdown: string | null | undefined) {
-  const lines = (markdown ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"))
-    .filter((line) => line !== LAWYER_MEMO_NO_INFORMATION)
-    .slice(0, 8);
-
-  return lines.length
-    ? [
-        "The reviewed case assessment includes the following lawyer-edited narrative points:",
-        ...lines.map((line) => line.replace(/^[-*]\s+/, "")),
-      ]
-    : [];
-}
-
 function caseParties(items: EminentDomainAssessmentItem[]) {
   return unique(
     items.flatMap((item) => [
@@ -79,6 +63,38 @@ function caseParties(items: EminentDomainAssessmentItem[]) {
   );
 }
 
+function takingFacts(items: EminentDomainAssessmentItem[]) {
+  return unique(
+    items.flatMap((item) => {
+      const overview = item.assessment.matterOverview;
+      const taking = item.assessment.takingSummary;
+
+      return [
+        overview?.propertyAddress
+          ? `Property: ${overview.propertyAddress}${sourceSuffix(item)}`
+          : null,
+        overview?.county ? `County: ${overview.county}${sourceSuffix(item)}` : null,
+        taking?.typeOfTaking
+          ? `Type of taking: ${taking.typeOfTaking}${sourceSuffix(item)}`
+          : null,
+        taking?.estateTaken
+          ? `Estate taken: ${taking.estateTaken}${sourceSuffix(item)}`
+          : null,
+        taking?.areaTaken ? `Area taken: ${taking.areaTaken}${sourceSuffix(item)}` : null,
+        taking?.remainderProperty
+          ? `Remainder property: ${taking.remainderProperty}${sourceSuffix(item)}`
+          : null,
+        taking?.projectPurpose
+          ? `Project purpose: ${taking.projectPurpose}${sourceSuffix(item)}`
+          : null,
+        ...(taking?.keyConcerns ?? []).map(
+          (concern) => `Taking concern: ${sentence(concern)}${sourceSuffix(item)}`,
+        ),
+      ];
+    }),
+  );
+}
+
 function timelineFacts(items: EminentDomainAssessmentItem[]) {
   return items.flatMap((item) =>
     (item.assessment.timeline ?? []).map((event) => {
@@ -90,6 +106,36 @@ function timelineFacts(items: EminentDomainAssessmentItem[]) {
       })}`;
     }),
   );
+}
+
+function proceduralPosture(items: EminentDomainAssessmentItem[]) {
+  return unique(
+    items.flatMap((item) => [
+      item.assessment.matterOverview?.proceduralPosture
+        ? `${sentence(item.assessment.matterOverview.proceduralPosture)}${sourceSuffix(item)}`
+        : null,
+      ...timelineFacts([item]),
+    ]),
+  );
+}
+
+function offerHistoryFacts(items: EminentDomainAssessmentItem[]) {
+  return items.flatMap((item) => {
+    const valuation = item.assessment.valuationSummary;
+
+    if (!valuation) {
+      return [];
+    }
+
+    return [
+      valuation.initialOffer ? `Initial offer: ${valuation.initialOffer}` : null,
+      valuation.finalOffer ? `Final offer: ${valuation.finalOffer}` : null,
+      valuation.condemnorAppraisal
+        ? `Condemnor appraisal: ${valuation.condemnorAppraisal}`
+        : null,
+      valuation.ownerAppraisal ? `Owner appraisal: ${valuation.ownerAppraisal}` : null,
+    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+  });
 }
 
 function valuationFacts(items: EminentDomainAssessmentItem[]) {
@@ -169,6 +215,19 @@ function nextActions(items: EminentDomainAssessmentItem[]) {
   );
 }
 
+function risksAndStrategy(items: EminentDomainAssessmentItem[]) {
+  return unique([
+    ...proceduralFlags(items).map((flag) => `Risk: ${flag}`),
+    ...missingInformation(items).map((missing) => `Open question: ${missing}`),
+    ...valuationFacts(items)
+      .filter((fact) =>
+        /\b(gap|damage|cost|appraisal|offer|remainder|temporary)\b/i.test(fact ?? ""),
+      )
+      .map((fact) => `Strategic consideration: ${fact}`),
+    ...accessFacts(items).map((fact) => `Strategic consideration: ${fact}`),
+  ]);
+}
+
 function sourceNotes(items: EminentDomainAssessmentItem[]) {
   return unique(
     items.flatMap((item) => [
@@ -191,17 +250,16 @@ function sourceNotes(items: EminentDomainAssessmentItem[]) {
 
 export function composeEminentDomainLawyerMemo(input: {
   items: EminentDomainAssessmentItem[];
-  reviewedCaseAssessmentMarkdown?: string | null;
 }) {
-  const reviewedSummary = reviewedAssessmentSummary(
-    input.reviewedCaseAssessmentMarkdown,
-  );
   const parties = caseParties(input.items);
-  const timeline = timelineFacts(input.items);
+  const taking = takingFacts(input.items);
+  const posture = proceduralPosture(input.items);
+  const offers = offerHistoryFacts(input.items);
   const valuation = valuationFacts(input.items);
   const access = accessFacts(input.items);
   const flags = proceduralFlags(input.items);
   const missing = missingInformation(input.items);
+  const risks = risksAndStrategy(input.items);
   const actions = nextActions(input.items);
 
   return [
@@ -219,9 +277,13 @@ export function composeEminentDomainLawyerMemo(input: {
         : null,
     ]),
     "",
-    section("Relevant Facts", reviewedSummary.length ? reviewedSummary : parties),
+    section("Key Facts", parties),
     "",
-    section("Procedural Posture", timeline),
+    section("Property and Taking Summary", taking),
+    "",
+    section("Offer History", offers),
+    "",
+    section("Procedural Posture", posture),
     "",
     section("Valuation and Damages Issues", valuation),
     "",
@@ -229,19 +291,9 @@ export function composeEminentDomainLawyerMemo(input: {
     "",
     section("Legal and Procedural Flags", flags),
     "",
-    section("Missing Information", missing),
+    section("Missing Documents and Open Questions", missing),
     "",
-    section("Strategic Considerations", [
-      valuation.length
-        ? "This may require follow-up on appraisal support, valuation assumptions, and any unaddressed remainder-damage theories."
-        : null,
-      access.length
-        ? "The available documents suggest access, parking, or remainder impacts may affect both valuation and negotiation strategy."
-        : null,
-      missing.length
-        ? "The record does not currently show all materials needed for a complete legal and valuation assessment."
-        : null,
-    ]),
+    section("Risks and Strategic Considerations", risks),
     "",
     section("Recommended Next Steps", actions),
     "",

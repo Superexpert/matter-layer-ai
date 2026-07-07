@@ -48,9 +48,38 @@ const assessmentItem: EminentDomainAssessmentItem = {
 };
 
 describe("Eminent Domain Client Summary composer", () => {
-  it("generates the required client-facing sections from extraction output", () => {
+  const reviewedLawyerMemoMarkdown = [
+    "# Lawyer Memo",
+    "",
+    "## Key Facts",
+    "",
+    "- Property owner: Parcel 14 owner",
+    "",
+    "## Property and Taking Summary",
+    "",
+    "- Type of taking: partial taking",
+    "",
+    "## Procedural Posture",
+    "",
+    "- 2026-04-08: Special commissioners hearing notice was issued.",
+    "",
+    "## Valuation and Damages Issues",
+    "",
+    "- Final offer: $125,000",
+    "",
+    "## Missing Documents and Open Questions",
+    "",
+    "- Owner appraisal has not been provided.",
+    "",
+    "## Recommended Next Steps",
+    "",
+    "- Request backup for the traffic-control plan.",
+  ].join("\n");
+
+  it("generates the required client-facing sections from the reviewed lawyer memo", () => {
     const markdown = composeEminentDomainClientSummary({
       items: [assessmentItem],
+      reviewedLawyerMemoMarkdown,
     });
 
     expect(markdown).toContain("# Client Summary");
@@ -63,44 +92,41 @@ describe("Eminent Domain Client Summary composer", () => {
     expect(markdown).toContain("## Possible Next Steps");
     expect(markdown).toContain("## Important Note");
     expect(markdown).toContain("2026-04-08 Special Commissioners Hearing Notice.pdf");
-    expect(markdown).toContain(
-      "This summary is a draft prepared for attorney review.",
-    );
+    expect(markdown).toContain("This summary is based on the reviewed lawyer memo.");
     expect(markdown).not.toContain("doc_notice_internal");
     expect(markdown).not.toContain('"assessment"');
   });
 
-  it("uses reviewed case assessment and lawyer memo content when available", () => {
+  it("uses reviewed lawyer memo content as the primary source", () => {
     const markdown = composeEminentDomainClientSummary({
       items: [assessmentItem],
-      reviewedCaseAssessmentMarkdown: [
-        "# Eminent Domain Case Assessment",
-        "",
-        "- Lawyer edited assessment point for client explanation.",
-      ].join("\n"),
       reviewedLawyerMemoMarkdown: [
         "# Lawyer Memo",
+        "",
+        "## Key Facts",
+        "",
+        "- Lawyer edited memo point about access impacts.",
+        "",
+        "## Recommended Next Steps",
         "",
         "- Lawyer edited memo point about next steps.",
       ].join("\n"),
     });
 
-    expect(markdown).toContain("Lawyer edited assessment point for client explanation.");
+    expect(markdown).toContain("Lawyer edited memo point about access impacts.");
     expect(markdown).toContain("Lawyer edited memo point about next steps.");
   });
 
-  it("falls back to extraction output when prior reviewed work products are unavailable", () => {
-    const markdown = composeEminentDomainClientSummary({
+  it("fails fast when the reviewed lawyer memo is unavailable", () => {
+    expect(() => composeEminentDomainClientSummary({
       items: [assessmentItem],
-    });
-
-    expect(markdown).toContain("Parcel 14 owner");
-    expect(markdown).toContain("$125,000");
+    })).toThrow("A reviewed lawyer memo is required");
   });
 
   it("renders graceful client-facing empty notes when extraction produced no facts", () => {
     const markdown = composeEminentDomainClientSummary({
       items: [],
+      reviewedLawyerMemoMarkdown: "# Lawyer Memo",
     });
 
     expect(markdown).toContain("# Client Summary");

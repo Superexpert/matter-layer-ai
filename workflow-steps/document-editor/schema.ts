@@ -10,6 +10,7 @@ export type DocumentEditorSaveMode =
 
 export type DocumentEditorStepConfig = {
   artifactOutputKey: string;
+  completionButtonLabel: string | null;
   contentType: DocumentEditorContentType;
   documentFileName: string | null;
   documentTitle: string | null;
@@ -18,7 +19,6 @@ export type DocumentEditorStepConfig = {
     extractionOutputKey: string;
     extractionStepId: string;
     kind: "eminent-domain-client-summary" | "eminent-domain-lawyer-memo";
-    reviewedAssessmentStepId?: string;
     reviewedLawyerMemoStepId?: string;
   } | null;
   inputStepId: string;
@@ -79,6 +79,11 @@ export function normalizeDocumentEditorStepConfig(
 
   return {
     artifactOutputKey: requireString(rawConfig.artifactOutputKey, "artifactOutputKey"),
+    completionButtonLabel:
+      typeof rawConfig.completionButtonLabel === "string" &&
+      rawConfig.completionButtonLabel.trim()
+        ? rawConfig.completionButtonLabel.trim()
+        : null,
     contentType: enumValue(
       rawConfig.contentType,
       "contentType",
@@ -132,11 +137,6 @@ function normalizeGeneratedArtifact(value: unknown): DocumentEditorStepConfig["g
       "generatedArtifact.extractionStepId",
     ),
     kind,
-    reviewedAssessmentStepId:
-      typeof value.reviewedAssessmentStepId === "string" &&
-      value.reviewedAssessmentStepId.trim()
-        ? value.reviewedAssessmentStepId.trim()
-        : undefined,
     reviewedLawyerMemoStepId:
       typeof value.reviewedLawyerMemoStepId === "string" &&
       value.reviewedLawyerMemoStepId.trim()
