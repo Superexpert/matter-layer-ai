@@ -16,6 +16,8 @@ import {
   type RunExtractionStepInput,
 } from "../../workflow-steps/extraction/server";
 import { extractionStep as registeredExtractionStep } from "../../workflow-steps/extraction/definition";
+import { runExtractionProfile } from "../../workflow-steps/extraction/profile-runner";
+import { chronologyRunnerProfile } from "../../workflow-steps/extraction/profiles/chronology/extractor";
 
 const prisma = new PrismaClient();
 
@@ -381,6 +383,58 @@ test("extraction step is registered", () => {
     "inputStepId",
   );
 });
+
+test.each([
+  {
+    content: "{\"facts\":[{\"confidence\":\"high\",\"date\":\"2026-01-15\",\"dateText\":\"January 15, 2026\",\"timeText\":null,\"labels\":[],\"organizations\":[],\"people\":[\"Jane Owner\"],\"sourceDocumentId\":\"doc_provider\",\"sourceFileName\":\"provider-notes.txt\",\"sourcePages\":[1],\"sourceQuote\":\"Initial offer letter sent.\",\"summary\":\"Initial offer letter was sent.\"}]}",
+    model: "gpt-5-mini",
+    provider: "openai",
+  },
+  {
+    content: "```json\n{\"facts\":[{\"confidence\":\"medium\",\"date\":\"2026-01-15\",\"dateText\":\"January 15, 2026\",\"timeText\":null,\"labels\":[],\"organizations\":[],\"people\":[\"Jane Owner\"],\"sourceDocumentId\":\"doc_provider\",\"sourceFileName\":\"provider-notes.txt\",\"sourcePages\":[1],\"sourceQuote\":\"Initial offer letter sent.\",\"summary\":\"Initial offer letter was sent.\"}]}\n```",
+    model: "gemma3:4b",
+    provider: "ollama",
+  },
+  {
+    content: "Here is the structured extraction.\n{\"facts\":[{\"confidence\":\"low\",\"date\":\"2026-01-15\",\"dateText\":\"January 15, 2026\",\"timeText\":null,\"labels\":[],\"organizations\":[],\"people\":[\"Jane Owner\"],\"sourceDocumentId\":\"doc_provider\",\"sourceFileName\":\"provider-notes.txt\",\"sourcePages\":[1],\"sourceQuote\":\"Initial offer letter sent.\",\"summary\":\"Initial offer letter was sent.\"}]}\nNo additional facts found.",
+    model: "claude-sonnet-4-6",
+    provider: "anthropic",
+  },
+])(
+  "extraction profile validates mocked $provider output with the shared schema",
+  async ({ content, model, provider }) => {
+    let requestedSchema: Record<string, unknown> | undefined;
+    const result = await runExtractionProfile(chronologyRunnerProfile, {
+      aiService: {
+        generateText: async (request) => {
+          requestedSchema = request.responseFormat?.schema;
+
+          return {
+            content,
+            model,
+            provider,
+          };
+        },
+      },
+      readyDocuments: [
+        {
+          fileName: "provider-notes.txt",
+          id: "doc_provider",
+          markdown: "Initial offer letter sent.",
+        },
+      ],
+    });
+
+    expect(requestedSchema).toBe(chronologyRunnerProfile.responseFormat?.schema);
+    expect(result).toMatchObject({
+      error: null,
+      itemCount: 1,
+      model,
+      provider,
+      status: "COMPLETED",
+    });
+  },
+);
 
 test("generic extraction step runs eminent domain assessment with configured output key", async () => {
   const { matter, user } = await createUserAndMatter();

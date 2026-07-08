@@ -180,6 +180,20 @@ function repairPrompt(input: {
   ].join("\n");
 }
 
+function truncatedModelResponse(content: string | null | undefined) {
+  if (!content) {
+    return content ?? null;
+  }
+
+  const maxLength = 4000;
+
+  if (content.length <= maxLength) {
+    return content;
+  }
+
+  return `${content.slice(0, maxLength)}... [truncated ${content.length - maxLength} chars]`;
+}
+
 export async function runExtractionProfile<TItem>(
   profile: ExtractionProfile<TItem>,
   context: ExtractionProfileContext,
@@ -237,8 +251,10 @@ export async function runExtractionProfile<TItem>(
 
     let failureKindHint: "provider" | "schema_validation" = "provider";
 
+    let response: GenerateTextResult | null = null;
+
     try {
-      let response = await withAIWindowMonitoring({
+      response = await withAIWindowMonitoring({
         heartbeatMs: aiHeartbeatMs,
         onHeartbeat: (elapsedMs) =>
           context.onWindowProgress?.({
@@ -282,14 +298,24 @@ export async function runExtractionProfile<TItem>(
         if (!(error instanceof JsonModelOutputParseError)) {
           console.error("[extraction:ai-window] model output schema validation failed", {
             ...windowDescription,
+            documentId: window.documentId,
+            fileName: window.fileName,
             errorMessage: conciseError(error),
+            model: response.model,
+            provider: response.provider,
+            rawModelResponse: truncatedModelResponse(response.content),
           });
           throw error;
         }
 
         console.error("[extraction:ai-window] model output JSON parse failed", {
           ...windowDescription,
+          documentId: window.documentId,
+          fileName: window.fileName,
           diagnostics: error.diagnostics,
+          model: response.model,
+          provider: response.provider,
+          rawModelResponse: truncatedModelResponse(response.content),
           retrying: Boolean(profile.jsonRepairInstructions),
         });
 
@@ -343,7 +369,20 @@ export async function runExtractionProfile<TItem>(
 
         response = repairResponse;
         failureKindHint = "schema_validation";
-        parsed = parseWindowOutput(profile, repairResponse.content, window);
+        try {
+          parsed = parseWindowOutput(profile, repairResponse.content, window);
+        } catch (repairError) {
+          console.error("[extraction:ai-window] model output JSON repair validation failed", {
+            ...windowDescription,
+            documentId: window.documentId,
+            errorMessage: conciseError(repairError),
+            fileName: window.fileName,
+            model: repairResponse.model,
+            provider: repairResponse.provider,
+            rawModelResponse: truncatedModelResponse(repairResponse.content),
+          });
+          throw repairError;
+        }
         console.info("[extraction:ai-window] model output JSON repair succeeded", {
           ...windowDescription,
           diagnostics: error.diagnostics,
@@ -406,12 +445,16 @@ export async function runExtractionProfile<TItem>(
       console.error("[extraction:ai-window] extraction window failed", {
         ...windowDescription,
         diagnostics: parseError?.diagnostics,
+        documentId: window.documentId,
         errorCode,
         errorKind,
         errorMessage,
-        errorProvider: providerError?.provider ?? null,
+        errorModel: response?.model ?? null,
+        errorProvider: providerError?.provider ?? response?.provider ?? null,
         errorStatus: providerError?.status ?? null,
         errorUserMessage,
+        fileName: window.fileName,
+        rawModelResponse: truncatedModelResponse(response?.content),
       });
       await context.onWindowProgress?.({
         documentId: window.documentId,

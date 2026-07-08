@@ -41,6 +41,17 @@ type FileSelectorStepComponentProps = {
   onComplete: (output: FileSelectorStepOutput) => void;
 };
 
+export function isFileSelectorDocumentSelectable(input: {
+  allowExistingMatterFiles: boolean;
+  documentId: string;
+  uploadedDuringStepMatterDocumentIds: string[];
+}) {
+  return (
+    input.allowExistingMatterFiles ||
+    input.uploadedDuringStepMatterDocumentIds.includes(input.documentId)
+  );
+}
+
 export function FileSelectorStepComponent({
   loadStepState,
   matterId,
@@ -69,6 +80,24 @@ export function FileSelectorStepComponent({
     () => new Set(selectedMatterDocumentIds),
     [selectedMatterDocumentIds],
   );
+  const selectableDocuments = useMemo(
+    () =>
+      documents.filter((document) =>
+        isFileSelectorDocumentSelectable({
+          allowExistingMatterFiles: config.allowExistingMatterFiles,
+          documentId: document.id,
+          uploadedDuringStepMatterDocumentIds,
+        }),
+      ),
+    [config.allowExistingMatterFiles, documents, uploadedDuringStepMatterDocumentIds],
+  );
+  const selectableDocumentIds = useMemo(
+    () => selectableDocuments.map((document) => document.id),
+    [selectableDocuments],
+  );
+  const allSelectableDocumentsSelected =
+    selectableDocumentIds.length > 0 &&
+    selectableDocumentIds.every((documentId) => selectedDocumentIdSet.has(documentId));
   const validationError = validateFileSelectorOutput(
     {
       selectedMatterDocumentIds,
@@ -136,6 +165,57 @@ export function FileSelectorStepComponent({
       }
 
       return [...currentIds, documentId];
+    });
+  }
+
+  function canSelectDocument(documentId: string) {
+    return isFileSelectorDocumentSelectable({
+      allowExistingMatterFiles: config.allowExistingMatterFiles,
+      documentId,
+      uploadedDuringStepMatterDocumentIds,
+    });
+  }
+
+  function toggleAllSelectableDocuments() {
+    setErrorMessage("");
+
+    if (allSelectableDocumentsSelected) {
+      setSelectedMatterDocumentIds((currentIds) =>
+        currentIds.filter((documentId) => !selectableDocumentIds.includes(documentId)),
+      );
+      return;
+    }
+
+    setSelectedMatterDocumentIds((currentIds) => {
+      const nextIds = [...currentIds];
+      const selectedIds = new Set(nextIds);
+      const remainingSlots = config.maxFiles === null
+        ? Number.POSITIVE_INFINITY
+        : Math.max(0, config.maxFiles - nextIds.length);
+      let addedCount = 0;
+
+      for (const documentId of selectableDocumentIds) {
+        if (selectedIds.has(documentId)) {
+          continue;
+        }
+
+        if (addedCount >= remainingSlots) {
+          break;
+        }
+
+        selectedIds.add(documentId);
+        nextIds.push(documentId);
+        addedCount += 1;
+      }
+
+      if (
+        config.maxFiles !== null &&
+        selectableDocumentIds.some((documentId) => !selectedIds.has(documentId))
+      ) {
+        setErrorMessage(`Select no more than ${config.maxFiles} file${config.maxFiles === 1 ? "" : "s"}.`);
+      }
+
+      return nextIds;
     });
   }
 
@@ -255,30 +335,43 @@ export function FileSelectorStepComponent({
           <h3 className="text-base font-semibold text-[#211B27]">
             Matter documents
           </h3>
-          {config.allowUpload ? (
-            <div>
-              <input
-                accept={acceptAttribute}
-                className="sr-only"
-                data-testid="file-selector-upload-input"
-                multiple
-                onChange={(event) => {
-                  void handleUpload(event.target.files);
-                }}
-                ref={fileInputRef}
-                type="file"
-              />
+          <div className="flex flex-wrap items-center gap-2">
+            {selectableDocumentIds.length > 0 ? (
               <button
-                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
-                data-testid="file-selector-upload-button"
-                disabled={isUploading}
-                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex h-8 items-center justify-center rounded-md px-2 text-xs font-semibold text-[#5F4B76] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+                data-testid="file-selector-select-all"
+                disabled={isLoading || isUploading}
+                onClick={toggleAllSelectableDocuments}
                 type="button"
               >
-                {isUploading ? "Uploading..." : "Upload Files"}
+                {allSelectableDocumentsSelected ? "Clear selection" : "Select all"}
               </button>
-            </div>
-          ) : null}
+            ) : null}
+            {config.allowUpload ? (
+              <div>
+                <input
+                  accept={acceptAttribute}
+                  className="sr-only"
+                  data-testid="file-selector-upload-input"
+                  multiple
+                  onChange={(event) => {
+                    void handleUpload(event.target.files);
+                  }}
+                  ref={fileInputRef}
+                  type="file"
+                />
+                <button
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+                  data-testid="file-selector-upload-button"
+                  disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  type="button"
+                >
+                  {isUploading ? "Uploading..." : "Upload Files"}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {isLoading ? (
@@ -297,7 +390,7 @@ export function FileSelectorStepComponent({
                   checked={selectedDocumentIdSet.has(document.id)}
                   className="mt-1 h-4 w-4 accent-[#5F4B76]"
                   data-testid={`file-selector-checkbox-${document.id}`}
-                  disabled={!config.allowExistingMatterFiles && !uploadedDuringStepMatterDocumentIds.includes(document.id)}
+                  disabled={!canSelectDocument(document.id)}
                   onChange={() => toggleDocument(document.id)}
                   type="checkbox"
                 />

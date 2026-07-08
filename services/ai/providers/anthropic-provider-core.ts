@@ -6,12 +6,15 @@ import type {
   MessageParam,
   RawMessageStreamEvent,
   TextBlock,
+  Tool,
+  ToolUseBlock,
 } from "@anthropic-ai/sdk/resources/messages";
 
 import type { AIRequest, AIResponse, AIStreamEvent } from "../types";
 import type { AIProvider } from "./ai-provider";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 1024;
+const STRUCTURED_RESPONSE_TOOL_NAME = "emit_structured_response";
 
 const ANTHROPIC_MODEL_ALIASES: Record<string, string> = {
   "sonnet-4": "claude-sonnet-4-6",
@@ -46,6 +49,73 @@ function requireConfiguredValue(name: string, value: string | undefined) {
   return configuredValue;
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function schemaWithoutNullableUnions(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map((item) => schemaWithoutNullableUnions(item));
+  }
+
+  if (!isObjectRecord(schema)) {
+    return schema;
+  }
+
+  const normalizedSchema: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(schema)) {
+    normalizedSchema[key] = schemaWithoutNullableUnions(value);
+  }
+
+  if (Array.isArray(normalizedSchema.type)) {
+    const nonNullTypes = normalizedSchema.type.filter((type) => type !== "null");
+
+    if (nonNullTypes.length === 1) {
+      normalizedSchema.type = nonNullTypes[0];
+    } else if (nonNullTypes.length > 1) {
+      normalizedSchema.type = nonNullTypes;
+    } else {
+      delete normalizedSchema.type;
+    }
+  }
+
+  if (Array.isArray(normalizedSchema.enum)) {
+    const nonNullEnum = normalizedSchema.enum.filter((value) => value !== null);
+
+    if (nonNullEnum.length > 0) {
+      normalizedSchema.enum = nonNullEnum;
+    } else {
+      delete normalizedSchema.enum;
+    }
+  }
+
+  return normalizedSchema;
+}
+
+function structuredResponseToolFor(request: AIRequest): Tool {
+  if (request.responseFormat?.type === "json_schema" && request.responseFormat.schema) {
+    return {
+      description:
+        "Emit the complete JSON object requested by the extraction prompt. The JSON object must match the requested extraction schema exactly.",
+      input_schema: schemaWithoutNullableUnions(
+        request.responseFormat.schema,
+      ) as Tool.InputSchema,
+      name: STRUCTURED_RESPONSE_TOOL_NAME,
+    };
+  }
+
+  return {
+    description:
+      "Emit the complete JSON object requested by the extraction prompt.",
+    input_schema: {
+      additionalProperties: true,
+      type: "object",
+    },
+    name: STRUCTURED_RESPONSE_TOOL_NAME,
+  };
+}
+
 function resolveAnthropicModel(model: string) {
   return ANTHROPIC_MODEL_ALIASES[model] ?? model;
 }
@@ -74,14 +144,23 @@ function splitMessagesForAnthropic(messages: AIRequest["messages"]) {
 
 function buildAnthropicRequestBase(request: AIRequest, model: string) {
   const { messages, system } = splitMessagesForAnthropic(request.messages);
-
-  return {
+  const anthropicRequest: MessageCreateParamsNonStreaming | MessageCreateParamsStreaming = {
     max_tokens: request.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     messages,
     model,
     system,
     temperature: request.temperature,
   };
+
+  if (request.responseFormat) {
+    anthropicRequest.tools = [structuredResponseToolFor(request)];
+    anthropicRequest.tool_choice = {
+      name: STRUCTURED_RESPONSE_TOOL_NAME,
+      type: "tool",
+    };
+  }
+
+  return anthropicRequest;
 }
 
 function textFromMessage(message: Message) {
@@ -89,6 +168,27 @@ function textFromMessage(message: Message) {
     .filter((block): block is TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("");
+}
+
+function structuredResponseToolUseFromMessage(message: Message) {
+  return message.content.find(
+    (block): block is ToolUseBlock =>
+      block.type === "tool_use" && block.name === STRUCTURED_RESPONSE_TOOL_NAME,
+  );
+}
+
+function contentFromMessage(message: Message, request: AIRequest) {
+  if (!request.responseFormat) {
+    return textFromMessage(message);
+  }
+
+  const toolUseBlock = structuredResponseToolUseFromMessage(message);
+
+  if (!toolUseBlock) {
+    throw new Error("Anthropic did not return the required structured response tool call.");
+  }
+
+  return JSON.stringify(toolUseBlock.input);
 }
 
 function isTextDeltaEvent(
@@ -144,7 +244,7 @@ export class AnthropicProvider implements AIProvider {
     });
 
     return {
-      content: textFromMessage(response),
+      content: contentFromMessage(response, request),
       model,
       provider: this.name,
     };

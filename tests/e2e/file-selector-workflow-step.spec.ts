@@ -21,6 +21,144 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
+test("File Selector can select and clear all selectable documents", async ({ page }) => {
+  test.setTimeout(45_000);
+  test.skip(
+    !process.env.DATABASE_URL,
+    "Requires DATABASE_URL and a migrated PostgreSQL database.",
+  );
+
+  const server = await startNextTestServer({ port: 3220 });
+  const user = await prisma.user.upsert({
+    create: {
+      email: "lawyer@smithlaw.com",
+      name: "Test Lawyer",
+    },
+    update: {},
+    where: {
+      email: "lawyer@smithlaw.com",
+    },
+  });
+  const matter = await prisma.matter.create({
+    data: {
+      name: `File Selector Bulk Matter ${Date.now()}`,
+    },
+  });
+  const firstDocument = await prisma.matterDocument.create({
+    data: {
+      content: {
+        create: {
+          bytes: Buffer.from("first chronology source"),
+        },
+      },
+      fileName: "first-source.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      size: 23,
+      sourceType: MatterDocumentSourceType.upload,
+      storageProvider: "database",
+      storageKey: null,
+      uploadedByUserId: user.id,
+    },
+  });
+  const secondDocument = await prisma.matterDocument.create({
+    data: {
+      content: {
+        create: {
+          bytes: Buffer.from("second chronology source"),
+        },
+      },
+      fileName: "second-source.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      size: 24,
+      sourceType: MatterDocumentSourceType.upload,
+      storageProvider: "database",
+      storageKey: null,
+      uploadedByUserId: user.id,
+    },
+  });
+
+  try {
+    await seedTestAISettings();
+    await addTestAuthSession(page, server.baseURL);
+    await page.goto(`${server.baseURL}/app/matters/${matter.id}`);
+
+    await page.getByTestId("workflow-chip-chronology").click();
+    await expect(page.getByTestId("file-selector-step")).toBeVisible();
+    await expect(page.getByTestId("file-selector-continue")).toBeDisabled();
+    await expect(page.getByTestId("file-selector-select-all")).toContainText(
+      "Select all",
+    );
+
+    await page.getByTestId("file-selector-select-all").click();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${firstDocument.id}`),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${secondDocument.id}`),
+    ).toBeChecked();
+    await expect(page.getByTestId("file-selector-continue")).toBeEnabled();
+    await expect(page.getByTestId("file-selector-select-all")).toContainText(
+      "Clear selection",
+    );
+
+    await page.getByTestId("file-selector-select-all").click();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${firstDocument.id}`),
+    ).not.toBeChecked();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${secondDocument.id}`),
+    ).not.toBeChecked();
+    await expect(page.getByTestId("file-selector-continue")).toBeDisabled();
+    await expect(page.getByTestId("file-selector-select-all")).toContainText(
+      "Select all",
+    );
+
+    await page
+      .getByTestId(`file-selector-checkbox-${firstDocument.id}`)
+      .check();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${firstDocument.id}`),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`file-selector-checkbox-${secondDocument.id}`),
+    ).not.toBeChecked();
+    await expect(page.getByTestId("file-selector-continue")).toBeEnabled();
+  } finally {
+    await prisma.workflowRunStepFile.deleteMany({
+      where: {
+        workflowRun: {
+          matterId: matter.id,
+        },
+      },
+    });
+    await prisma.workflowRunStepOutput.deleteMany({
+      where: {
+        workflowRun: {
+          matterId: matter.id,
+        },
+      },
+    });
+    await prisma.workflowRun.deleteMany({
+      where: {
+        matterId: matter.id,
+      },
+    });
+    await prisma.matterDocument.deleteMany({
+      where: {
+        matterId: matter.id,
+      },
+    });
+    await prisma.matter.delete({
+      where: {
+        id: matter.id,
+      },
+    });
+    await server.stop();
+  }
+});
+
 test("File Selector renders, validates, uploads, auto-selects, and persists selections", async ({
   page,
 }) => {
