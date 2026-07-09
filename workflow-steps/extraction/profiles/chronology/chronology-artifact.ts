@@ -3,6 +3,7 @@ import type {
   CollapsedChronologyEventDraft,
 } from "./chronology-types";
 import { formatSourcePages } from "../../source-format";
+import { citationMarkdown } from "@/workflow-steps/document-editor/citations";
 
 export { formatSourcePages };
 
@@ -72,6 +73,18 @@ function formatSource(source: ChronologySource) {
   return pages ? `${title}, ${pages}` : title;
 }
 
+function formatSourceCitation(source: ChronologySource) {
+  const pages = formatSourcePages(source.sourcePages);
+  const title = readableSourceTitle(source.sourceFileName);
+
+  return citationMarkdown({
+    locationText: pages,
+    page: source.sourcePages[0] ?? null,
+    sourceDocumentId: source.matterDocumentId,
+    sourceDocumentName: title,
+  });
+}
+
 function formatDisplayDate(date: string) {
   const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!dateParts) {
@@ -111,9 +124,11 @@ function ensureSentence(value: string) {
 }
 
 function sourceLineForEvent(event: CollapsedChronologyEventDraft) {
-  const sources = [...new Set(event.sources.map(formatSource))];
+  const sources = [...new Map(
+    event.sources.map((source) => [formatSource(source), formatSourceCitation(source)]),
+  ).values()];
 
-  return ensureSentence(`Source: ${sources.join("; ")}`);
+  return sources.join(" ");
 }
 
 function inferredDateFromText(value: string) {

@@ -4,6 +4,7 @@ import { unstable_noStore as noStore } from "next/cache";
 
 import {
   deleteMatterDocument,
+  getCitationSourceDocumentPreview,
   getEditableMatterDocument,
   listMatterDocuments,
   saveMatterDocumentEdits,
@@ -152,6 +153,19 @@ export async function getEditableMatterDocumentAction(input: {
   await requireCurrentUser();
 
   return getEditableMatterDocument(input);
+}
+
+export async function getCitationSourceDocumentPreviewAction(input: {
+  matterId: string;
+  sourceDocumentId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  return getCitationSourceDocumentPreview({
+    matterDocumentId: input.sourceDocumentId,
+    matterId: input.matterId,
+  });
 }
 
 export async function saveMatterDocumentEditsAction(input: {

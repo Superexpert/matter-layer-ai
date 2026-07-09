@@ -198,9 +198,10 @@ describe("chronology Markdown artifact", () => {
     expect(markdown).toContain(
       "Officer Tessa Benton responded as backup to Officer Daniel Alvarez at 1900 E. Riverside Dr. and observed Marcus Reed weaving over the fog line before a stop was initiated.",
     );
-    expect(markdown).toContain(
-      "Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.",
-    );
+    expect(markdown).toContain('data-citation-source-document-id="doc_1"');
+    expect(markdown).toContain('data-citation-label="Officer Benton Supplemental Report p. 1"');
+    expect(markdown).toContain('data-citation-source-document-id="doc_2"');
+    expect(markdown).toContain('data-citation-label="Incident Report p. 3"');
     expect(markdown).not.toContain("02_Supplemental_Report_Officer_Benton.pdf");
     expect(markdown).not.toContain("Marcus Reed's date of birth");
     expect(markdown).not.toContain("Unsupported unsourced event.");
@@ -209,9 +210,8 @@ describe("chronology Markdown artifact", () => {
     expect(editorHtml).toContain("<h1>Chronology</h1>");
     expect(editorHtml).toContain("<h2>January 14, 2026</h2>");
     expect(editorHtml).toContain("<p>Officer Tessa Benton responded");
-    expect(editorHtml).toContain(
-      '<p class="document-citation" data-node-type="citation">Source: Officer Benton Supplemental Report, p. 1; Incident Report, p. 3.</p>',
-    );
+    expect(editorHtml).toContain('data-ml-citation="true"');
+    expect(editorHtml).toContain('data-citation-source-document-id="doc_2"');
     expect(editorHtml).not.toContain("<ul>");
     expect(editorHtml).not.toContain("<table>");
   });
@@ -252,11 +252,11 @@ describe("chronology Markdown artifact", () => {
     expect(markdown).toContain(
       "Officer Daniel Alvarez issued a written warning to Marcus Reed for unsafe lane movement on E. Riverside Dr. at 10:27 p.m.",
     );
-    expect(markdown).toContain("Source: Warning Citation Unsafe Lane Movement, p. 1.");
+    expect(markdown).toContain('data-citation-label="Warning Citation Unsafe Lane Movement p. 1"');
     expect(markdown).toContain(
       "The incident report was completed at 12:18 a.m.",
     );
-    expect(markdown).toContain("Source: Incident Report Officer Alvarez V2, p. 1.");
+    expect(markdown).toContain('data-citation-label="Incident Report Officer Alvarez V2 p. 1"');
   });
 
   it("places undated events after dated events only when present", () => {
@@ -275,6 +275,6 @@ describe("chronology Markdown artifact", () => {
     expect(markdown.indexOf("## January 12, 2024")).toBeLessThan(
       markdown.indexOf("## Undated Events"),
     );
-    expect(markdown).toContain("Source: Medical Records, p. 1.");
+    expect(markdown).toContain('data-citation-label="Medical Records p. 1"');
   });
 });

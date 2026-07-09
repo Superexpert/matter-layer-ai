@@ -363,9 +363,8 @@ test("document editor renders structurally generated chronology markdown", async
     ].join("\n"));
     expect(state.editorContentHtml).toContain("<h1>Chronology</h1>");
     expect(state.editorContentHtml).toContain("<h2>January 12, 2024</h2>");
-    expect(state.editorContentHtml).toContain(
-      '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
-    );
+    expect(state.editorContentHtml).toContain('data-ml-citation="true"');
+    expect(state.editorContentHtml).toContain('data-citation-label="Incident Report p. 1"');
   } finally {
     await cleanupMatter(matter.id);
   }
@@ -998,15 +997,12 @@ test("editing a saved chronology preserves citation editor structure", async () 
     expect(loadedDocument.contentMarkdown).toContain("# Chronology");
     expect(loadedDocument.editorContentHtml).toContain("<h1>Chronology</h1>");
     expect(loadedDocument.editorContentHtml).toContain("<h2>January 12, 2024</h2>");
-    expect(loadedDocument.editorContentHtml).toContain(
-      '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
-    );
+    expect(loadedDocument.editorContentHtml).toContain('data-ml-citation="true"');
+    expect(loadedDocument.editorContentHtml).toContain('data-citation-label="Incident Report p. 1"');
     expect(updatedDocument.contentMarkdown).toContain("# Chronology");
     expect(updatedDocument.contentMarkdown).toContain("Source: Incident Report, p. 1.");
     expect(updatedDocument.editorContentHtml).toContain("<h1>Chronology</h1>");
-    expect(updatedDocument.editorContentHtml).toContain(
-      'data-node-type="citation"',
-    );
+    expect(updatedDocument.editorContentHtml).toContain('data-ml-citation="true"');
   } finally {
     await cleanupMatter(matter.id);
   }

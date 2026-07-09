@@ -8,7 +8,10 @@ import type {
 } from "@/services/workflows/workflow-run-service";
 import { DocumentEditorSurface } from "@/workflow-steps/document-editor/component";
 
-import { saveWorkflowArtifactEditsAction } from "../../workflow-actions";
+import {
+  getCitationSourceDocumentPreviewAction,
+  saveWorkflowArtifactEditsAction,
+} from "../../workflow-actions";
 
 type WorkflowRunDetailsClientProps = {
   initialEditableWorkProducts: EditableWorkflowArtifact[];
@@ -81,6 +84,8 @@ export function WorkflowRunDetailsClient({
                   exportButtonLabel="Export DOCX"
                   hideCompletionButton
                   isLoading={false}
+                  loadCitationSource={getCitationSourceDocumentPreviewAction}
+                  matterId={matterId}
                   onDone={() => undefined}
                   onSave={(input) => saveArtifact(artifact.artifactId, input)}
                   savedStatusLabel="Saved"

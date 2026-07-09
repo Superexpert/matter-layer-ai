@@ -1,4 +1,5 @@
 import type { EminentDomainAssessmentItem } from "./schema";
+import { citationMarkdown } from "@/workflow-steps/document-editor/citations";
 
 const NO_INFORMATION = "No information identified in the selected documents.";
 
@@ -23,6 +24,7 @@ function sentence(value: string) {
 }
 
 function sourceNote(input: {
+  sourceDocumentId?: string;
   sourceCitation?: string;
   sourceFileName: string;
 }) {
@@ -54,10 +56,17 @@ function labeledValue(label: string, value: string | null | undefined) {
 }
 
 function sourceSuffix(input: {
+  sourceDocumentId?: string;
   sourceCitation?: string;
   sourceFileName: string;
 }) {
-  return ` _(Source: ${sourceNote(input)})_`;
+  const citation = clean(input.sourceCitation);
+
+  return ` ${citationMarkdown({
+    locationText: citation,
+    sourceDocumentId: input.sourceDocumentId,
+    sourceDocumentName: input.sourceFileName,
+  })}`;
 }
 
 function caseOverview(items: EminentDomainAssessmentItem[]) {
@@ -87,6 +96,7 @@ function timeline(items: EminentDomainAssessmentItem[]) {
       const prefix = clean(event.date) ? `**${event.date}:** ` : "";
 
       return `${prefix}${sentence(event.event)}${sourceSuffix({
+        sourceDocumentId: item.sourceDocumentId,
         sourceCitation: event.sourceCitation,
         sourceFileName: item.sourceFileName,
       })}`;
@@ -173,6 +183,7 @@ function accessAndRemainderIssues(items: EminentDomainAssessmentItem[]) {
       .map(
         (flag) =>
           `**${flag.issue}:** ${sentence(flag.explanation)}${sourceSuffix({
+            sourceDocumentId: item.sourceDocumentId,
             sourceCitation: flag.sourceCitation,
             sourceFileName: item.sourceFileName,
           })}`,
@@ -190,6 +201,7 @@ function proceduralFlags(items: EminentDomainAssessmentItem[]) {
       const severity = clean(flag.severity) ? ` Severity: ${flag.severity}.` : "";
 
       return `**${flag.issue}:** ${sentence(flag.explanation)}${severity}${sourceSuffix({
+        sourceDocumentId: item.sourceDocumentId,
         sourceCitation: flag.sourceCitation,
         sourceFileName: item.sourceFileName,
       })}`;

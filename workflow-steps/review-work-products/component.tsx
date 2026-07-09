@@ -6,7 +6,10 @@ import type {
   EditableWorkflowArtifact,
   WorkflowRunDetails,
 } from "@/services/workflows/workflow-run-service";
-import { DocumentEditorSurface } from "@/workflow-steps/document-editor/component";
+import {
+  DocumentEditorSurface,
+  type CitationSourcePreview,
+} from "@/workflow-steps/document-editor/component";
 
 export type ReviewWorkProductsStepState = {
   editableWorkProducts: EditableWorkflowArtifact[];
@@ -28,6 +31,10 @@ type ReviewWorkProductsStepComponentProps = {
     matterId: string;
     workflowRunId: string;
   }) => Promise<ReviewWorkProductsStepState>;
+  loadCitationSource?: (input: {
+    matterId: string;
+    sourceDocumentId: string;
+  }) => Promise<CitationSourcePreview>;
   matterId: string;
   onWorkflowRunCompleted?: () => Promise<void>;
   saveWorkProduct: (input: {
@@ -51,6 +58,7 @@ function completionSummary(workflowRun: WorkflowRunDetails) {
 
 export function ReviewWorkProductsStepComponent({
   completeWorkflowRun,
+  loadCitationSource,
   loadStepState,
   matterId,
   onWorkflowRunCompleted,
@@ -183,6 +191,8 @@ export function ReviewWorkProductsStepComponent({
                 exportButtonLabel="Export DOCX"
                 hideCompletionButton
                 isLoading={false}
+                loadCitationSource={loadCitationSource}
+                matterId={matterId}
                 onDone={() => undefined}
                 onSave={(payload) => saveArtifact(artifact.artifactId, payload)}
                 savedStatusLabel="Saved"

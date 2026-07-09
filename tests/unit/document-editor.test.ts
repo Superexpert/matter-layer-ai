@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   editorHtmlToMarkdown,
   markdownToEditorHtml,
+  sourceMarkdownToPreviewHtml,
 } from "../../workflow-steps/document-editor/conversion";
 import {
   assertDocumentEditorStepOutput,
@@ -14,6 +15,7 @@ import {
   docxFileNameFromTitle,
   generateDocxBlobFromEditorJson,
 } from "../../workflow-steps/document-editor/docx-export";
+import { citationMarkdown } from "../../workflow-steps/document-editor/citations";
 
 describe("document editor schema", () => {
   it("accepts valid config and applies defaults", () => {
@@ -94,9 +96,8 @@ describe("document editor Markdown conversion", () => {
     expect(html).toContain("<h3>January 12, 2024</h3>");
     expect(html).toContain("<strong>bold</strong>");
     expect(html).toContain("<blockquote>");
-    expect(html).toContain(
-      '<p class="document-citation" data-node-type="citation">Source: Incident Report, p. 1.</p>',
-    );
+    expect(html).toContain('data-ml-citation="true"');
+    expect(html).toContain('data-citation-label="Incident Report p. 1"');
     expect(html).toContain("<ul>");
     expect(html).toContain("<li>First source</li>");
     expect(html).toContain("<ol>");
@@ -114,6 +115,46 @@ describe("document editor Markdown conversion", () => {
     expect(markdown).toContain("**bold**");
     expect(markdown).toContain("* First source");
     expect(markdown).toContain("* Second source");
+  });
+
+  it("preserves structured citation metadata across editor serialization", () => {
+    const citation = citationMarkdown({
+      page: 2,
+      sourceDocumentId: "doc_offer",
+      sourceDocumentName: "Initial Offer Letter.pdf",
+    });
+    const html = markdownToEditorHtml(`The offer was sent ${citation}.`);
+    const markdown = editorHtmlToMarkdown(html);
+
+    expect(html).toContain('data-citation-source-document-id="doc_offer"');
+    expect(html).toContain('data-citation-label="Initial Offer Letter p. 2"');
+    expect(markdown).toContain('data-citation-source-document-id="doc_offer"');
+    expect(markdown).toContain('data-citation-printable-text="(Initial Offer Letter, p. 2)"');
+  });
+
+  it("renders source document Markdown with visible page structure", () => {
+    const html = sourceMarkdownToPreviewHtml([
+      '<!-- ml:document {"documentId":"doc_1","fileName":"Report.pdf","type":"application/pdf"} -->',
+      "",
+      '<!-- ml:page {"page":1} -->',
+      "",
+      "First line",
+      "Second line 22:14:08 BWC Camera activates. 22:14:21 ALVAREZ Go ahead.",
+      "",
+      '<!-- ml:page {"page":2} -->',
+      "",
+      "- Finding",
+    ].join("\n"));
+
+    expect(html).not.toContain("ml:document");
+    expect(html).not.toContain("ml:page");
+    expect(html).toContain("<h3>Page 1</h3>");
+    expect(html).toContain("First line<br>");
+    expect(html).toContain("Second line");
+    expect(html).toContain("<p>22:14:08 BWC Camera activates.</p>");
+    expect(html).toContain("<p>22:14:21 ALVAREZ Go ahead.</p>");
+    expect(html).toContain("<h3>Page 2</h3>");
+    expect(html).toContain("<li>Finding</li>");
   });
 
 });
@@ -140,7 +181,8 @@ describe("document editor styling boundary", () => {
     expect(globalCss).toContain(".ProseMirror.document-editor ul");
     expect(globalCss).toContain(".ProseMirror.document-editor ol");
     expect(globalCss).toContain(".ProseMirror.document-editor blockquote");
-    expect(globalCss).toContain('[data-node-type="citation"]');
+    expect(componentSource).toContain("CitationNode");
+    expect(globalCss).toContain(".document-citation-chip");
     expect(globalCss).not.toContain(".ProseMirror.chronology-editor");
   });
 });
@@ -190,6 +232,16 @@ describe("document editor DOCX export", () => {
                     type: "italic",
                   },
                 ],
+              },
+              {
+                type: "citation",
+                attrs: {
+                  label: "Initial Offer Letter p. 2",
+                  page: 2,
+                  printableText: "(Initial Offer Letter, p. 2)",
+                  sourceDocumentId: "doc_offer",
+                  sourceDocumentName: "Initial Offer Letter.pdf",
+                },
               },
             ],
           },

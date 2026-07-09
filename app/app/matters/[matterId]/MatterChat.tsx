@@ -47,6 +47,7 @@ import {
   deleteWorkflowAction,
   duplicateWorkflowAction,
   completeWorkflowRunAction,
+  getCitationSourceDocumentPreviewAction,
   getEditableMatterDocumentAction,
   listWorkflowRunSummariesAction,
   listMatterDocumentsAction,
@@ -1983,6 +1984,7 @@ export function MatterChat({
                   activeWorkflow &&
                   activeWorkflowStep?.type === "documentEditor" ? (
                   <DocumentEditorStepComponent
+                    loadCitationSource={getCitationSourceDocumentPreviewAction}
                     loadStepState={loadDocumentEditorStepStateAction}
                     matterId={matterId}
                     onComplete={completeDocumentEditorStep}
@@ -1998,6 +2000,7 @@ export function MatterChat({
                   activeWorkflowStep?.type === "reviewWorkProducts" ? (
                   <ReviewWorkProductsStepComponent
                     completeWorkflowRun={completeWorkflowRunAction}
+                    loadCitationSource={getCitationSourceDocumentPreviewAction}
                     loadStepState={loadReviewWorkProductsStepStateAction}
                     matterId={matterId}
                     onWorkflowRunCompleted={refreshWorkflowRuns}
@@ -2076,6 +2079,8 @@ export function MatterChat({
                       disabled={!editableDocument}
                       errorFallback="Matter Layer could not save this case file."
                       isLoading={isLoadingEditableDocument}
+                      loadCitationSource={getCitationSourceDocumentPreviewAction}
+                      matterId={matterId}
                       onDone={returnToDocumentsList}
                       onSave={saveEditableMatterDocument}
                       savedStatusLabel="Saved"

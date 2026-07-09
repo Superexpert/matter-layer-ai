@@ -7,8 +7,9 @@ import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
+import { CitationNode, type CitationNodeAttributes } from "./citation-extension";
 import { exportEditorContentToDocx } from "./docx-export";
-import { editorHtmlToMarkdown } from "./conversion";
+import { editorHtmlToMarkdown, sourceMarkdownToPreviewHtml } from "./conversion";
 import type { DocumentEditorStepOutput } from "./schema";
 import type { DocumentEditorStepState } from "./server";
 
@@ -19,6 +20,10 @@ type DocumentEditorStepComponentProps = {
     workflowDefinitionId: string;
     workflowRunId: string;
   }) => Promise<DocumentEditorStepState>;
+  loadCitationSource?: (input: {
+    matterId: string;
+    sourceDocumentId: string;
+  }) => Promise<CitationSourcePreview>;
   matterId: string;
   onComplete: (output: DocumentEditorStepOutput) => void;
   onExitReview?: () => void;
@@ -42,6 +47,11 @@ type DocumentEditorSavePayload = {
   editorJson: unknown;
 };
 
+export type CitationSourcePreview = {
+  contentMarkdown: string;
+  title: string;
+};
+
 type DocumentEditorSurfaceProps = {
   completionButtonLabel?: string;
   contentHtml: string;
@@ -52,6 +62,11 @@ type DocumentEditorSurfaceProps = {
   hideCompletionButton?: boolean;
   initialSaveStatus?: "saved" | "unsaved";
   isLoading: boolean;
+  loadCitationSource?: (input: {
+    matterId: string;
+    sourceDocumentId: string;
+  }) => Promise<CitationSourcePreview>;
+  matterId?: string;
   onDone: (saveResult?: unknown) => void;
   onSave: (payload: DocumentEditorSavePayload) => Promise<unknown>;
   saveButtonLabel?: string;
@@ -105,6 +120,98 @@ const DocumentParagraph = Paragraph.extend({
   },
 });
 
+function isCitationNodeAttributes(value: Record<string, unknown>): value is CitationNodeAttributes {
+  return (
+    typeof value.label === "string" &&
+    typeof value.printableText === "string" &&
+    typeof value.sourceDocumentName === "string"
+  );
+}
+
+function citationAttributesFromUnknown(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const attributes = value as Record<string, unknown>;
+
+  return isCitationNodeAttributes(attributes) ? attributes : null;
+}
+
+function CitationSourceModal({
+  citation,
+  errorMessage,
+  isLoading,
+  onClose,
+  preview,
+}: {
+  citation: CitationNodeAttributes;
+  errorMessage: string;
+  isLoading: boolean;
+  onClose: () => void;
+  preview: CitationSourcePreview | null;
+}) {
+  const html = preview ? sourceMarkdownToPreviewHtml(preview.contentMarkdown) : "";
+
+  return (
+    <div
+      aria-labelledby="citation-source-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#211B27]/35 px-4 py-6"
+      data-testid="citation-source-modal"
+      role="dialog"
+    >
+      <div className="flex max-h-[86vh] w-full max-w-3xl flex-col rounded-xl border border-[#E3DEEA] bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-4 border-b border-[#E3DEEA] px-5 py-4">
+          <div>
+            <h2
+              className="text-base font-semibold text-[#211B27]"
+              id="citation-source-title"
+            >
+              {preview?.title ?? citation.sourceDocumentName}
+            </h2>
+            <p className="mt-1 text-xs font-semibold text-[#74677F]">
+              {citation.label}
+            </p>
+          </div>
+          <button
+            aria-label="Close source preview"
+            className="inline-flex h-8 items-center justify-center rounded-md border border-[#CFC5DA] bg-white px-3 text-sm font-semibold text-[#4B3861] hover:bg-[#FBFAFC]"
+            data-testid="citation-source-modal-close"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+        <div className="min-h-48 overflow-auto px-5 py-4">
+          {isLoading ? (
+            <p className="text-sm leading-6 text-[#74677F]">Loading source...</p>
+          ) : errorMessage ? (
+            <p
+              className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
+              data-testid="citation-source-modal-error"
+              role="alert"
+            >
+              {errorMessage}
+            </p>
+          ) : preview ? (
+            <div
+              className="document-editor document-editor-source-preview text-sm leading-7 text-[#211B27] prose prose-sm max-w-none"
+              data-testid="citation-source-modal-content"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          ) : (
+            <p className="text-sm leading-6 text-[#74677F]">
+              This citation does not include a linked source document.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DocumentEditorSurface({
   completionButtonLabel = "Done",
   contentHtml,
@@ -115,6 +222,8 @@ export function DocumentEditorSurface({
   hideCompletionButton = false,
   initialSaveStatus = "saved",
   isLoading,
+  loadCitationSource,
+  matterId,
   onDone,
   onSave,
   saveButtonLabel = "Save",
@@ -126,13 +235,64 @@ export function DocumentEditorSurface({
   const [isExporting, setIsExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("unsaved");
   const [errorMessage, setErrorMessage] = useState("");
+  const [selectedCitation, setSelectedCitation] = useState<CitationNodeAttributes | null>(null);
+  const [citationPreview, setCitationPreview] = useState<CitationSourcePreview | null>(null);
+  const [isCitationPreviewLoading, setIsCitationPreviewLoading] = useState(false);
+  const [citationPreviewError, setCitationPreviewError] = useState("");
   const initialSaveStatusRef = useRef(initialSaveStatus);
   const lastSavedContentMarkdownRef = useRef<string | null>(null);
+
+  function openCitationPreview(citation: CitationNodeAttributes) {
+    setSelectedCitation(citation);
+    setCitationPreview(null);
+    setCitationPreviewError("");
+  }
+
   const editor = useEditor({
     content: contentHtml,
     editorProps: {
       attributes: {
         class: editorContentClass(),
+      },
+      handleClickOn: (_view, _pos, node) => {
+        if (node.type.name !== "citation") {
+          return false;
+        }
+
+        const citation = citationAttributesFromUnknown(node.attrs);
+        if (citation) {
+          openCitationPreview(citation);
+        }
+
+        return true;
+      },
+      handleKeyDown: (view, event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return false;
+        }
+
+        const selection = view.state.selection as unknown as {
+          node?: {
+            attrs?: unknown;
+            type?: {
+              name?: string;
+            };
+          };
+        };
+
+        if (selection.node?.type?.name !== "citation") {
+          return false;
+        }
+
+        const citation = citationAttributesFromUnknown(selection.node.attrs);
+        if (!citation) {
+          return false;
+        }
+
+        event.preventDefault();
+        openCitationPreview(citation);
+
+        return true;
       },
     },
     extensions: [
@@ -140,6 +300,7 @@ export function DocumentEditorSurface({
         paragraph: false,
       }),
       DocumentParagraph,
+      CitationNode,
       Link.configure({
         openOnClick: false,
       }),
@@ -207,6 +368,59 @@ export function DocumentEditorSurface({
       isCurrent = false;
     };
   }, [contentHtml, editor, isLoading]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadPreview(citation: CitationNodeAttributes) {
+      if (!citation.sourceDocumentId) {
+        setCitationPreview(null);
+        setCitationPreviewError("This citation does not include a linked source document.");
+        return;
+      }
+
+      if (!matterId || !loadCitationSource) {
+        setCitationPreview(null);
+        setCitationPreviewError("Source preview is not available here.");
+        return;
+      }
+
+      setIsCitationPreviewLoading(true);
+      setCitationPreviewError("");
+
+      try {
+        const preview = await loadCitationSource({
+          matterId,
+          sourceDocumentId: citation.sourceDocumentId,
+        });
+
+        if (isCurrent) {
+          setCitationPreview(preview);
+        }
+      } catch (error) {
+        if (isCurrent) {
+          setCitationPreview(null);
+          setCitationPreviewError(
+            error instanceof Error && error.message.trim()
+              ? error.message
+              : "Matter Layer could not load this source document.",
+          );
+        }
+      } finally {
+        if (isCurrent) {
+          setIsCitationPreviewLoading(false);
+        }
+      }
+    }
+
+    if (selectedCitation) {
+      void loadPreview(selectedCitation);
+    }
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [loadCitationSource, matterId, selectedCitation]);
 
   async function saveDocument() {
     if (!editor) {
@@ -295,6 +509,20 @@ export function DocumentEditorSurface({
 
   return (
     <section className="grid gap-5" data-testid="shared-document-editor">
+      {selectedCitation ? (
+        <CitationSourceModal
+          citation={selectedCitation}
+          errorMessage={citationPreviewError}
+          isLoading={isCitationPreviewLoading}
+          onClose={() => {
+            setSelectedCitation(null);
+            setCitationPreview(null);
+            setCitationPreviewError("");
+          }}
+          preview={citationPreview}
+        />
+      ) : null}
+
       <div>
         <h2 className="text-lg font-semibold text-[#211B27]">
           {title}
@@ -455,6 +683,7 @@ export function DocumentEditorSurface({
 }
 
 export function DocumentEditorStepComponent({
+  loadCitationSource,
   loadStepState,
   matterId,
   onComplete,
@@ -574,6 +803,8 @@ export function DocumentEditorStepComponent({
           exportButtonLabel="Export"
           initialSaveStatus={latestOutput ? "saved" : "unsaved"}
           isLoading={isLoading}
+          loadCitationSource={loadCitationSource}
+          matterId={matterId}
           onDone={completeReviewStep}
           onSave={saveDocument}
           savedStatusLabel={latestOutput?.savedMatterDocumentId ? "Saved to Documents" : "Not saved to Documents"}

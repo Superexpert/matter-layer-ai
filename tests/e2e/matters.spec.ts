@@ -70,6 +70,33 @@ test("authenticated user can create a matter", async ({ page }) => {
         },
       }),
     ]);
+    const sourceDocument = await prisma.matterDocument.create({
+      data: {
+        fileName: "01_Incident_Report_Officer_Alvarez_v2.pdf",
+        matterId: createdMatter.id,
+        mimeType: "application/pdf",
+        representations: {
+          create: {
+            content: [
+              "# Incident Report",
+              "",
+              "<!-- ml:page {\"page\":1} -->",
+              "",
+              "Officer Alvarez documented the January 12, 2024 event.",
+            ].join("\n"),
+            metadataJson: {
+              source: "extraction",
+            },
+            status: MatterDocumentRepresentationStatus.READY,
+            type: MatterDocumentRepresentationType.MARKDOWN,
+          },
+        },
+        size: 3686,
+        sourceType: MatterDocumentSourceType.upload,
+        storageProvider: "database",
+        uploadedByUserId: currentUser.id,
+      },
+    });
     const workProductDocument = await prisma.matterDocument.create({
       data: {
         fileName: "Chronology.md",
@@ -84,7 +111,7 @@ test("authenticated user can create a matter", async ({ page }) => {
               "",
               "The chronology event occurred.",
               "",
-              "Source: Incident Report, p. 1.",
+              `<span data-ml-citation="true" data-citation-label="Incident Report p. 1" data-citation-printable-text="(Incident Report, p. 1)" data-citation-source-document-id="${sourceDocument.id}" data-citation-source-document-name="Incident Report" data-citation-page="1">Incident Report p. 1</span>`,
             ].join("\n"),
             metadataJson: {
               source: "workflow_output",
@@ -97,17 +124,6 @@ test("authenticated user can create a matter", async ({ page }) => {
           },
         },
         size: 841,
-        sourceType: MatterDocumentSourceType.upload,
-        storageProvider: "database",
-        uploadedByUserId: currentUser.id,
-      },
-    });
-    const sourceDocument = await prisma.matterDocument.create({
-      data: {
-        fileName: "01_Incident_Report_Officer_Alvarez_v2.pdf",
-        matterId: createdMatter.id,
-        mimeType: "application/pdf",
-        size: 3686,
         sourceType: MatterDocumentSourceType.upload,
         storageProvider: "database",
         uploadedByUserId: currentUser.id,
@@ -361,10 +377,18 @@ test("authenticated user can create a matter", async ({ page }) => {
     await expect(
       page
         .getByTestId("document-editor-content")
-        .locator('p.document-citation[data-node-type="citation"]'),
-    ).toContainText(
-      "Source: Incident Report, p. 1.",
+        .locator(".document-citation-chip"),
+    ).toContainText("Incident Report p. 1");
+    await page
+      .getByTestId("document-editor-content")
+      .locator(".document-citation-chip")
+      .click();
+    await expect(page.getByTestId("citation-source-modal")).toBeVisible();
+    await expect(page.getByTestId("citation-source-modal-content")).toContainText(
+      "Officer Alvarez documented the January 12, 2024 event.",
     );
+    await page.getByTestId("citation-source-modal-close").click();
+    await expect(page.getByTestId("citation-source-modal")).toHaveCount(0);
     const existingDocumentDownloadPromise = page.waitForEvent("download");
     await page.getByTestId("document-editor-export-docx").click();
     await existingDocumentDownloadPromise;
@@ -393,7 +417,8 @@ test("authenticated user can create a matter", async ({ page }) => {
     });
 
     expect(savedWorkProduct?.content).toContain("Edited from Documents tab.");
-    expect(savedWorkProduct?.content).toContain("Source: Incident Report, p. 1.");
+    expect(savedWorkProduct?.content).toContain("data-citation-source-document-id");
+    expect(savedWorkProduct?.content).toContain("(Incident Report, p. 1)");
     await page.getByTestId("document-editor-continue").click();
     await expect(page.getByTestId("unsaved-document-dialog")).toHaveCount(0);
     await expect(page.getByTestId("documents-list")).toBeVisible();

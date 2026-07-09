@@ -8,6 +8,8 @@ import {
   type ParagraphChild,
 } from "docx";
 
+import { printableTextFromCitationAttributes } from "./citations";
+
 type TipTapMark = {
   attrs?: Record<string, unknown>;
   type: string;
@@ -86,6 +88,19 @@ function inlineChildren(nodes: TipTapNode[] | undefined): ParagraphChild[] {
 
     if (node.type === "hardBreak") {
       children.push(new TextRun({ break: 1 }));
+      continue;
+    }
+
+    if (node.type === "citation") {
+      children.push(new TextRun({
+        text: printableTextFromCitationAttributes({
+          label: node.attrs?.label,
+          locationText: node.attrs?.locationText,
+          page: node.attrs?.page,
+          printableText: node.attrs?.printableText,
+          sourceDocumentName: node.attrs?.sourceDocumentName,
+        }),
+      }));
       continue;
     }
 

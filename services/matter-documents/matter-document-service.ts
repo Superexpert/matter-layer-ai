@@ -8,6 +8,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   getMatterDocumentStorageProvider,
+  readMatterDocumentFile,
   type MatterFileStorageProviderName,
 } from "@/services/matter-documents/storage";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
@@ -28,6 +29,11 @@ export type MatterDocumentSummary = {
 export type EditableMatterDocument = MatterDocumentSummary & {
   contentMarkdown: string;
   editorContentHtml: string;
+};
+
+export type CitationSourceDocumentPreview = {
+  contentMarkdown: string;
+  title: string;
 };
 
 export type SaveWorkflowMatterDocumentInput = {
@@ -226,6 +232,59 @@ export async function getEditableMatterDocument(input: {
     contentMarkdown: markdownRepresentation.content,
     editorContentHtml: markdownToEditorHtml(markdownRepresentation.content),
   };
+}
+
+export async function getCitationSourceDocumentPreview(input: {
+  matterDocumentId: string;
+  matterId: string;
+}): Promise<CitationSourceDocumentPreview> {
+  const document = await prisma.matterDocument.findFirst({
+    select: {
+      fileName: true,
+      id: true,
+      mimeType: true,
+      representations: {
+        select: {
+          content: true,
+        },
+        where: {
+          status: MatterDocumentRepresentationStatus.READY,
+          type: MatterDocumentRepresentationType.MARKDOWN,
+        },
+      },
+    },
+    where: {
+      id: input.matterDocumentId,
+      matterId: input.matterId,
+    },
+  });
+
+  if (!document) {
+    throw new Error("The cited source document was not found.");
+  }
+
+  const markdownRepresentation = document.representations[0]?.content?.trim();
+
+  if (markdownRepresentation) {
+    return {
+      contentMarkdown: markdownRepresentation,
+      title: document.fileName,
+    };
+  }
+
+  if (document.mimeType === "text/markdown" || document.mimeType === "text/plain") {
+    const file = await readMatterDocumentFile({
+      matterDocumentId: document.id,
+      matterId: input.matterId,
+    });
+
+    return {
+      contentMarkdown: file.bytes.toString("utf8"),
+      title: file.fileName,
+    };
+  }
+
+  throw new Error("The cited source document does not have readable Markdown content yet.");
 }
 
 export async function saveMatterDocumentEdits(
