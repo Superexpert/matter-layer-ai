@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { SignOutButton } from "@/app/components/SignOutButton";
 import { AppContainer } from "@/components/app-container";
 import { WarningModal } from "@/components/warning-modal";
 import type { AIMessage } from "@/services/ai/types";
@@ -40,6 +39,10 @@ import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/sche
 import { ReviewWorkProductsStepComponent } from "@/workflow-steps/review-work-products/component";
 
 import {
+  MatterDetailShell,
+  type MatterTab,
+} from "./MatterDetailShell";
+import {
   deleteMatterDocumentAction,
   deleteWorkflowAction,
   duplicateWorkflowAction,
@@ -67,6 +70,7 @@ type ChatMessage = AIMessage & {
 
 type MatterChatProps = {
   initialDocuments: MatterDocumentSummary[];
+  initialTab?: MatterTab;
   initialWorkflowRuns: WorkflowRunSummary[];
   isAdmin: boolean;
   matterId: string;
@@ -110,9 +114,6 @@ type ActiveWorkflowState = {
   workflowDefinition: WorkflowDefinition;
 };
 
-type MatterTab = "Workflows" | "Case Files" | "Work Products" | "Chat";
-
-const MATTER_TABS = ["Workflows", "Case Files", "Work Products"] as const;
 const DEFAULT_MATTER_TAB = "Workflows" satisfies MatterTab;
 
 const actionCards = [
@@ -165,10 +166,6 @@ function statusLabel(status: WorkflowRunSummary["status"]) {
   }
 
   return "In progress";
-}
-
-function matterTabTestId(tab: MatterTab) {
-  return `matter-tab-${tab.toLowerCase().replace(/\s+/g, "-")}`;
 }
 
 function workflowProducesLabel(workflow: WorkflowDefinition) {
@@ -420,6 +417,7 @@ function isChatErrorResponse(value: unknown): value is ChatErrorResponse {
 
 export function MatterChat({
   initialDocuments,
+  initialTab = DEFAULT_MATTER_TAB,
   initialWorkflowRuns,
   isAdmin,
   matterId,
@@ -427,7 +425,7 @@ export function MatterChat({
   workflowDefinitions: initialWorkflowDefinitions,
 }: MatterChatProps) {
   const router = useRouter();
-  const [selectedTab, setSelectedTab] = useState<MatterTab>(DEFAULT_MATTER_TAB);
+  const [selectedTab, setSelectedTab] = useState<MatterTab>(initialTab);
   const [draftMessage, setDraftMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeWorkflow, setActiveWorkflow] =
@@ -1455,100 +1453,15 @@ export function MatterChat({
   const selectedWorkflowStep = editorWorkflow?.steps[selectedWorkflowStepIndex] || null;
 
   return (
-    <section
-      className="fixed inset-0 z-0 flex h-[100dvh] flex-col overflow-hidden bg-[#F7F6FA] text-[#211B27]"
-      data-testid="matter-chat"
+    <MatterDetailShell
+      activeTab={selectedTab}
+      isAdmin={isAdmin}
+      matterId={matterId}
+      matterName={matterName}
+      onSelectTab={selectMatterTab}
+      rootClassName="fixed inset-0 z-0 flex h-[100dvh] flex-col overflow-hidden bg-[#F7F6FA] text-[#211B27]"
+      testId="matter-chat"
     >
-      <header
-        className="border-b border-[#312342] bg-[#42305B]"
-        data-testid="matter-workspace-header"
-      >
-        <AppContainer className="flex h-14 items-center justify-between gap-4">
-          <Link
-            className="shrink-0 text-sm font-semibold tracking-[0.01em] text-white"
-            href="/app/matters"
-          >
-            Matter Layer
-          </Link>
-          <div className="flex items-center gap-1">
-            {isAdmin ? (
-              <Link
-                className="rounded-lg px-3 py-2 text-sm font-medium text-[#E8E2F0] hover:bg-white/10 hover:text-white"
-                data-testid="nav-admin"
-                href="/app/admin"
-              >
-                Admin
-              </Link>
-            ) : null}
-            <Link
-              className="rounded-lg px-3 py-2 text-sm font-medium text-[#E8E2F0] hover:bg-white/10 hover:text-white"
-              data-testid="nav-settings"
-              href="/app/settings"
-            >
-              Settings
-            </Link>
-            <SignOutButton />
-          </div>
-        </AppContainer>
-      </header>
-
-      <nav
-        aria-label="Breadcrumb"
-        className="border-b border-[#E3DEEA] bg-white"
-        data-testid="matter-breadcrumb"
-      >
-        <AppContainer>
-          <ol className="flex h-10 items-center gap-2 text-sm">
-            <li>
-              <Link
-                className="font-medium text-[#5F4B76] hover:text-[#42305B]"
-                data-testid="breadcrumb-home"
-                href="/app/matters"
-              >
-                Matters
-              </Link>
-            </li>
-            <li aria-hidden="true" className="text-[#A79AB4]">
-              /
-            </li>
-            <li
-              aria-current="page"
-              className="truncate font-semibold text-[#211B27]"
-              data-testid="breadcrumb-current-matter"
-            >
-              {matterName}
-            </li>
-          </ol>
-        </AppContainer>
-      </nav>
-
-      <nav
-        aria-label="Matter navigation"
-        className="border-b border-[#E3DEEA] bg-white"
-        data-testid="matter-tabs"
-      >
-        <AppContainer className="flex h-11 items-center">
-          {MATTER_TABS.map((tab, index) => (
-            <button
-              aria-current={tab === selectedTab ? "page" : undefined}
-              className={
-                tab === selectedTab
-                  ? "h-11 border-b-2 border-[#5F4B76] pr-4 text-sm font-semibold text-[#4B3861]"
-                  : `h-11 text-sm font-medium text-[#74677F] transition-colors hover:text-[#211B27] ${
-                      index === 0 ? "pr-4" : "px-4"
-                    }`
-              }
-              data-testid={matterTabTestId(tab)}
-              key={tab}
-              onClick={() => selectMatterTab(tab)}
-              type="button"
-            >
-              {tab}
-            </button>
-          ))}
-        </AppContainer>
-      </nav>
-
       <AppContainer className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] gap-4 py-4 xl:grid-cols-[minmax(0,1fr)_19rem]">
         <section
           className="flex h-full min-h-0 flex-col overflow-hidden rounded-[14px] border border-[#E3DEEA] bg-white shadow-[0_1px_2px_rgba(40,29,52,0.05)]"
@@ -2646,6 +2559,6 @@ export function MatterChat({
           </p>
         ) : null}
       </WarningModal>
-    </section>
+    </MatterDetailShell>
   );
 }

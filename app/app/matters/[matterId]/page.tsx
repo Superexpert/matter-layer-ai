@@ -15,10 +15,26 @@ type MatterPageProps = {
   params: Promise<{
     matterId: string;
   }>;
+  searchParams: Promise<{
+    tab?: string;
+  }>;
 };
 
-export default async function MatterPage({ params }: MatterPageProps) {
+function initialMatterTab(tab: string | undefined) {
+  if (tab === "case-files") {
+    return "Case Files";
+  }
+
+  if (tab === "work-products") {
+    return "Work Products";
+  }
+
+  return "Workflows";
+}
+
+export default async function MatterPage({ params, searchParams }: MatterPageProps) {
   const { matterId } = await params;
+  const { tab } = await searchParams;
   await requireConfiguredAISettings();
 
   const [{ prisma }, isAdmin] = await Promise.all([
@@ -53,6 +69,7 @@ export default async function MatterPage({ params }: MatterPageProps) {
   return (
     <MatterChat
       initialDocuments={documents}
+      initialTab={initialMatterTab(tab)}
       initialWorkflowRuns={workflowRuns}
       isAdmin={isAdmin}
       matterId={matterId}

@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppContainer } from "@/components/app-container";
+import { isCurrentUserAdmin } from "@/services/auth";
 import { getWorkflowCatalogItem } from "@/services/workflows/catalog-service";
 import {
   getEditableWorkflowArtifact,
@@ -9,6 +9,7 @@ import {
 } from "@/services/workflows/workflow-run-service";
 
 import { WorkflowRunDetailsClient } from "./WorkflowRunDetailsClient";
+import { MatterDetailShell } from "../../MatterDetailShell";
 
 type WorkflowRunPageProps = {
   params: Promise<{
@@ -38,6 +39,23 @@ function statusLabel(status: "running" | "completed" | "failed") {
 
 export default async function WorkflowRunPage({ params }: WorkflowRunPageProps) {
   const { matterId, workflowRunId } = await params;
+  const [{ prisma }, isAdmin] = await Promise.all([
+    import("@/lib/prisma"),
+    isCurrentUserAdmin(),
+  ]);
+  const matter = await prisma.matter.findUnique({
+    select: {
+      name: true,
+    },
+    where: {
+      id: matterId,
+    },
+  });
+
+  if (!matter) {
+    notFound();
+  }
+
   let workflowRun;
 
   try {
@@ -71,24 +89,13 @@ export default async function WorkflowRunPage({ params }: WorkflowRunPageProps) 
   const caseFileCount = workflowRun.inputCaseFileCount;
 
   return (
-    <main className="min-h-screen bg-[#F7F6FA] text-[#211B27]">
-      <div className="border-b border-[#312342] bg-[#42305B]">
-        <AppContainer className="flex h-14 items-center justify-between gap-4">
-          <Link
-            className="shrink-0 text-sm font-semibold tracking-[0.01em] text-white"
-            href="/app/matters"
-          >
-            Matter Layer
-          </Link>
-          <Link
-            className="rounded-lg px-3 py-2 text-sm font-medium text-[#E8E2F0] hover:bg-white/10 hover:text-white"
-            href={`/app/matters/${matterId}`}
-          >
-            Back to matter
-          </Link>
-        </AppContainer>
-      </div>
-
+    <MatterDetailShell
+      activeTab="Work Products"
+      isAdmin={isAdmin}
+      matterId={matterId}
+      matterName={matter.name}
+      testId="workflow-run-review-page"
+    >
       <AppContainer className="grid gap-4 py-6 xl:grid-cols-[minmax(0,1fr)_19rem]">
         <section className="rounded-[14px] border border-[#E3DEEA] bg-white p-5 shadow-[0_1px_2px_rgba(40,29,52,0.05)]">
           <div className="border-b border-[#E3DEEA] pb-5">
@@ -157,6 +164,6 @@ export default async function WorkflowRunPage({ params }: WorkflowRunPageProps) 
           </ol>
         </aside>
       </AppContainer>
-    </main>
+    </MatterDetailShell>
   );
 }
