@@ -39,6 +39,10 @@ function statusLabel(status: WorkflowRunDetails["status"]) {
   return "In progress";
 }
 
+function workProductAnchorId(artifactId: string) {
+  return `work-product-${artifactId}`;
+}
+
 export function WorkflowRunDetailsClient({
   initialEditableWorkProducts,
   matterId,
@@ -73,28 +77,55 @@ export function WorkflowRunDetailsClient({
       <section data-testid="workflow-run-work-products">
         <div className="grid gap-8">
           {editableArtifacts.length ? (
-            editableArtifacts.map((artifact) => (
-              <div
-                data-testid={`workflow-run-work-product-${artifact.artifactId}`}
-                key={artifact.artifactId}
-              >
-                <DocumentEditorSurface
-                  contentHtml={artifact.editorContentHtml}
-                  errorFallback="Matter Layer could not save this work product."
-                  exportButtonLabel="Export DOCX"
-                  hideCompletionButton
-                  isLoading={false}
-                  loadCitationSource={getCitationSourceDocumentPreviewAction}
-                  matterId={matterId}
-                  onDone={() => undefined}
-                  onSave={(input) => saveArtifact(artifact.artifactId, input)}
-                  savedStatusLabel="Saved"
-                  saveButtonLabel="Save"
-                  title={artifact.title}
-                  unsavedStatusLabel="Unsaved changes"
-                />
-              </div>
-            ))
+            <>
+              {editableArtifacts.length > 1 ? (
+                <nav
+                  aria-label="Generated work products"
+                  className="rounded-lg border border-[#E3DEEA] bg-[#FBFAFC] px-4 py-3"
+                  data-testid="workflow-run-work-product-navigation"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="mr-1 text-sm font-semibold text-[#211B27]">
+                      Work products:
+                    </span>
+                    {editableArtifacts.map((artifact) => (
+                      <a
+                        className="inline-flex h-8 items-center rounded-full border border-[#CFC5DA] bg-white px-3 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#F7F6FA]"
+                        href={`#${workProductAnchorId(artifact.artifactId)}`}
+                        key={artifact.artifactId}
+                      >
+                        {artifact.title}
+                      </a>
+                    ))}
+                  </div>
+                </nav>
+              ) : null}
+
+              {editableArtifacts.map((artifact) => (
+                <div
+                  className="scroll-mt-6"
+                  data-testid={`workflow-run-work-product-${artifact.artifactId}`}
+                  id={workProductAnchorId(artifact.artifactId)}
+                  key={artifact.artifactId}
+                >
+                  <DocumentEditorSurface
+                    contentHtml={artifact.editorContentHtml}
+                    errorFallback="Matter Layer could not save this work product."
+                    exportButtonLabel="Export DOCX"
+                    hideCompletionButton
+                    isLoading={false}
+                    loadCitationSource={getCitationSourceDocumentPreviewAction}
+                    matterId={matterId}
+                    onDone={() => undefined}
+                    onSave={(input) => saveArtifact(artifact.artifactId, input)}
+                    savedStatusLabel="Saved"
+                    saveButtonLabel="Save"
+                    title={artifact.title}
+                    unsavedStatusLabel="Unsaved changes"
+                  />
+                </div>
+              ))}
+            </>
           ) : (
             <p className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#74677F]">
               No generated work products yet.

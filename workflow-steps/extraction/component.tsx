@@ -29,7 +29,7 @@ type ExtractionStepComponentProps = {
     workflowRunId: string;
   }) => Promise<ExtractionStepState>;
   runStep: (input: {
-    executionMode?: "autorun" | "manual";
+    executionMode?: "autorun" | "manual" | "retry_failed";
     matterId: string;
     step: WorkflowStepDefinition;
     workflowDefinitionId: string;
@@ -241,7 +241,6 @@ export function ExtractionStepComponent({
   );
   const runningDocumentLabel = config.ui.runningDocumentLabel ?? "Extracting";
   const runningButtonLabel = config.ui.runningButtonLabel ?? "Extracting...";
-  const retryButtonLabel = config.ui.retryButtonLabel ?? "Retry extraction";
   const runButtonLabel = config.ui.runButtonLabel ?? "Run extraction";
   const profileLine = config.ui.profileLine;
   const [state, setState] = useState<ExtractionStepState | null>(null);
@@ -297,7 +296,9 @@ export function ExtractionStepComponent({
     };
   }, [loadStepState, matterId, step, workflowDefinitionId, workflowRunId]);
 
-  const prepareDocuments = useCallback(async (executionMode: "autorun" | "manual" = "manual") => {
+  const prepareDocuments = useCallback(async (
+    executionMode: "autorun" | "manual" | "retry_failed" = "manual",
+  ) => {
     setIsRunning(true);
     setErrorMessage("");
     setSawRunningOutput(true);
@@ -350,7 +351,11 @@ export function ExtractionStepComponent({
           latestOutput: nextState.latestOutput ?? output,
         };
       });
-      if (executionMode === "autorun" && output.status === "completed") {
+      if (
+        step.autorun &&
+        (executionMode === "autorun" || executionMode === "retry_failed") &&
+        output.status === "completed"
+      ) {
         autorunAdvancedRunIdRef.current = output.extractionRunId;
         window.setTimeout(() => {
           onComplete(output);
@@ -396,11 +401,16 @@ export function ExtractionStepComponent({
     );
   }, [outputError?.documentErrors]);
   const suggestedAction = suggestedActionForError(outputError);
-  const canContinue = latestOutput?.status === "completed";
-  const shouldShowRunButton =
-    !step.autorun ||
+  const hasFailedDocuments =
     latestOutput?.status === "failed" ||
     latestOutput?.status === "partial_failed";
+  const canManuallyContinue = hasFailedDocuments ||
+    (!step.autorun && latestOutput?.status === "completed");
+  const shouldShowRunButton =
+    !step.autorun &&
+    latestOutput?.status !== "completed" &&
+    latestOutput?.status !== "running";
+  const shouldShowErrorActions = Boolean(step.autorun && hasFailedDocuments);
   const providerIndicatorText = aiProviderIndicatorText(state?.effectiveAIProvider);
 
   useEffect(() => {
@@ -668,42 +678,55 @@ export function ExtractionStepComponent({
         </p>
       ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        {shouldShowRunButton ? (
-          <button
-            className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
-            data-testid="extraction-run-button"
-            disabled={isLoading || isRunning || !state?.documents.length}
-            onClick={() => {
-              void prepareDocuments("manual");
-            }}
-            type="button"
-          >
-            {isRunning
-              ? runningButtonLabel
-              : step.autorun
-                ? retryButtonLabel
+      {shouldShowRunButton || shouldShowErrorActions || canManuallyContinue ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {shouldShowRunButton ? (
+            <button
+              className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+              data-testid="extraction-run-button"
+              disabled={isLoading || isRunning || !state?.documents.length}
+              onClick={() => {
+                void prepareDocuments("manual");
+              }}
+              type="button"
+            >
+              {isRunning
+                ? runningButtonLabel
                 : latestOutput?.status === "failed" || latestOutput?.status === "partial_failed"
                   ? "Try preparing again"
                   : runButtonLabel}
-          </button>
-        ) : (
-          <div />
-        )}
-        <button
-          className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
-          data-testid="extraction-continue"
-          disabled={!canContinue}
-          onClick={() => {
-            if (latestOutput) {
-              onComplete(latestOutput);
-            }
-          }}
-          type="button"
-        >
-          Continue
-        </button>
-      </div>
+            </button>
+          ) : null}
+          {shouldShowErrorActions ? (
+            <button
+              className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-4 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#FBFAFC] disabled:cursor-not-allowed disabled:text-[#A79AB4]"
+              data-testid="extraction-retry"
+              disabled={isLoading || isRunning || !state?.documents.length}
+              onClick={() => {
+                void prepareDocuments("retry_failed");
+              }}
+              type="button"
+            >
+              {isRunning ? runningButtonLabel : "Retry"}
+            </button>
+          ) : null}
+          {canManuallyContinue ? (
+            <button
+              className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861] disabled:cursor-not-allowed disabled:bg-[#CFC5DA]"
+              data-testid="extraction-continue"
+              disabled={!latestOutput}
+              onClick={() => {
+                if (latestOutput) {
+                  onComplete(latestOutput);
+                }
+              }}
+              type="button"
+            >
+              Continue
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {latestOutput?.status === "failed" && onReturnToInputStep ? (
         <button
           className="justify-self-start text-sm font-semibold text-[#5F4B76] underline-offset-4 hover:underline"

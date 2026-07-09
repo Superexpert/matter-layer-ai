@@ -287,7 +287,7 @@ export async function loadExtractionStepStateAction(input: {
 }
 
 export async function runExtractionStepAction(input: {
-  executionMode?: "autorun" | "manual";
+  executionMode?: "autorun" | "manual" | "retry_failed";
   matterId: string;
   step: WorkflowStepDefinition;
   workflowDefinitionId: string;

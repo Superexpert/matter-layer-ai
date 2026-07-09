@@ -121,7 +121,7 @@ export type RunExtractionStepInput = {
     }>;
   };
   aiServiceFactory?: (settings: ConfiguredAISettings) => RunExtractionStepInput["aiService"];
-  executionMode?: "autorun" | "manual";
+  executionMode?: "autorun" | "manual" | "retry_failed";
   matterId: string;
   onProgress?: (output: ExtractionStepOutput) => Promise<void> | void;
   step: WorkflowStepDefinition;
@@ -195,6 +195,41 @@ function progressItemsForDocuments(
     percentComplete: 0,
     status: "waiting",
   }));
+}
+
+function retryProgressItemsForDocuments(input: {
+  failedDocumentIds: string[];
+  latestOutput: ExtractionStepOutput;
+  selectedDocuments: SelectedDocument[];
+}): WorkflowStepProgressItem[] {
+  const failedDocumentIdSet = new Set(input.failedDocumentIds);
+  const latestItemsById = new Map(
+    (input.latestOutput.progress?.items ?? []).map((item) => [item.id, item]),
+  );
+
+  return input.selectedDocuments.map((document) => {
+    if (failedDocumentIdSet.has(document.id)) {
+      return {
+        id: document.id,
+        label: document.fileName,
+        message: "Queued",
+        phase: "queued",
+        percentComplete: 0,
+        status: "waiting",
+      };
+    }
+
+    const latestItem = latestItemsById.get(document.id);
+
+    return {
+      id: document.id,
+      label: document.fileName,
+      message: latestItem?.message ?? "Prepared",
+      phase: latestItem?.phase ?? "completed",
+      percentComplete: latestItem?.percentComplete ?? 100,
+      status: latestItem?.status === "skipped" ? "skipped" : "completed",
+    };
+  });
 }
 
 function buildProgress(input: {
@@ -1173,9 +1208,11 @@ async function executeExtractionStep(
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
+  let previousOutput: ExtractionStepOutput | null = null;
 
   if (isObjectRecord(latestOutput?.outputJson)) {
     const existingOutput = latestOutput.outputJson as ExtractionStepOutput;
+    previousOutput = existingOutput;
 
     if (existingOutput.status === "running" && !options.ignoreExistingRunning) {
       return existingOutput;
@@ -1190,6 +1227,14 @@ async function executeExtractionStep(
       return existingOutput;
     }
   }
+  const retryFailedDocumentIds =
+    input.executionMode === "retry_failed" && previousOutput?.failedDocumentIds.length
+      ? previousOutput.failedDocumentIds.filter((documentId) =>
+          selectedMatterDocumentIds.includes(documentId),
+        )
+      : [];
+  const documentIdsForThisRun =
+    input.executionMode === "retry_failed" ? retryFailedDocumentIds : selectedMatterDocumentIds;
 
   await clearWorkflowStepActivityEvents({
     stepId: input.step.id,
@@ -1290,6 +1335,10 @@ async function executeExtractionStep(
     });
 
     return output;
+  }
+
+  if (input.executionMode === "retry_failed" && documentIdsForThisRun.length === 0) {
+    throw new Error("No failed documents were available to retry.");
   }
 
   const selectedDocuments = await prisma.matterDocument.findMany({
@@ -1421,7 +1470,7 @@ async function executeExtractionStep(
   const selectedDocumentById = new Map<string, SelectedDocument>(
     selectedDocuments.map((document) => [document.id, document]),
   );
-  const orderedSelectedDocuments = selectedMatterDocumentIds.map((documentId) => {
+  const orderedAllSelectedDocuments = selectedMatterDocumentIds.map((documentId) => {
     const selectedDocument = selectedDocumentById.get(documentId);
 
     if (!selectedDocument) {
@@ -1430,7 +1479,13 @@ async function executeExtractionStep(
 
     return selectedDocument;
   });
-  let progressItems = progressItemsForDocuments(orderedSelectedDocuments);
+  let progressItems = input.executionMode === "retry_failed" && previousOutput
+    ? retryProgressItemsForDocuments({
+        failedDocumentIds: documentIdsForThisRun,
+        latestOutput: previousOutput,
+        selectedDocuments: orderedAllSelectedDocuments,
+      })
+    : progressItemsForDocuments(orderedAllSelectedDocuments);
 
   const extractionRun = await prisma.workflowExtractionRun.create({
     data: {
@@ -1486,7 +1541,7 @@ async function executeExtractionStep(
 
   const representationResults: RepresentationResult[] = [];
 
-  for (const matterDocumentId of selectedMatterDocumentIds) {
+  for (const matterDocumentId of documentIdsForThisRun) {
     const selectedDocument = selectedDocumentById.get(matterDocumentId);
     const documentName = selectedDocument?.fileName ?? matterDocumentId;
 
@@ -1740,7 +1795,16 @@ async function executeExtractionStep(
   const extractionQueuedAtByDocumentId = new Map(
     preparedDocumentIds.map((matterDocumentId) => [matterDocumentId, Date.now()]),
   );
-  let profileResult = emptyExtractionResultAggregate();
+  let profileResult = input.executionMode === "retry_failed" && previousOutput?.facts.length
+    ? {
+        ...emptyExtractionResultAggregate(),
+        itemCount: previousOutput.facts.length,
+        itemCountsByType: previousOutput.factsByType,
+        items: [...previousOutput.facts],
+        warnings: previousOutput.extractionWarnings,
+        windowCount: previousOutput.extractionWindowCount,
+      }
+    : emptyExtractionResultAggregate();
   const extractionDocumentErrors: WorkflowStepDocumentError[] = [];
   const resolvedProvider = readyRepresentationCount > 0 && !input.aiService
     ? await resolveExtractionAIProviderForStep(input)
@@ -2092,13 +2156,13 @@ async function executeExtractionStep(
   });
 
   for (const outcome of documentExtractionOutcomes) {
-    profileResult = mergeExtractionResult(
-      profileResult,
-      outcome.profileResult,
-    );
-
     if (outcome.documentError) {
       extractionDocumentErrors.push(outcome.documentError);
+    } else {
+      profileResult = mergeExtractionResult(
+        profileResult,
+        outcome.profileResult,
+      );
     }
 
     extractionServiceLog("document result merged", {
@@ -2111,7 +2175,13 @@ async function executeExtractionStep(
     });
   }
 
-  if (readyRepresentationCount === 0) {
+  if (readyRepresentationCount === 0 && profileResult.itemCount > 0) {
+    profileResult = {
+      ...profileResult,
+      error: profileResult.error ?? "No retried documents could be prepared for extraction.",
+      status: "PARTIAL_FAILED",
+    };
+  } else if (readyRepresentationCount === 0) {
     profileResult = {
       ...emptyExtractionResultAggregate(),
       error: "No selected documents could be prepared for extraction.",
@@ -2126,7 +2196,7 @@ async function executeExtractionStep(
   }
   const profileStatus = prismaStatusFromPluginStatus(profileResult.status);
   const status =
-    failedRepresentationCount > 0 &&
+    (failedRepresentationCount > 0 || extractionDocumentErrors.length > 0) &&
     profileStatus === WorkflowExtractionRunStatus.COMPLETED
       ? WorkflowExtractionRunStatus.PARTIAL_FAILED
       : profileStatus;

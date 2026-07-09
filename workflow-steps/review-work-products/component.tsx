@@ -56,6 +56,10 @@ function completionSummary(workflowRun: WorkflowRunDetails) {
   return `Matter Layer created ${workProductCount} work product${workProductCount === 1 ? "" : "s"} from ${caseFileCount} case file${caseFileCount === 1 ? "" : "s"}.`;
 }
 
+function workProductAnchorId(artifactId: string) {
+  return `work-product-${artifactId}`;
+}
+
 export function ReviewWorkProductsStepComponent({
   completeWorkflowRun,
   loadCitationSource,
@@ -180,9 +184,34 @@ export function ReviewWorkProductsStepComponent({
         </p>
       ) : state?.editableWorkProducts.length ? (
         <div className="grid gap-8">
+          {state.editableWorkProducts.length > 1 ? (
+            <nav
+              aria-label="Generated work products"
+              className="rounded-lg border border-[#E3DEEA] bg-[#FBFAFC] px-4 py-3"
+              data-testid="review-work-products-navigation"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-sm font-semibold text-[#211B27]">
+                  Work products:
+                </span>
+                {state.editableWorkProducts.map((artifact) => (
+                  <a
+                    className="inline-flex h-8 items-center rounded-full border border-[#CFC5DA] bg-white px-3 text-sm font-semibold text-[#4B3861] transition-colors hover:bg-[#F7F6FA]"
+                    href={`#${workProductAnchorId(artifact.artifactId)}`}
+                    key={artifact.artifactId}
+                  >
+                    {artifact.title}
+                  </a>
+                ))}
+              </div>
+            </nav>
+          ) : null}
+
           {state.editableWorkProducts.map((artifact) => (
             <div
+              className="scroll-mt-6"
               data-testid={`review-work-product-${artifact.artifactId}`}
+              id={workProductAnchorId(artifact.artifactId)}
               key={artifact.artifactId}
             >
               <DocumentEditorSurface

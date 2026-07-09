@@ -217,10 +217,25 @@ test("authenticated user can create a matter", async ({ page }) => {
       "Workflow Builder",
     );
     await expect(page.getByTestId("available-workflows-panel")).toContainText(
+      "Start a guided process for this matter.",
+    );
+    await expect(page.getByTestId("available-workflows-panel")).not.toContainText(
+      "canvas tracks",
+    );
+    await expect(
+      page.getByTestId("available-workflow-card-workflow-builder"),
+    ).toContainText("Produces: Workflow");
+    await expect(page.getByTestId("available-workflows-panel")).toContainText(
       "Start workflow",
     );
     await expect(page.getByTestId("available-workflows-canvas")).toContainText(
       "Select a workflow to begin.",
+    );
+    await expect(page.getByTestId("available-workflows-canvas")).not.toContainText(
+      "Canvas",
+    );
+    await expect(page.getByTestId("available-workflows-canvas")).not.toContainText(
+      matterName,
     );
 
     await page.getByTestId("workflow-overflow-workflow-builder").click();

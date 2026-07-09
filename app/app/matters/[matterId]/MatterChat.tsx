@@ -170,6 +170,10 @@ function statusLabel(status: WorkflowRunSummary["status"]) {
 }
 
 function workflowProducesLabel(workflow: WorkflowDefinition) {
+  if (workflow.id === "workflow-builder") {
+    return "Workflow";
+  }
+
   if (workflow.id === "chronology") {
     return "Chronology";
   }
@@ -1494,8 +1498,7 @@ export function MatterChat({
                         </h1>
                       </div>
                       <p className="max-w-sm text-sm leading-6 text-[#74677F]">
-                        Start a guided process for this matter. The canvas tracks
-                        the active workflow once one is selected.
+                        Start a guided process for this matter.
                       </p>
                     </div>
 
@@ -2324,13 +2327,7 @@ export function MatterChat({
         >
           {!activeWorkflow ? (
             <div data-testid="available-workflows-canvas">
-              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
-                Canvas
-              </p>
-              <h2 className="mt-2 text-base font-semibold text-[#211B27]">
-                {matterName}
-              </h2>
-              <div className="mt-4 rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-4">
+              <div className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-4">
                 <p className="text-sm font-semibold text-[#211B27]">
                   Select a workflow to begin.
                 </p>
