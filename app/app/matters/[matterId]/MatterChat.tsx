@@ -14,6 +14,7 @@ import type {
   MatterDocumentSummary,
 } from "@/services/matter-documents/matter-document-service";
 import { getMatterDocumentDisplayName } from "@/services/matter-documents/display-name";
+import type { WorkflowRunSummary } from "@/services/workflows/workflow-run-service";
 import {
   createDefaultWorkflowStep,
   generateWorkflowDraftFromGoal,
@@ -36,21 +37,27 @@ import {
 import type { DocumentEditorStepOutput } from "@/workflow-steps/document-editor/schema";
 import { FileSelectorStepComponent } from "@/workflow-steps/file-selector/component";
 import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/schema";
+import { ReviewWorkProductsStepComponent } from "@/workflow-steps/review-work-products/component";
 
 import {
   deleteMatterDocumentAction,
   deleteWorkflowAction,
   duplicateWorkflowAction,
+  completeWorkflowRunAction,
   getEditableMatterDocumentAction,
+  listWorkflowRunSummariesAction,
   listMatterDocumentsAction,
+  loadReviewWorkProductsStepStateAction,
   loadExtractionStepStateAction,
   loadDocumentEditorStepStateAction,
   loadFileSelectorStepStateAction,
   runExtractionStepAction,
   saveDocumentEditorArtifactAction,
+  saveWorkflowArtifactEditsAction,
   saveMatterDocumentEditsAction,
   saveCustomWorkflowAction,
   saveFileSelectorSelectionAction,
+  uploadCaseFilesAction,
   uploadFileSelectorFilesAction,
 } from "./workflow-actions";
 
@@ -60,6 +67,7 @@ type ChatMessage = AIMessage & {
 
 type MatterChatProps = {
   initialDocuments: MatterDocumentSummary[];
+  initialWorkflowRuns: WorkflowRunSummary[];
   isAdmin: boolean;
   matterId: string;
   matterName: string;
@@ -102,9 +110,9 @@ type ActiveWorkflowState = {
   workflowDefinition: WorkflowDefinition;
 };
 
-type MatterTab = "Workflows" | "Chat" | "Documents";
+type MatterTab = "Workflows" | "Case Files" | "Work Products" | "Chat";
 
-const MATTER_TABS = ["Workflows", "Chat", "Documents"] satisfies MatterTab[];
+const MATTER_TABS = ["Workflows", "Case Files", "Work Products"] as const;
 const DEFAULT_MATTER_TAB = "Workflows" satisfies MatterTab;
 
 const actionCards = [
@@ -115,7 +123,7 @@ const actionCards = [
     title: "Start a workflow",
   },
   {
-    title: "Add documents",
+    title: "Add case files",
   },
 ];
 
@@ -126,6 +134,7 @@ const WORKFLOW_EDITOR_STEP_TYPES = [
   "extraction",
   "ai",
   "documentEditor",
+  "reviewWorkProducts",
   "saveDocument",
   "runWorkflow",
   "decision",
@@ -137,6 +146,49 @@ function createMessageId() {
 
 function createWorkflowRunId() {
   return crypto.randomUUID();
+}
+
+function formatRunDate(value: string) {
+  return new Date(value).toLocaleString([], {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function statusLabel(status: WorkflowRunSummary["status"]) {
+  if (status === "completed") {
+    return "Complete";
+  }
+
+  if (status === "failed") {
+    return "Failed";
+  }
+
+  return "In progress";
+}
+
+function matterTabTestId(tab: MatterTab) {
+  return `matter-tab-${tab.toLowerCase().replace(/\s+/g, "-")}`;
+}
+
+function workflowProducesLabel(workflow: WorkflowDefinition) {
+  if (workflow.id === "chronology") {
+    return "Chronology";
+  }
+
+  if (workflow.id === "eminent-domain-case-assessment") {
+    return "Lawyer Memo, Client Summary";
+  }
+
+  const editorTitles = workflow.steps
+    .filter((step) => step.type === "documentEditor")
+    .map((step) => {
+      const title = step.parameters.documentTitle;
+
+      return typeof title === "string" && title.trim() ? title.trim() : step.name;
+    });
+
+  return editorTitles.length ? editorTitles.join(", ") : "Work products";
 }
 
 function getDocumentSection(document: MatterDocumentSummary): MatterDocumentSection {
@@ -200,6 +252,54 @@ function MatterDocumentCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function WorkflowRunCard({
+  matterId,
+  workflowRun,
+}: {
+  matterId: string;
+  workflowRun: WorkflowRunSummary;
+}) {
+  const generatedAt = workflowRun.completedAt ?? workflowRun.updatedAt;
+  const outputTitles = workflowRun.workProducts.map((workProduct) => workProduct.title);
+
+  return (
+    <Link
+      className="block rounded-lg border border-[#E3DEEA] bg-white p-4 transition-colors hover:border-[#CFC5DA] hover:bg-[#FBFAFC]"
+      data-testid={`workflow-run-card-${workflowRun.id}`}
+      href={`/app/matters/${matterId}/workflow-runs/${workflowRun.id}`}
+    >
+      <article className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-[#211B27]">
+            {workflowRun.workflowName}
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-[#74677F]">
+            Generated {formatRunDate(generatedAt)}
+          </p>
+          <dl className="mt-3 grid gap-2 text-sm leading-5 text-[#4B3861]">
+            <div>
+              <dt className="inline font-semibold">Inputs: </dt>
+              <dd className="inline">
+                {workflowRun.inputCaseFileCount} case file{workflowRun.inputCaseFileCount === 1 ? "" : "s"}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-semibold">Work products: </dt>
+              <dd className="inline">
+                {outputTitles.join(", ")}
+              </dd>
+            </div>
+            <div>
+              <dt className="inline font-semibold">Status: </dt>
+              <dd className="inline">{statusLabel(workflowRun.status)}</dd>
+            </div>
+          </dl>
+        </div>
+      </article>
+    </Link>
   );
 }
 
@@ -320,6 +420,7 @@ function isChatErrorResponse(value: unknown): value is ChatErrorResponse {
 
 export function MatterChat({
   initialDocuments,
+  initialWorkflowRuns,
   isAdmin,
   matterId,
   matterName,
@@ -335,6 +436,8 @@ export function MatterChat({
     useState<WorkflowCatalogItem[]>(initialWorkflowDefinitions);
   const [documents, setDocuments] =
     useState<MatterDocumentSummary[]>(initialDocuments);
+  const [workflowRuns, setWorkflowRuns] =
+    useState<WorkflowRunSummary[]>(initialWorkflowRuns);
   const [editableDocument, setEditableDocument] =
     useState<EditableMatterDocument | null>(null);
   const [documentEditError, setDocumentEditError] = useState("");
@@ -352,6 +455,7 @@ export function MatterChat({
   >(null);
   const [workflowActionError, setWorkflowActionError] = useState("");
   const [documentActionError, setDocumentActionError] = useState("");
+  const [isUploadingCaseFiles, setIsUploadingCaseFiles] = useState(false);
   const [workflowGoalInput, setWorkflowGoalInput] = useState("");
   const [editorWorkflow, setEditorWorkflow] =
     useState<WorkflowDefinition | null>(null);
@@ -372,11 +476,11 @@ export function MatterChat({
     scrollContainerRef,
     updateNearBottom,
   } = useChatAutoScroll([messages, isPending, errorMessage]);
-  const workProductDocuments = documents.filter(
-    (document) => getDocumentSection(document) === "workProduct",
-  );
   const sourceDocuments = documents.filter(
     (document) => getDocumentSection(document) === "sourceDocument",
+  );
+  const generatedWorkflowRuns = workflowRuns.filter(
+    (workflowRun) => workflowRun.workProducts.length > 0,
   );
 
   useEffect(() => {
@@ -1015,8 +1119,8 @@ export function MatterChat({
       ...currentMessages,
       createWorkflowMessage(
         nextStep
-          ? `Selected ${output.selectedMatterDocumentIds.length} source document${output.selectedMatterDocumentIds.length === 1 ? "" : "s"}. Next step: ${nextStep.name}.`
-          : `Selected ${output.selectedMatterDocumentIds.length} source document${output.selectedMatterDocumentIds.length === 1 ? "" : "s"}. Workflow complete.`,
+          ? `Selected ${output.selectedMatterDocumentIds.length} source case file${output.selectedMatterDocumentIds.length === 1 ? "" : "s"}. Next step: ${nextStep.name}.`
+          : `Selected ${output.selectedMatterDocumentIds.length} source case file${output.selectedMatterDocumentIds.length === 1 ? "" : "s"}. Workflow complete.`,
       ),
     ]);
   }
@@ -1045,8 +1149,8 @@ export function MatterChat({
       ...currentMessages,
       createWorkflowMessage(
         nextStep
-          ? `Prepared ${output.readyRepresentationCount} source document${output.readyRepresentationCount === 1 ? "" : "s"}. Next step: ${nextStep.name}.`
-          : `Prepared ${output.readyRepresentationCount} source document${output.readyRepresentationCount === 1 ? "" : "s"}. Workflow complete.`,
+          ? `Prepared ${output.readyRepresentationCount} source case file${output.readyRepresentationCount === 1 ? "" : "s"}. Next step: ${nextStep.name}.`
+          : `Prepared ${output.readyRepresentationCount} source case file${output.readyRepresentationCount === 1 ? "" : "s"}. Workflow complete.`,
       ),
     ]);
   }
@@ -1079,6 +1183,14 @@ export function MatterChat({
     setDocuments(nextDocuments);
   }, [matterId]);
 
+  const refreshWorkflowRuns = useCallback(async () => {
+    const nextWorkflowRuns = await listWorkflowRunSummariesAction({
+      matterId,
+    });
+
+    setWorkflowRuns(nextWorkflowRuns);
+  }, [matterId]);
+
   async function confirmDeleteMatterDocument() {
     if (!deleteCandidateDocument) {
       return;
@@ -1101,12 +1213,12 @@ export function MatterChat({
         currentDocument?.id === documentId ? null : currentDocument,
       );
       setDeleteCandidateDocument(null);
-      setSelectedTab("Documents");
+      setSelectedTab("Case Files");
     } catch (error) {
       setDocumentActionError(
         error instanceof Error && error.message.trim()
           ? error.message
-          : "Matter Layer could not delete this document.",
+          : "Matter Layer could not delete this case file.",
       );
     } finally {
       setIsDeletingDocument(false);
@@ -1128,7 +1240,7 @@ export function MatterChat({
       setDocumentEditError(
         error instanceof Error && error.message.trim()
           ? error.message
-          : "Matter Layer could not open this document for editing.",
+          : "Matter Layer could not open this case file for editing.",
       );
     } finally {
       setIsLoadingEditableDocument(false);
@@ -1164,13 +1276,44 @@ export function MatterChat({
     setDeleteCandidateDocument(document);
   }
 
+  async function uploadCaseFiles(files: FileList | null) {
+    if (!files || files.length === 0) {
+      return;
+    }
+
+    const formData = new FormData();
+
+    for (const file of Array.from(files)) {
+      formData.append("files", file);
+    }
+
+    setIsUploadingCaseFiles(true);
+    setDocumentActionError("");
+
+    try {
+      await uploadCaseFilesAction({
+        formData,
+        matterId,
+      });
+      await refreshMatterDocuments();
+    } catch (error) {
+      setDocumentActionError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Matter Layer could not upload these case files.",
+      );
+    } finally {
+      setIsUploadingCaseFiles(false);
+    }
+  }
+
   function exitDocumentEditorStep() {
     setActiveWorkflow(null);
     setSelectedTab("Workflows");
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      createWorkflowMessage("Document review complete. Workflow complete."),
-    ]);
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        createWorkflowMessage("Review Work Products complete. Workflow complete."),
+      ]);
   }
 
   function completeDocumentEditorStep(output: DocumentEditorStepOutput) {
@@ -1200,7 +1343,7 @@ export function MatterChat({
     });
     setMessages((currentMessages) => [
       ...currentMessages,
-      createWorkflowMessage(`Document review complete. Next step: ${nextStep.name}.`),
+      createWorkflowMessage(`Review Work Products complete. Next step: ${nextStep.name}.`),
     ]);
   }
 
@@ -1395,7 +1538,7 @@ export function MatterChat({
                       index === 0 ? "pr-4" : "px-4"
                     }`
               }
-              data-testid={`matter-tab-${tab.toLowerCase()}`}
+              data-testid={matterTabTestId(tab)}
               key={tab}
               onClick={() => selectMatterTab(tab)}
               type="button"
@@ -1472,6 +1615,10 @@ export function MatterChat({
                                   {workflow.description}
                                 </p>
                               ) : null}
+                              <p className="mt-3 text-sm leading-6 text-[#4B3861]">
+                                <span className="font-semibold">Produces: </span>
+                                {workflowProducesLabel(workflow)}
+                              </p>
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               <button
@@ -1480,7 +1627,7 @@ export function MatterChat({
                                 onClick={() => startWorkflow(workflow)}
                                 type="button"
                               >
-                                Start workflow
+                                Start
                               </button>
                               <div className="relative">
                                 <button
@@ -1933,6 +2080,19 @@ export function MatterChat({
                     workflowDefinitionId={activeWorkflow.workflowDefinition.id}
                     workflowRunId={activeWorkflow.workflowRunId}
                   />
+                ) : selectedTab === "Workflows" &&
+                  activeWorkflow &&
+                  activeWorkflowStep?.type === "reviewWorkProducts" ? (
+                  <ReviewWorkProductsStepComponent
+                    completeWorkflowRun={completeWorkflowRunAction}
+                    loadStepState={loadReviewWorkProductsStepStateAction}
+                    matterId={matterId}
+                    onWorkflowRunCompleted={refreshWorkflowRuns}
+                    saveWorkProduct={saveWorkflowArtifactEditsAction}
+                    workflowDefinitionId={activeWorkflow.workflowDefinition.id}
+                    workflowName={activeWorkflow.workflowDefinition.name}
+                    workflowRunId={activeWorkflow.workflowRunId}
+                  />
                 ) : selectedTab === "Workflows" && activeWorkflow ? (
                   <div
                     className="grid gap-5"
@@ -1996,12 +2156,12 @@ export function MatterChat({
                   </div>
                 ) : null}
 
-                {selectedTab === "Documents" && (editableDocument || isLoadingEditableDocument) ? (
-                  <div data-testid="documents-edit-view">
+                {selectedTab === "Case Files" && (editableDocument || isLoadingEditableDocument) ? (
+                  <div data-testid="case-files-edit-view">
                     <DocumentEditorSurface
                       contentHtml={editableDocument?.editorContentHtml ?? ""}
                       disabled={!editableDocument}
-                      errorFallback="Matter Layer could not save this document."
+                      errorFallback="Matter Layer could not save this case file."
                       isLoading={isLoadingEditableDocument}
                       onDone={returnToDocumentsList}
                       onSave={saveEditableMatterDocument}
@@ -2009,83 +2169,94 @@ export function MatterChat({
                       title={
                         editableDocument
                           ? getMatterDocumentDisplayName(editableDocument)
-                          : "Document"
+                          : "Case File"
                       }
                       unsavedStatusLabel="Unsaved changes"
                     />
                   </div>
-                ) : selectedTab === "Documents" && documents.length === 0 ? (
+                ) : selectedTab === "Case Files" && sourceDocuments.length === 0 ? (
                   <div
                     className="flex min-h-full items-center justify-center rounded-xl border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-6 text-center"
-                    data-testid="documents-empty-state"
+                    data-testid="case-files-empty-state"
                   >
                     <div>
                       <h2 className="text-base font-semibold text-[#211B27]">
-                        Documents
+                        Case Files
                       </h2>
                       <p className="mt-2 text-sm leading-6 text-[#74677F]">
-                        Matter documents will appear here.
+                        No case files have been uploaded yet.
                       </p>
+                      <label className="mt-4 inline-flex h-9 cursor-pointer items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861]">
+                        {isUploadingCaseFiles ? "Uploading..." : "Upload"}
+                        <input
+                          className="sr-only"
+                          data-testid="case-files-upload-input"
+                          disabled={isUploadingCaseFiles}
+                          multiple
+                          onChange={(event) => {
+                            void uploadCaseFiles(event.target.files);
+                            event.target.value = "";
+                          }}
+                          type="file"
+                        />
+                      </label>
+                      {documentActionError ? (
+                        <p
+                          className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800"
+                          data-testid="case-files-action-error"
+                          role="alert"
+                        >
+                          {documentActionError}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
-                ) : selectedTab === "Documents" ? (
-                  <div className="grid gap-6" data-testid="documents-list">
-                    <section data-testid="documents-work-product-section">
-                      <h2 className="text-sm font-semibold text-[#211B27]">
-                        Work Product
-                      </h2>
-                      <div className="mt-3 grid gap-3">
-                        {workProductDocuments.length ? (
-                          workProductDocuments.map((document) => (
-                            <MatterDocumentCard
-                              document={document}
-                              key={document.id}
-                              onDelete={promptDeleteMatterDocument}
-                              onEdit={(documentId) => {
-                                void startEditingMatterDocument(documentId);
-                              }}
-                              section="workProduct"
-                            />
-                          ))
-                        ) : (
-                          <p
-                            className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#74677F]"
-                            data-testid="documents-work-product-empty"
-                          >
-                            No work product has been saved yet.
+                ) : selectedTab === "Case Files" ? (
+                  <div className="grid gap-6" data-testid="case-files-list">
+                    <section data-testid="case-files-source-section">
+                      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#E3DEEA] pb-4">
+                        <div>
+                          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
+                            {matterName}
                           </p>
-                        )}
+                          <h1 className="mt-2 text-2xl font-semibold text-[#211B27]">
+                            Case Files
+                          </h1>
+                        </div>
+                        <p className="max-w-sm text-sm leading-6 text-[#74677F]">
+                          Uploaded source files used as workflow inputs.
+                        </p>
+                        <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-lg bg-[#5F4B76] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#4B3861]">
+                          {isUploadingCaseFiles ? "Uploading..." : "Upload"}
+                          <input
+                            className="sr-only"
+                            data-testid="case-files-upload-input"
+                            disabled={isUploadingCaseFiles}
+                            multiple
+                            onChange={(event) => {
+                              void uploadCaseFiles(event.target.files);
+                              event.target.value = "";
+                            }}
+                            type="file"
+                          />
+                        </label>
                       </div>
-                    </section>
-
-                    <section data-testid="documents-source-documents-section">
-                      <h2 className="text-sm font-semibold text-[#211B27]">
-                        Source Documents
-                      </h2>
-                      <div className="mt-3 grid gap-3">
-                        {sourceDocuments.length ? (
-                          sourceDocuments.map((document) => (
-                            <MatterDocumentCard
-                              document={document}
-                              key={document.id}
-                              onDelete={promptDeleteMatterDocument}
-                              section="sourceDocument"
-                            />
-                          ))
-                        ) : (
-                          <p
-                            className="rounded-lg border border-dashed border-[#CFC5DA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#74677F]"
-                            data-testid="documents-source-documents-empty"
-                          >
-                            No source documents have been added yet.
-                          </p>
-                        )}
+                      <div className="mt-4 grid gap-3">
+                        {sourceDocuments.map((document) => (
+                          <MatterDocumentCard
+                            document={document}
+                            key={document.id}
+                            onDelete={promptDeleteMatterDocument}
+                            onEdit={startEditingMatterDocument}
+                            section="sourceDocument"
+                          />
+                        ))}
                       </div>
                     </section>
                     {documentEditError ? (
                       <p
                         className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900"
-                        data-testid="documents-edit-error"
+                        data-testid="case-files-edit-error"
                         role="alert"
                       >
                         {documentEditError}
@@ -2094,12 +2265,51 @@ export function MatterChat({
                     {documentActionError ? (
                       <p
                         className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800"
-                        data-testid="documents-action-error"
+                        data-testid="case-files-action-error"
                         role="alert"
                       >
                         {documentActionError}
                       </p>
                     ) : null}
+                  </div>
+                ) : selectedTab === "Work Products" && generatedWorkflowRuns.length === 0 ? (
+                  <div
+                    className="flex min-h-full items-center justify-center rounded-xl border border-dashed border-[#CFC5DA] bg-[#FBFAFC] p-6 text-center"
+                    data-testid="work-products-empty-state"
+                  >
+                    <div>
+                      <h2 className="text-base font-semibold text-[#211B27]">
+                        Work Products
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-[#74677F]">
+                        Generated work products will appear here after a workflow completes.
+                      </p>
+                    </div>
+                  </div>
+                ) : selectedTab === "Work Products" ? (
+                  <div className="grid gap-5" data-testid="work-products-list">
+                    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#E3DEEA] pb-4">
+                      <div>
+                        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-[#74677F]">
+                          {matterName}
+                        </p>
+                        <h1 className="mt-2 text-2xl font-semibold text-[#211B27]">
+                          Work Products
+                        </h1>
+                      </div>
+                      <p className="max-w-sm text-sm leading-6 text-[#74677F]">
+                        Generated work products grouped by workflow run.
+                      </p>
+                    </div>
+                    <div className="grid gap-3">
+                      {generatedWorkflowRuns.map((workflowRun) => (
+                        <WorkflowRunCard
+                          key={workflowRun.id}
+                          matterId={matterId}
+                          workflowRun={workflowRun}
+                        />
+                      ))}
+                    </div>
                   </div>
                 ) : null}
 
@@ -2413,7 +2623,7 @@ export function MatterChat({
         confirmLabel="Delete"
         confirmTestId="confirm-delete-document"
         isPending={isDeletingDocument}
-        message="This will permanently delete this document from the matter. This action cannot be undone."
+        message="This will permanently delete this case file from the matter. This action cannot be undone."
         onCancel={() => {
           setDeleteCandidateDocument(null);
           setDocumentActionError("");
@@ -2423,7 +2633,7 @@ export function MatterChat({
         }}
         open={Boolean(deleteCandidateDocument)}
         testId="delete-document-dialog"
-        title="Delete document?"
+        title="Delete case file?"
         variant="danger"
       >
         {documentActionError ? (

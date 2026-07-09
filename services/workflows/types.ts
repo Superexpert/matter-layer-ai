@@ -4,6 +4,7 @@ export const WORKFLOW_STEP_TYPES = [
   "extraction",
   "ai",
   "documentEditor",
+  "reviewWorkProducts",
   "saveDocument",
   "workflowEditor",
   "workflowReview",

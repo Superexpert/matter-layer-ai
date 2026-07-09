@@ -49,6 +49,7 @@ type DocumentEditorSurfaceProps = {
   disabled?: boolean;
   errorFallback: string;
   exportButtonLabel?: string;
+  hideCompletionButton?: boolean;
   initialSaveStatus?: "saved" | "unsaved";
   isLoading: boolean;
   onDone: (saveResult?: unknown) => void;
@@ -111,6 +112,7 @@ export function DocumentEditorSurface({
   disabled = false,
   errorFallback,
   exportButtonLabel = "Export",
+  hideCompletionButton = false,
   initialSaveStatus = "saved",
   isLoading,
   onDone,
@@ -411,7 +413,7 @@ export function DocumentEditorSurface({
         </p>
       ) : null}
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className={hideCompletionButton ? "grid gap-2 sm:grid-cols-2" : "grid gap-2 sm:grid-cols-3"}>
         <button
           className={documentActionButtonClass()}
           data-testid="document-editor-save"
@@ -434,17 +436,19 @@ export function DocumentEditorSurface({
         >
           {isExporting ? "Exporting..." : exportButtonLabel}
         </button>
-        <button
-          className={documentActionButtonClass("primary")}
-          data-testid="document-editor-continue"
-          disabled={isLoading || isSaving || disabled || !editor}
-          onClick={() => {
-            void saveAndDone();
-          }}
-          type="button"
-        >
-          {isSaving ? "Saving..." : completionButtonLabel}
-        </button>
+        {hideCompletionButton ? null : (
+          <button
+            className={documentActionButtonClass("primary")}
+            data-testid="document-editor-continue"
+            disabled={isLoading || isSaving || disabled || !editor}
+            onClick={() => {
+              void saveAndDone();
+            }}
+            type="button"
+          >
+            {isSaving ? "Saving..." : completionButtonLabel}
+          </button>
+        )}
       </div>
     </section>
   );

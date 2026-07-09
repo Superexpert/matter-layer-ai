@@ -8,14 +8,14 @@ import {
 } from "../../services/workflows/admin-workflow-catalog";
 
 const workflowDefinition = {
-  description: "Create a chronology from selected matter documents.",
+  description: "Create a chronology from selected case files.",
   id: "chronology",
   name: "Chronology",
   steps: [
     {
-      description: "Choose source documents.",
+      description: "Choose source case files.",
       id: "select-source-files",
-      name: "Select source documents",
+      name: "Select Case Files",
       parameters: {
         allowUpload: true,
         maxFiles: 3,
@@ -27,7 +27,7 @@ const workflowDefinition = {
       autorun: true,
       description: "Extract chronology facts.",
       id: "extract-chronology",
-      name: "Prepare source documents",
+      name: "Extract Facts",
       parameters: {
         inputStepId: "select-source-files",
         profile: "chronology",
@@ -49,7 +49,7 @@ const workflowRow = {
 describe("admin workflow catalog normalization", () => {
   it("normalizes workflow summaries without exposing step implementation details", () => {
     expect(normalizeAdminWorkflowSummary(workflowRow)).toEqual({
-      description: "Create a chronology from selected matter documents.",
+      description: "Create a chronology from selected case files.",
       id: "chronology",
       isBuiltIn: true,
       isEnabled: true,
@@ -65,16 +65,16 @@ describe("admin workflow catalog normalization", () => {
 
     expect(detail.steps).toMatchObject([
       {
-        description: "Choose source documents.",
+        description: "Choose source case files.",
         id: "select-source-files",
-        name: "Select source documents",
+        name: "Select Case Files",
         type: "fileSelector",
         typeLabel: "File Selector",
       },
       {
         description: "Extract chronology facts.",
         id: "extract-chronology",
-        name: "Prepare source documents",
+        name: "Extract Facts",
         type: "extraction",
         typeLabel: "Extraction",
       },

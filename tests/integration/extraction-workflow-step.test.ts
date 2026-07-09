@@ -788,7 +788,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
     expect(artifact).toMatchObject({
       matterId: matter.id,
       stepId: extractionStep.id,
-      title: "Chronology Draft",
+      title: "Chronology",
       workflowRunId,
     });
     expect(artifact.content).not.toContain("Chronology of Events");

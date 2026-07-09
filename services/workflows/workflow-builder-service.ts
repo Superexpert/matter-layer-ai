@@ -66,8 +66,8 @@ export function createDefaultWorkflowStep(
     return step(
       `select-files-${suffix}`,
       "fileSelector",
-      "Select Matter Files",
-      "Choose the matter files to use as source material.",
+      "Select Case Files",
+      "Choose the case files to use as source material.",
       {
         acceptedMimeTypes: [
           "application/pdf",
@@ -96,7 +96,7 @@ export function createDefaultWorkflowStep(
       `extract-information-${suffix}`,
       "extraction",
       "Extract Information",
-      "Extract structured facts or events from selected matter documents.",
+      "Extract structured facts or events from selected case files.",
       {
         inputStepId: "select-files-1",
         outputKey: "chronologyArtifactId",
@@ -131,6 +131,18 @@ export function createDefaultWorkflowStep(
       "documentEditor",
       "Review Document",
       "Display an editable document for lawyer review.",
+    );
+  }
+
+  if (type === "reviewWorkProducts") {
+    return step(
+      `review-work-products-${suffix}`,
+      "reviewWorkProducts",
+      "Review Work Products",
+      "Review generated work products inline.",
+      {
+        inputStepId: "extract-information-1",
+      },
     );
   }
 
@@ -232,8 +244,8 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
         step(
           "select-files",
           "fileSelector",
-          "Select Matter Files",
-          "Choose matter documents to include in the chronology.",
+          "Select Case Files",
+          "Choose case files to include in the chronology.",
           {
             acceptedMimeTypes: [
               "application/pdf",
@@ -249,8 +261,8 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
         step(
           "extract-events",
           "extraction",
-          "Prepare Source Documents",
-          "Convert the selected documents into AI-readable Markdown for chronology extraction.",
+          "Extract Facts",
+          "Extract chronology facts from the selected case files.",
           {
             inputStepId: "select-files",
             outputKey: "chronologyArtifactId",
@@ -268,16 +280,12 @@ export function generateWorkflowDraftFromGoal(goal: string): WorkflowDefinition 
           },
         ),
         step(
-          "review-chronology",
-          "documentEditor",
-          "Review Chronology",
-          "Review and edit the chronology.",
+          "review-work-products",
+          "reviewWorkProducts",
+          "Review Work Products",
+          "Review generated work products inline.",
           {
-            artifactOutputKey: "chronologyArtifactId",
-            contentType: "MARKDOWN",
-            editor: "tiptap",
             inputStepId: "extract-events",
-            saveMode: "revision",
           },
         ),
       ],

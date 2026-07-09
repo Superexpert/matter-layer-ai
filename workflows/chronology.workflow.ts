@@ -1,14 +1,14 @@
 import type { BuiltInWorkflowDefinition, WorkflowDefinition } from "@/services/workflows/types";
 
 export const chronologyDefinition: WorkflowDefinition = {
-  description: "Create a chronology from selected matter documents.",
+  description: "Create a chronology from selected case files.",
   id: "chronology",
   name: "Chronology",
   steps: [
     {
-      description: "Choose the matter documents that should be used for this workflow.",
+      description: "Choose the case files that should be used for this workflow.",
       id: "select-source-files",
-      name: "Select source documents",
+      name: "Select Case Files",
       parameters: {
         acceptedMimeTypes: [
           "application/pdf",
@@ -24,9 +24,9 @@ export const chronologyDefinition: WorkflowDefinition = {
     },
     {
       autorun: true,
-      description: "Convert the selected documents into AI-readable Markdown for chronology extraction.",
+      description: "Extract chronology facts from the selected case files.",
       id: "extract-chronology",
-      name: "Prepare source documents",
+      name: "Extract Facts",
       parameters: {
         inputStepId: "select-source-files",
         outputKey: "chronologyArtifactId",
@@ -42,25 +42,19 @@ export const chronologyDefinition: WorkflowDefinition = {
       type: "extraction",
     },
     {
-      description: "Review and edit the generated chronology.",
-      id: "review-chronology",
-      name: "Review chronology",
+      description: "Review generated work products inline.",
+      id: "review-work-products",
+      name: "Review Work Products",
       parameters: {
-        artifactOutputKey: "chronologyArtifactId",
-        contentType: "MARKDOWN",
-        documentFileName: "Chronology.md",
-        documentTitle: "Chronology",
-        editor: "tiptap",
         inputStepId: "extract-chronology",
-        saveMode: "revision",
       },
-      type: "documentEditor",
+      type: "reviewWorkProducts",
     },
   ],
 };
 
 export const chronologyBuiltIn: BuiltInWorkflowDefinition = {
-  builtInVersion: 1,
+  builtInVersion: 3,
   definition: chronologyDefinition,
   isEnabledByDefault: true,
   isSystem: false,

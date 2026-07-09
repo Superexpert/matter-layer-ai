@@ -57,20 +57,19 @@ test("built-in workflow sync upserts built-in workflows into the database", asyn
   expect(eminentDomainWorkflow.source).toBe(WorkflowSource.builtIn);
   expect(eminentDomainWorkflow.isSystem).toBe(false);
   expect(eminentDomainWorkflow.isEnabled).toBe(true);
-  expect(eminentDomainWorkflow.builtInVersion).toBe(1);
+  expect(eminentDomainWorkflow.builtInVersion).toBe(3);
 
   expect(
     workflowDefinitions.some(
       (workflow) =>
         workflow.id === "eminent-domain-case-assessment" &&
         workflow.name === "Eminent Domain Case Assessment" &&
-        workflow.steps.length === 4 &&
+        workflow.steps.length === 3 &&
         workflow.steps[0]?.type === "fileSelector" &&
         workflow.steps[1]?.type === "extraction" &&
-        workflow.steps[1]?.name === "Analyze Case Documents" &&
-        workflow.steps[2]?.type === "documentEditor" &&
-        workflow.steps[2]?.name === "Review Lawyer Memo" &&
-        workflow.steps[3]?.name === "Review Client Summary",
+        workflow.steps[1]?.name === "Extract Facts" &&
+        workflow.steps[2]?.type === "reviewWorkProducts" &&
+        workflow.steps[2]?.name === "Review Work Products",
     ),
   ).toBe(true);
 

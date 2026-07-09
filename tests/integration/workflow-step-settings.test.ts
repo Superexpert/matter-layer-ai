@@ -287,7 +287,7 @@ test("Extraction step state includes the effective provider display info", async
         matterId: matter.id,
         step: {
           id: "extract-chronology",
-          name: "Prepare source documents",
+          name: "Extract Facts",
           parameters: {
             inputStepId: "select-source-files",
             profile: "chronology",
@@ -353,7 +353,7 @@ test("Extraction AI service factory receives the step-level override when config
     matterId: "matter",
     step: {
       id: "extract-chronology",
-      name: "Prepare source documents",
+      name: "Extract Facts",
       parameters: {
         inputStepId: "select-source-files",
         profile: "chronology",

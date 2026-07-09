@@ -7,6 +7,7 @@ import {
 import { extractionStep } from "@/workflow-steps/extraction/definition";
 import { fileSelectorStep } from "@/workflow-steps/file-selector/definition";
 import { documentEditorStep } from "@/workflow-steps/document-editor/definition";
+import { reviewWorkProductsStep } from "@/workflow-steps/review-work-products/definition";
 
 function placeholderExecute(): never {
   throw new Error("Workflow execution is not implemented yet.");
@@ -87,6 +88,7 @@ export const workflowStepRegistry: Record<WorkflowStepType, WorkflowStepRegistra
     "Run Workflow",
     "Run another workflow as a nested step.",
   ),
+  reviewWorkProducts: reviewWorkProductsStep,
   saveDocument: register(
     "saveDocument",
     "Save Document",

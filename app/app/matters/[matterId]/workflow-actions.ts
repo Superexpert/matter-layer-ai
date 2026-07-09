@@ -14,6 +14,13 @@ import {
   duplicateWorkflow,
   getWorkflowCatalogItem,
 } from "@/services/workflows/catalog-service";
+import {
+  completeWorkflowRun,
+  getEditableWorkflowArtifact,
+  getWorkflowRunDetails,
+  listWorkflowRunSummaries,
+  saveWorkflowArtifactEdits,
+} from "@/services/workflows/workflow-run-service";
 import { requireCurrentUser } from "@/services/users/user-service";
 import type { WorkflowDefinition } from "@/services/workflows/types";
 import {
@@ -64,6 +71,77 @@ export async function listMatterDocumentsAction(input: {
   await requireCurrentUser();
 
   return listMatterDocuments(input);
+}
+
+export async function listWorkflowRunSummariesAction(input: {
+  matterId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  return listWorkflowRunSummaries(input);
+}
+
+export async function completeWorkflowRunAction(input: {
+  matterId: string;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  await completeWorkflowRun(input);
+}
+
+export async function getEditableWorkflowArtifactAction(input: {
+  artifactId: string;
+  matterId: string;
+  workflowRunId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  return getEditableWorkflowArtifact(input);
+}
+
+export async function loadReviewWorkProductsStepStateAction(input: {
+  matterId: string;
+  workflowRunId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+
+  const workflowRun = await getWorkflowRunDetails(input);
+  const editableWorkProducts = await Promise.all(
+    workflowRun.workProducts.map((workProduct) =>
+      getEditableWorkflowArtifact({
+        artifactId: workProduct.id,
+        matterId: input.matterId,
+        workflowRunId: input.workflowRunId,
+      }),
+    ),
+  );
+
+  return {
+    editableWorkProducts,
+    workflowRun,
+  };
+}
+
+export async function saveWorkflowArtifactEditsAction(input: {
+  artifactId: string;
+  contentMarkdown: string;
+  editorJson?: unknown;
+  matterId: string;
+  workflowRunId: string;
+}) {
+  noStore();
+  const currentUser = await requireCurrentUser();
+
+  return saveWorkflowArtifactEdits({
+    ...input,
+    userId: currentUser.id,
+  });
 }
 
 export async function getEditableMatterDocumentAction(input: {
@@ -120,6 +198,33 @@ export async function uploadFileSelectorFilesAction(input: {
 
   return uploadMatterDocuments({
     config: input.config,
+    files,
+    matterId: input.matterId,
+    userId: currentUser.id,
+  });
+}
+
+export async function uploadCaseFilesAction(input: {
+  formData: FormData;
+  matterId: string;
+}) {
+  const currentUser = await requireCurrentUser();
+  const files = input.formData
+    .getAll("files")
+    .filter((value): value is File => value instanceof File);
+
+  return uploadMatterDocuments({
+    config: {
+      acceptedMimeTypes: [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+      ],
+      allowExistingMatterFiles: true,
+      allowUpload: true,
+      maxFiles: null,
+      minFiles: 1,
+    },
     files,
     matterId: input.matterId,
     userId: currentUser.id,

@@ -6,13 +6,13 @@ import {
 } from "../../workflows";
 
 describe("built-in workflow registration", () => {
-  it("registers Eminent Domain Case Assessment with document editor review steps", () => {
+  it("registers Eminent Domain Case Assessment with a generic Review Work Products step", () => {
     const builtInWorkflow = builtInWorkflows.find(
       (workflow) => workflow.slug === "eminent-domain-case-assessment",
     );
 
     expect(builtInWorkflow).toMatchObject({
-      builtInVersion: 1,
+      builtInVersion: 3,
       isEnabledByDefault: true,
       isSystem: false,
       slug: "eminent-domain-case-assessment",
@@ -29,7 +29,7 @@ describe("built-in workflow registration", () => {
         description:
           "Select the offer letters, appraisal reports, petitions, maps, surveys, correspondence, and other documents related to the eminent domain matter.",
         id: "select-documents",
-        name: "Select Documents",
+        name: "Select Case Files",
         parameters: {
           acceptedMimeTypes: [
             "application/pdf",
@@ -46,9 +46,9 @@ describe("built-in workflow registration", () => {
       {
         autorun: true,
         description:
-          "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected documents.",
+          "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected case files.",
         id: "analyze-case-documents",
-        name: "Analyze Case Documents",
+        name: "Extract Facts",
         parameters: {
           inputStepId: "select-documents",
           outputKey: "eminentDomainCaseAssessment",
@@ -58,7 +58,7 @@ describe("built-in workflow registration", () => {
           ui: {
             profileLine: null,
             retryButtonLabel: "Retry analysis",
-            runButtonLabel: "Analyze case documents",
+            runButtonLabel: "Analyze case files",
             runningButtonLabel: "Analyzing...",
             runningDocumentLabel: "Analyzing",
           },
@@ -66,56 +66,19 @@ describe("built-in workflow registration", () => {
         type: "extraction",
       },
       {
-        description:
-          "Review and edit a lawyer-facing memo generated from the analyzed matter documents.",
-        id: "review-lawyer-memo",
-        name: "Review Lawyer Memo",
+        description: "Review generated work products inline.",
+        id: "review-work-products",
+        name: "Review Work Products",
         parameters: {
-          completionButtonLabel: "Approve Memo & Generate Client Summary",
-          artifactOutputKey: "eminentDomainLawyerMemoArtifactId",
-          contentType: "MARKDOWN",
-          documentFileName: "Lawyer Memo",
-          documentTitle: "Lawyer Memo",
-          editor: "tiptap",
-          generatedArtifact: {
-            extractionOutputKey: "eminentDomainCaseAssessment",
-            extractionStepId: "analyze-case-documents",
-            kind: "eminent-domain-lawyer-memo",
-          },
           inputStepId: "analyze-case-documents",
-          saveMode: "revision",
         },
-        type: "documentEditor",
-      },
-      {
-        description:
-          "Review and edit a client-facing summary generated from the reviewed lawyer memo.",
-        id: "review-client-summary",
-        name: "Review Client Summary",
-        parameters: {
-          completionButtonLabel: "Complete Workflow",
-          artifactOutputKey: "eminentDomainClientSummaryArtifactId",
-          contentType: "MARKDOWN",
-          documentFileName: "Client Summary",
-          documentTitle: "Client Summary",
-          editor: "tiptap",
-          generatedArtifact: {
-            extractionOutputKey: "eminentDomainCaseAssessment",
-            extractionStepId: "analyze-case-documents",
-            kind: "eminent-domain-client-summary",
-            reviewedLawyerMemoStepId: "review-lawyer-memo",
-          },
-          inputStepId: "analyze-case-documents",
-          saveMode: "revision",
-        },
-        type: "documentEditor",
+        type: "reviewWorkProducts",
       },
     ]);
     expect(eminentDomainCaseAssessmentDefinition.steps.map((step) => step.name)).toEqual([
-      "Select Documents",
-      "Analyze Case Documents",
-      "Review Lawyer Memo",
-      "Review Client Summary",
+      "Select Case Files",
+      "Extract Facts",
+      "Review Work Products",
     ]);
   });
 });

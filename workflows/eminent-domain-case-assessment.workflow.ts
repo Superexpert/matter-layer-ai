@@ -10,7 +10,7 @@ export const eminentDomainCaseAssessmentDefinition: WorkflowDefinition = {
       description:
         "Select the offer letters, appraisal reports, petitions, maps, surveys, correspondence, and other documents related to the eminent domain matter.",
       id: "select-documents",
-      name: "Select Documents",
+      name: "Select Case Files",
       parameters: {
         acceptedMimeTypes: [
           "application/pdf",
@@ -27,9 +27,9 @@ export const eminentDomainCaseAssessmentDefinition: WorkflowDefinition = {
     {
       autorun: true,
       description:
-        "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected documents.",
+        "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected case files.",
       id: "analyze-case-documents",
-      name: "Analyze Case Documents",
+      name: "Extract Facts",
       parameters: {
         inputStepId: "select-documents",
         outputKey: "eminentDomainCaseAssessment",
@@ -39,7 +39,7 @@ export const eminentDomainCaseAssessmentDefinition: WorkflowDefinition = {
         ui: {
           profileLine: null,
           retryButtonLabel: "Retry analysis",
-          runButtonLabel: "Analyze case documents",
+          runButtonLabel: "Analyze case files",
           runningButtonLabel: "Analyzing...",
           runningDocumentLabel: "Analyzing",
         },
@@ -47,55 +47,19 @@ export const eminentDomainCaseAssessmentDefinition: WorkflowDefinition = {
       type: "extraction",
     },
     {
-      description:
-        "Review and edit a lawyer-facing memo generated from the analyzed matter documents.",
-      id: "review-lawyer-memo",
-      name: "Review Lawyer Memo",
+      description: "Review generated work products inline.",
+      id: "review-work-products",
+      name: "Review Work Products",
       parameters: {
-        completionButtonLabel: "Approve Memo & Generate Client Summary",
-        artifactOutputKey: "eminentDomainLawyerMemoArtifactId",
-        contentType: "MARKDOWN",
-        documentFileName: "Lawyer Memo",
-        documentTitle: "Lawyer Memo",
-        editor: "tiptap",
-        generatedArtifact: {
-          extractionOutputKey: "eminentDomainCaseAssessment",
-          extractionStepId: "analyze-case-documents",
-          kind: "eminent-domain-lawyer-memo",
-        },
         inputStepId: "analyze-case-documents",
-        saveMode: "revision",
       },
-      type: "documentEditor",
-    },
-    {
-      description:
-        "Review and edit a client-facing summary generated from the reviewed lawyer memo.",
-      id: "review-client-summary",
-      name: "Review Client Summary",
-      parameters: {
-        completionButtonLabel: "Complete Workflow",
-        artifactOutputKey: "eminentDomainClientSummaryArtifactId",
-        contentType: "MARKDOWN",
-        documentFileName: "Client Summary",
-        documentTitle: "Client Summary",
-        editor: "tiptap",
-        generatedArtifact: {
-          extractionOutputKey: "eminentDomainCaseAssessment",
-          extractionStepId: "analyze-case-documents",
-          kind: "eminent-domain-client-summary",
-          reviewedLawyerMemoStepId: "review-lawyer-memo",
-        },
-        inputStepId: "analyze-case-documents",
-        saveMode: "revision",
-      },
-      type: "documentEditor",
+      type: "reviewWorkProducts",
     },
   ],
 };
 
 export const eminentDomainCaseAssessmentBuiltIn: BuiltInWorkflowDefinition = {
-  builtInVersion: 1,
+  builtInVersion: 3,
   definition: eminentDomainCaseAssessmentDefinition,
   isEnabledByDefault: true,
   isSystem: false,

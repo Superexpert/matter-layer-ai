@@ -35,7 +35,7 @@ export const chronologyExtractionProfile = {
                 undatedEventCount: result.undatedCollapsedEventCount,
               },
               outputKey: "chronologyArtifactId",
-              title: "Chronology Draft",
+              title: "Chronology",
             },
           ]
         : [],

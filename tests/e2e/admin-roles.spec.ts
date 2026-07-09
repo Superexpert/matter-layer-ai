@@ -295,7 +295,7 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     ).toHaveAttribute("href", "/app/admin/workflows/chronology");
     await expect(
       page.getByTestId("admin-workflow-card-chronology"),
-    ).toContainText("Create a chronology from selected matter documents.");
+    ).toContainText("Create a chronology from selected case files.");
     await expect(
       page.getByTestId("admin-workflow-card-chronology"),
     ).not.toContainText("3 steps");
@@ -311,14 +311,14 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
       "Chronology",
     );
     await expect(page.getByTestId("admin-workflow-detail-page")).toContainText(
-      "Create a chronology from selected matter documents.",
+      "Create a chronology from selected case files.",
     );
-    await expect(page.getByTestId("admin-workflow-step")).toHaveCount(3);
+    await expect(page.getByTestId("admin-workflow-step")).toHaveCount(2);
     await expect(page.getByTestId("admin-workflow-step").nth(0)).toContainText(
-      "Select source documents",
+      "Select Case Files",
     );
     await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
-      "Prepare source documents",
+      "Extract Facts",
     );
     await expect(page.getByTestId("admin-workflow-step").nth(1)).toContainText(
       "AI Provider",
@@ -326,9 +326,6 @@ test("Admin nav link is visible only to Admin users and /app/admin is protected"
     await expect(
       page.getByTestId("admin-setting-input-extract-chronology-aiProviderId"),
     ).toContainText("Use default AI Provider");
-    await expect(page.getByTestId("admin-workflow-step").nth(2)).toContainText(
-      "Review chronology",
-    );
     await page.goto(`${server.baseURL}/app/admin/workflows/missing-workflow`);
     await expect(page.getByTestId("admin-workflow-not-found")).toContainText(
       "Workflow not found",

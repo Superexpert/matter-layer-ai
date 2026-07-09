@@ -7,6 +7,7 @@ import {
   syncBuiltInWorkflows,
 } from "@/services/workflows/catalog-service";
 import { listMatterDocuments } from "@/services/matter-documents/matter-document-service";
+import { listWorkflowRunSummaries } from "@/services/workflows/workflow-run-service";
 
 import { MatterChat } from "./MatterChat";
 
@@ -39,9 +40,12 @@ export default async function MatterPage({ params }: MatterPageProps) {
   }
 
   await syncBuiltInWorkflows();
-  const [workflowCatalog, documents] = await Promise.all([
+  const [workflowCatalog, documents, workflowRuns] = await Promise.all([
     listEnabledWorkflowCatalog(),
     listMatterDocuments({
+      matterId,
+    }),
+    listWorkflowRunSummaries({
       matterId,
     }),
   ]);
@@ -49,6 +53,7 @@ export default async function MatterPage({ params }: MatterPageProps) {
   return (
     <MatterChat
       initialDocuments={documents}
+      initialWorkflowRuns={workflowRuns}
       isAdmin={isAdmin}
       matterId={matterId}
       matterName={matter.name}
