@@ -8,7 +8,10 @@ import { afterAll, expect, test } from "vitest";
 
 import { uploadMatterDocuments } from "../../workflow-steps/file-selector/server";
 import { defaultFileSelectorConfig } from "../../workflow-steps/file-selector/schema";
-import { deleteMatterDocument } from "../../services/matter-documents/matter-document-service";
+import {
+  deleteMatterDocument,
+  getCitationSourceDocumentPreview,
+} from "../../services/matter-documents/matter-document-service";
 import {
   ensureMatterDocumentRepresentation,
   generateMatterDocumentMarkdown,
@@ -219,6 +222,48 @@ test("text/plain files convert to Markdown and reuse READY representations", asy
 
     expect(reused.id).toBe(representation.id);
     expect(reused.updatedAt.getTime()).toBe(representation.updatedAt.getTime());
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("citation source preview resolves to original uploaded document metadata", async () => {
+  const { matter, user } = await createUserAndMatter();
+
+  try {
+    const document = await uploadFixture({
+      bytes: Buffer.from("Plain text notes."),
+      fileName: "owner-response.docx",
+      matterId: matter.id,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      userId: user.id,
+    });
+
+    await prisma.matterDocumentRepresentation.create({
+      data: {
+        content: "This generated Markdown should stay internal.",
+        matterDocumentId: document.id,
+        metadataJson: {
+          converter: "mammoth",
+        },
+        status: MatterDocumentRepresentationStatus.READY,
+        type: MatterDocumentRepresentationType.MARKDOWN,
+      },
+    });
+
+    const preview = await getCitationSourceDocumentPreview({
+      matterDocumentId: document.id,
+      matterId: matter.id,
+    });
+
+    expect(preview).toEqual({
+      originalUrl: `/api/matters/${matter.id}/documents/${document.id}/original`,
+      sourceFileName: "owner-response.docx",
+      sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      sourceSize: Buffer.byteLength("Plain text notes."),
+      title: "Citation Source",
+    });
+    expect(preview).not.toHaveProperty("contentMarkdown");
   } finally {
     await cleanupMatter(matter.id);
   }

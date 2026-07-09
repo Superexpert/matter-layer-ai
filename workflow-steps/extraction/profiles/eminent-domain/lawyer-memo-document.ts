@@ -20,6 +20,10 @@ function sentence(value: string) {
   return /[.!?]$/.test(trimmedValue) ? trimmedValue : `${trimmedValue}.`;
 }
 
+function citedText(value: string | null | undefined) {
+  return clean(value?.replace(/\*\*[^*]+:\*\*\s*/g, "").replace(/\*\*/g, ""));
+}
+
 function sourceNote(input: {
   sourceDocumentId?: string;
   sourceCitation?: string;
@@ -33,6 +37,7 @@ function sourceNote(input: {
 }
 
 function sourceSuffix(input: {
+  citedText?: string;
   sourceDocumentId?: string;
   sourceCitation?: string;
   sourceFileName: string;
@@ -40,6 +45,7 @@ function sourceSuffix(input: {
   const citation = clean(input.sourceCitation);
 
   return ` ${citationMarkdown({
+    citedText: citedText(input.citedText),
     locationText: citation,
     sourceDocumentId: input.sourceDocumentId,
     sourceDocumentName: input.sourceFileName,
@@ -60,13 +66,22 @@ function caseParties(items: EminentDomainAssessmentItem[]) {
   return unique(
     items.flatMap((item) => [
       item.assessment.matterOverview?.propertyOwner
-        ? `Property owner: ${item.assessment.matterOverview.propertyOwner}${sourceSuffix(item)}`
+        ? `Property owner: ${item.assessment.matterOverview.propertyOwner}${sourceSuffix({
+          ...item,
+          citedText: item.assessment.matterOverview.propertyOwner,
+        })}`
         : null,
       item.assessment.matterOverview?.condemningAuthority
-        ? `Condemning authority: ${item.assessment.matterOverview.condemningAuthority}${sourceSuffix(item)}`
+        ? `Condemning authority: ${item.assessment.matterOverview.condemningAuthority}${sourceSuffix({
+          ...item,
+          citedText: item.assessment.matterOverview.condemningAuthority,
+        })}`
         : null,
       item.assessment.matterOverview?.projectName
-        ? `Project: ${item.assessment.matterOverview.projectName}${sourceSuffix(item)}`
+        ? `Project: ${item.assessment.matterOverview.projectName}${sourceSuffix({
+          ...item,
+          citedText: item.assessment.matterOverview.projectName,
+        })}`
         : null,
     ]),
   );
@@ -80,24 +95,52 @@ function takingFacts(items: EminentDomainAssessmentItem[]) {
 
       return [
         overview?.propertyAddress
-          ? `Property: ${overview.propertyAddress}${sourceSuffix(item)}`
+          ? `Property: ${overview.propertyAddress}${sourceSuffix({
+            ...item,
+            citedText: overview.propertyAddress,
+          })}`
           : null,
-        overview?.county ? `County: ${overview.county}${sourceSuffix(item)}` : null,
+        overview?.county
+          ? `County: ${overview.county}${sourceSuffix({
+            ...item,
+            citedText: overview.county,
+          })}`
+          : null,
         taking?.typeOfTaking
-          ? `Type of taking: ${taking.typeOfTaking}${sourceSuffix(item)}`
+          ? `Type of taking: ${taking.typeOfTaking}${sourceSuffix({
+            ...item,
+            citedText: taking.typeOfTaking,
+          })}`
           : null,
         taking?.estateTaken
-          ? `Estate taken: ${taking.estateTaken}${sourceSuffix(item)}`
+          ? `Estate taken: ${taking.estateTaken}${sourceSuffix({
+            ...item,
+            citedText: taking.estateTaken,
+          })}`
           : null,
-        taking?.areaTaken ? `Area taken: ${taking.areaTaken}${sourceSuffix(item)}` : null,
+        taking?.areaTaken
+          ? `Area taken: ${taking.areaTaken}${sourceSuffix({
+            ...item,
+            citedText: taking.areaTaken,
+          })}`
+          : null,
         taking?.remainderProperty
-          ? `Remainder property: ${taking.remainderProperty}${sourceSuffix(item)}`
+          ? `Remainder property: ${taking.remainderProperty}${sourceSuffix({
+            ...item,
+            citedText: taking.remainderProperty,
+          })}`
           : null,
         taking?.projectPurpose
-          ? `Project purpose: ${taking.projectPurpose}${sourceSuffix(item)}`
+          ? `Project purpose: ${taking.projectPurpose}${sourceSuffix({
+            ...item,
+            citedText: taking.projectPurpose,
+          })}`
           : null,
         ...(taking?.keyConcerns ?? []).map(
-          (concern) => `Taking concern: ${sentence(concern)}${sourceSuffix(item)}`,
+          (concern) => `Taking concern: ${sentence(concern)}${sourceSuffix({
+            ...item,
+            citedText: concern,
+          })}`,
         ),
       ];
     }),
@@ -110,6 +153,7 @@ function timelineFacts(items: EminentDomainAssessmentItem[]) {
       const date = clean(event.date) ? `${event.date}: ` : "";
 
       return `${date}${sentence(event.event)}${sourceSuffix({
+        citedText: event.sourceExcerpt ?? event.event,
         sourceDocumentId: item.sourceDocumentId,
         sourceCitation: event.sourceCitation,
         sourceFileName: item.sourceFileName,
@@ -122,7 +166,10 @@ function proceduralPosture(items: EminentDomainAssessmentItem[]) {
   return unique(
     items.flatMap((item) => [
       item.assessment.matterOverview?.proceduralPosture
-        ? `${sentence(item.assessment.matterOverview.proceduralPosture)}${sourceSuffix(item)}`
+        ? `${sentence(item.assessment.matterOverview.proceduralPosture)}${sourceSuffix({
+          ...item,
+          citedText: item.assessment.matterOverview.proceduralPosture,
+        })}`
         : null,
       ...timelineFacts([item]),
     ]),
@@ -144,7 +191,7 @@ function offerHistoryFacts(items: EminentDomainAssessmentItem[]) {
         ? `Condemnor appraisal: ${valuation.condemnorAppraisal}`
         : null,
       valuation.ownerAppraisal ? `Owner appraisal: ${valuation.ownerAppraisal}` : null,
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
   });
 }
 
@@ -171,7 +218,7 @@ function valuationFacts(items: EminentDomainAssessmentItem[]) {
         : null,
       valuation.costToCure ? `Cost to cure: ${valuation.costToCure}` : null,
       ...(valuation.valuationGaps ?? []).map((gap) => `Valuation gap: ${gap}`),
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
   });
 }
 
@@ -181,12 +228,16 @@ function accessFacts(items: EminentDomainAssessmentItem[]) {
   return items.flatMap((item) => {
     const concerns = (item.assessment.takingSummary?.keyConcerns ?? [])
       .filter((concern) => pattern.test(concern))
-      .map((concern) => `${sentence(concern)}${sourceSuffix(item)}`);
+      .map((concern) => `${sentence(concern)}${sourceSuffix({
+        ...item,
+        citedText: concern,
+      })}`);
     const flags = (item.assessment.proceduralFlags ?? [])
       .filter((flag) => pattern.test(`${flag.issue} ${flag.explanation}`))
       .map(
         (flag) =>
           `${flag.issue}: ${sentence(flag.explanation)}${sourceSuffix({
+            citedText: flag.sourceExcerpt ?? flag.explanation,
             sourceDocumentId: item.sourceDocumentId,
             sourceCitation: flag.sourceCitation,
             sourceFileName: item.sourceFileName,
@@ -203,6 +254,7 @@ function proceduralFlags(items: EminentDomainAssessmentItem[]) {
       const severity = clean(flag.severity) ? ` Severity: ${flag.severity}.` : "";
 
       return `${flag.issue}: ${sentence(flag.explanation)}${severity}${sourceSuffix({
+        citedText: flag.sourceExcerpt ?? flag.explanation,
         sourceDocumentId: item.sourceDocumentId,
         sourceCitation: flag.sourceCitation,
         sourceFileName: item.sourceFileName,
@@ -214,7 +266,7 @@ function proceduralFlags(items: EminentDomainAssessmentItem[]) {
 function missingInformation(items: EminentDomainAssessmentItem[]) {
   return items.flatMap((item) =>
     (item.assessment.missingDocuments ?? []).map(
-      (missing) => `${sentence(missing)}${sourceSuffix(item)}`,
+      (missing) => `${sentence(missing)}${sourceSuffix({ ...item, citedText: missing })}`,
     ),
   );
 }
@@ -222,7 +274,7 @@ function missingInformation(items: EminentDomainAssessmentItem[]) {
 function nextActions(items: EminentDomainAssessmentItem[]) {
   return items.flatMap((item) =>
     (item.assessment.recommendedNextActions ?? []).map(
-      (action) => `${sentence(action)}${sourceSuffix(item)}`,
+      (action) => `${sentence(action)}${sourceSuffix({ ...item, citedText: action })}`,
     ),
   );
 }

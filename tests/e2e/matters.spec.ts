@@ -72,6 +72,11 @@ test("authenticated user can create a matter", async ({ page }) => {
     ]);
     const sourceDocument = await prisma.matterDocument.create({
       data: {
+        content: {
+          create: {
+            bytes: Buffer.from("Original incident report PDF bytes."),
+          },
+        },
         fileName: "01_Incident_Report_Officer_Alvarez_v2.pdf",
         matterId: createdMatter.id,
         mimeType: "application/pdf",
@@ -111,7 +116,7 @@ test("authenticated user can create a matter", async ({ page }) => {
               "",
               "The chronology event occurred.",
               "",
-              `<span data-ml-citation="true" data-citation-label="Incident Report p. 1" data-citation-printable-text="(Incident Report, p. 1)" data-citation-source-document-id="${sourceDocument.id}" data-citation-source-document-name="Incident Report" data-citation-page="1">Incident Report p. 1</span>`,
+              `<span data-ml-citation="true" data-citation-label="Incident Report p. 1" data-citation-printable-text="(Incident Report, p. 1)" data-citation-cited-text="Officer Alvarez documented the January 12, 2024 event." data-citation-source-document-id="${sourceDocument.id}" data-citation-source-document-name="Incident Report" data-citation-page="1">Incident Report p. 1</span>`,
             ].join("\n"),
             metadataJson: {
               source: "workflow_output",
@@ -384,8 +389,25 @@ test("authenticated user can create a matter", async ({ page }) => {
       .locator(".document-citation-chip")
       .click();
     await expect(page.getByTestId("citation-source-modal")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Citation Source" })).toBeVisible();
     await expect(page.getByTestId("citation-source-modal-content")).toContainText(
+      "01_Incident_Report_Officer_Alvarez_v2.pdf",
+    );
+    await expect(page.getByTestId("citation-source-modal-content")).toContainText(
+      "PDF",
+    );
+    await expect(page.getByTestId("citation-source-modal-cited-text")).toContainText(
       "Officer Alvarez documented the January 12, 2024 event.",
+    );
+    await expect(page.getByTestId("citation-source-modal-cited-text")).not.toContainText(
+      "Incident Report, p. 1",
+    );
+    await expect(page.getByTestId("citation-source-modal-content")).toContainText(
+      "Page 1",
+    );
+    await expect(page.getByTestId("citation-source-open-original")).toHaveAttribute(
+      "href",
+      `/api/matters/${createdMatter.id}/documents/${sourceDocument.id}/original`,
     );
     await page.getByTestId("citation-source-modal-close").click();
     await expect(page.getByTestId("citation-source-modal")).toHaveCount(0);

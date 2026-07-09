@@ -1,20 +1,30 @@
 export type CitationData = {
+  citedText?: string | null;
+  extractionChunkId?: string | null;
   label: string;
+  locationLabel?: string | null;
   locationText?: string | null;
   page?: number | null;
+  paragraphNumber?: number | null;
   printableText: string;
   sourceDocumentId?: string | null;
   sourceDocumentName: string;
+  surroundingText?: string | null;
 };
 
 const CITATION_ATTRIBUTE_NAMES = [
   "data-ml-citation",
+  "data-citation-cited-text",
+  "data-citation-extraction-chunk-id",
   "data-citation-label",
+  "data-citation-location-label",
   "data-citation-location-text",
   "data-citation-page",
+  "data-citation-paragraph-number",
   "data-citation-printable-text",
   "data-citation-source-document-id",
   "data-citation-source-document-name",
+  "data-citation-surrounding-text",
 ] as const;
 
 function cleanText(value: string | null | undefined) {
@@ -74,12 +84,17 @@ export function formatPrintableCitation(input: {
 }
 
 export function normalizeCitationData(input: {
+  citedText?: string | null;
+  extractionChunkId?: string | null;
   label?: string | null;
+  locationLabel?: string | null;
   locationText?: string | null;
   page?: number | null;
+  paragraphNumber?: number | null;
   printableText?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName: string;
+  surroundingText?: string | null;
 }): CitationData {
   const sourceDocumentName = cleanText(input.sourceDocumentName);
 
@@ -90,6 +105,10 @@ export function normalizeCitationData(input: {
   const page = input.page && Number.isInteger(input.page) && input.page > 0
     ? input.page
     : null;
+  const paragraphNumber =
+    input.paragraphNumber && Number.isInteger(input.paragraphNumber) && input.paragraphNumber > 0
+      ? input.paragraphNumber
+      : null;
   const locationText = cleanText(input.locationText);
   const label = cleanText(input.label) ?? formatCitationLabel({
     locationText,
@@ -103,22 +122,32 @@ export function normalizeCitationData(input: {
   });
 
   return {
+    citedText: cleanText(input.citedText),
+    extractionChunkId: cleanText(input.extractionChunkId),
     label,
+    locationLabel: cleanText(input.locationLabel),
     locationText,
     page,
+    paragraphNumber,
     printableText,
     sourceDocumentId: cleanText(input.sourceDocumentId),
     sourceDocumentName,
+    surroundingText: cleanText(input.surroundingText),
   };
 }
 
 export function citationMarkdown(input: {
+  citedText?: string | null;
+  extractionChunkId?: string | null;
   label?: string | null;
+  locationLabel?: string | null;
   locationText?: string | null;
   page?: number | null;
+  paragraphNumber?: number | null;
   printableText?: string | null;
   sourceDocumentId?: string | null;
   sourceDocumentName: string;
+  surroundingText?: string | null;
 }) {
   const citation = normalizeCitationData(input);
   const attributes = [
@@ -126,12 +155,27 @@ export function citationMarkdown(input: {
     ["data-citation-label", citation.label],
     ["data-citation-printable-text", citation.printableText],
     ["data-citation-source-document-name", citation.sourceDocumentName],
+    citation.citedText
+      ? ["data-citation-cited-text", citation.citedText]
+      : null,
+    citation.extractionChunkId
+      ? ["data-citation-extraction-chunk-id", citation.extractionChunkId]
+      : null,
+    citation.locationLabel
+      ? ["data-citation-location-label", citation.locationLabel]
+      : null,
     citation.sourceDocumentId
       ? ["data-citation-source-document-id", citation.sourceDocumentId]
       : null,
     citation.page ? ["data-citation-page", String(citation.page)] : null,
+    citation.paragraphNumber
+      ? ["data-citation-paragraph-number", String(citation.paragraphNumber)]
+      : null,
     citation.locationText
       ? ["data-citation-location-text", citation.locationText]
+      : null,
+    citation.surroundingText
+      ? ["data-citation-surrounding-text", citation.surroundingText]
       : null,
   ].filter((attribute): attribute is [string, string] => Boolean(attribute));
 

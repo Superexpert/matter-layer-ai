@@ -28,24 +28,26 @@ export function AppTabs<TTab extends string>({
       data-testid={testId}
     >
       <div className="flex h-11 items-center">
-        {tabs.map((tab, index) => (
-          <button
-            aria-current={tab.value === selectedTab ? "page" : undefined}
-            className={
-              tab.value === selectedTab
-                ? "h-11 border-b-2 border-[#5F4B76] pr-4 text-sm font-semibold text-[#4B3861]"
-                : `h-11 text-sm font-medium text-[#74677F] transition-colors hover:text-[#211B27] ${
-                    index === 0 ? "pr-4" : "px-4"
-                  }`
-            }
-            data-testid={tab.testId}
-            key={tab.value}
-            onClick={() => onSelect(tab.value)}
-            type="button"
-          >
-            {tab.label}
-          </button>
-        ))}
+        {tabs.map((tab, index) => {
+          const tabPaddingClassName = index === 0 ? "pr-4" : "px-4";
+
+          return (
+            <button
+              aria-current={tab.value === selectedTab ? "page" : undefined}
+              className={
+                tab.value === selectedTab
+                  ? `inline-flex h-11 items-center border-b-2 border-[#5F4B76] text-sm font-semibold text-[#4B3861] ${tabPaddingClassName}`
+                  : `inline-flex h-11 items-center border-b-2 border-transparent text-sm font-medium text-[#74677F] transition-colors hover:text-[#211B27] ${tabPaddingClassName}`
+              }
+              data-testid={tab.testId}
+              key={tab.value}
+              onClick={() => onSelect(tab.value)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
     </nav>
   );

@@ -334,6 +334,8 @@ function mockEminentDomainAI(): MockAIService {
                   issue: "Petition service cannot be confirmed.",
                   severity: "medium",
                   sourceCitation: "Correspondence, p. 1",
+                  sourceExcerpt:
+                    "The selected documents do not include a served petition.",
                 },
               ],
               recommendedNextActions: ["Request the petition and service packet."],
@@ -343,6 +345,7 @@ function mockEminentDomainAI(): MockAIService {
                   date: "2026-01-15",
                   event: "Initial offer letter sent.",
                   sourceCitation: "Offer Letter, p. 1",
+                  sourceExcerpt: "Initial offer letter sent.",
                 },
               ],
             },

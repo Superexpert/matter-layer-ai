@@ -56,8 +56,15 @@ const eminentDomainCaseAssessmentJsonSchema = {
                   type: ["string", "null"],
                 },
                 sourceCitation: nullableStringSchema,
+                sourceExcerpt: nullableStringSchema,
               },
-              required: ["issue", "explanation", "severity", "sourceCitation"],
+              required: [
+                "issue",
+                "explanation",
+                "severity",
+                "sourceCitation",
+                "sourceExcerpt",
+              ],
               type: "object",
             },
             type: ["array", "null"],
@@ -94,8 +101,15 @@ const eminentDomainCaseAssessmentJsonSchema = {
                 date: nullableStringSchema,
                 event: { type: "string" },
                 sourceCitation: nullableStringSchema,
+                sourceExcerpt: nullableStringSchema,
               },
-              required: ["date", "event", "sourceCitation", "confidence"],
+              required: [
+                "date",
+                "event",
+                "sourceCitation",
+                "sourceExcerpt",
+                "confidence",
+              ],
               type: "object",
             },
             type: ["array", "null"],
@@ -147,11 +161,11 @@ const eminentDomainCaseAssessmentJsonSchema = {
 
 const eminentDomainJsonRepairInstructions = [
   "Return a JSON object with exactly this top-level shape:",
-  "{\"assessments\":[{\"matterOverview\":{\"propertyOwner\":null,\"condemningAuthority\":null,\"projectName\":null,\"propertyAddress\":null,\"county\":null,\"proceduralPosture\":null},\"timeline\":[{\"date\":null,\"event\":\"event text\",\"sourceCitation\":null,\"confidence\":null}],\"takingSummary\":{\"typeOfTaking\":null,\"estateTaken\":null,\"areaTaken\":null,\"remainderProperty\":null,\"projectPurpose\":null,\"keyConcerns\":[]},\"valuationSummary\":{\"initialOffer\":null,\"finalOffer\":null,\"condemnorAppraisal\":null,\"ownerAppraisal\":null,\"partTakenValue\":null,\"remainderDamages\":null,\"temporaryDamages\":null,\"costToCure\":null,\"valuationGaps\":[]},\"proceduralFlags\":[{\"issue\":\"issue\",\"explanation\":\"explanation\",\"severity\":null,\"sourceCitation\":null}],\"missingDocuments\":[],\"recommendedNextActions\":[]}]}",
+  "{\"assessments\":[{\"matterOverview\":{\"propertyOwner\":null,\"condemningAuthority\":null,\"projectName\":null,\"propertyAddress\":null,\"county\":null,\"proceduralPosture\":null},\"timeline\":[{\"date\":null,\"event\":\"event text\",\"sourceCitation\":null,\"sourceExcerpt\":null,\"confidence\":null}],\"takingSummary\":{\"typeOfTaking\":null,\"estateTaken\":null,\"areaTaken\":null,\"remainderProperty\":null,\"projectPurpose\":null,\"keyConcerns\":[]},\"valuationSummary\":{\"initialOffer\":null,\"finalOffer\":null,\"condemnorAppraisal\":null,\"ownerAppraisal\":null,\"partTakenValue\":null,\"remainderDamages\":null,\"temporaryDamages\":null,\"costToCure\":null,\"valuationGaps\":[]},\"proceduralFlags\":[{\"issue\":\"issue\",\"explanation\":\"explanation\",\"severity\":null,\"sourceCitation\":null,\"sourceExcerpt\":null}],\"missingDocuments\":[],\"recommendedNextActions\":[]}]}",
   "Use null for unsupported optional scalar or object fields.",
   "Use empty arrays when no items exist.",
-  "Every timeline item must include event.",
-  "Every procedural flag must include issue and explanation.",
+  "Every timeline item must include event and sourceExcerpt.",
+  "Every procedural flag must include issue, explanation, and sourceExcerpt.",
 ].join("\n");
 
 export const eminentDomainCaseAssessmentProfile = {

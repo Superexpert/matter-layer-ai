@@ -22,6 +22,7 @@ export type EminentDomainCaseAssessment = {
     date?: string;
     event: string;
     sourceCitation?: string;
+    sourceExcerpt?: string;
     confidence?: EminentDomainConfidence;
   }>;
   takingSummary?: {
@@ -48,6 +49,7 @@ export type EminentDomainCaseAssessment = {
     explanation: string;
     severity?: EminentDomainSeverity;
     sourceCitation?: string;
+    sourceExcerpt?: string;
   }>;
   missingDocuments?: string[];
   recommendedNextActions?: string[];
@@ -147,6 +149,7 @@ function timeline(value: unknown) {
       date: optionalString(rawItem?.date, "timeline.date"),
       event,
       sourceCitation: optionalString(rawItem?.sourceCitation, "timeline.sourceCitation"),
+      sourceExcerpt: optionalString(rawItem?.sourceExcerpt, "timeline.sourceExcerpt"),
     };
   });
 }
@@ -181,6 +184,10 @@ function proceduralFlags(value: unknown) {
       sourceCitation: optionalString(
         rawItem?.sourceCitation,
         "proceduralFlags.sourceCitation",
+      ),
+      sourceExcerpt: optionalString(
+        rawItem?.sourceExcerpt,
+        "proceduralFlags.sourceExcerpt",
       ),
     };
   });

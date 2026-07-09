@@ -31,6 +31,7 @@ import {
   effectiveWorkflowStepProvider,
   resolveWorkflowStepAIProvider,
   type EffectiveWorkflowStepProvider,
+  type ResolvedWorkflowStepAIProvider,
 } from "@/services/workflows/workflow-step-settings-service";
 import {
   activeProgressItem,
@@ -41,7 +42,10 @@ import {
 } from "@/services/workflows/workflow-step-progress";
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { extractionRepresentationDisplayState } from "@/workflow-steps/extraction/display-state";
-import { runExtractionProfile } from "@/workflow-steps/extraction/profile-runner";
+import {
+  defaultAIWindowTimeoutMs,
+  runExtractionProfile,
+} from "@/workflow-steps/extraction/profile-runner";
 import { getExtractionProfile } from "@/workflow-steps/extraction/profiles";
 import type { ExtractionProfileRunResult } from "@/workflow-steps/extraction/types";
 import {
@@ -124,6 +128,27 @@ export type RunExtractionStepInput = {
   workflowDefinitionId: string;
   workflowRunId: string;
 };
+
+async function resolveExtractionAIProviderForStep(
+  input: RunExtractionStepInput,
+): Promise<ResolvedWorkflowStepAIProvider> {
+  const resolvedProvider = await resolveWorkflowStepAIProvider({
+    stepId: input.step.id,
+    workflowId: input.workflowDefinitionId,
+  });
+
+  if (resolvedProvider.warning) {
+    console.warn("[extraction] AI Provider override warning", {
+      source: resolvedProvider.source,
+      stepId: input.step.id,
+      warning: resolvedProvider.warning,
+      workflowDefinitionId: input.workflowDefinitionId,
+      workflowRunId: input.workflowRunId,
+    });
+  }
+
+  return resolvedProvider;
+}
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -657,7 +682,10 @@ function testExtractionAIServiceFromEnv(): NonNullable<RunExtractionStepInput["a
   };
 }
 
-export async function createExtractionAIService(input: RunExtractionStepInput) {
+export async function createExtractionAIService(
+  input: RunExtractionStepInput,
+  resolvedProvider?: ResolvedWorkflowStepAIProvider,
+) {
   if (input.aiService) {
     return input.aiService;
   }
@@ -672,27 +700,14 @@ export async function createExtractionAIService(input: RunExtractionStepInput) {
   const { createAIServiceFromSettings } = await import("@/services/ai/ai-service");
 
   try {
-    const resolvedProvider = await resolveWorkflowStepAIProvider({
-      stepId: input.step.id,
-      workflowId: input.workflowDefinitionId,
-    });
-
-    if (resolvedProvider.warning) {
-      console.warn("[extraction] AI Provider override warning", {
-        source: resolvedProvider.source,
-        stepId: input.step.id,
-        warning: resolvedProvider.warning,
-        workflowDefinitionId: input.workflowDefinitionId,
-        workflowRunId: input.workflowRunId,
-      });
-    }
+    const provider = resolvedProvider ?? await resolveExtractionAIProviderForStep(input);
 
     if (input.aiServiceFactory) {
-      return input.aiServiceFactory(resolvedProvider.settings);
+      return input.aiServiceFactory(provider.settings);
     }
 
-    if (resolvedProvider.source === "override") {
-      return createAIServiceFromSettings(resolvedProvider.settings);
+    if (provider.source === "override") {
+      return createAIServiceFromSettings(provider.settings);
     }
 
     return await createAIService();
@@ -1722,16 +1737,34 @@ async function executeExtractionStep(
       },
     ]),
   );
+  const extractionQueuedAtByDocumentId = new Map(
+    preparedDocumentIds.map((matterDocumentId) => [matterDocumentId, Date.now()]),
+  );
   let profileResult = emptyExtractionResultAggregate();
   const extractionDocumentErrors: WorkflowStepDocumentError[] = [];
-  const aiService = readyRepresentationCount > 0
-    ? await createExtractionAIService(input)
+  const resolvedProvider = readyRepresentationCount > 0 && !input.aiService
+    ? await resolveExtractionAIProviderForStep(input)
     : null;
+  const aiService = readyRepresentationCount > 0
+    ? await createExtractionAIService(input, resolvedProvider ?? undefined)
+    : null;
+  const providerMetadata = resolvedProvider
+    ? {
+        model: resolvedProvider.settings.model,
+        providerId: resolvedProvider.settings.provider,
+        providerType: resolvedProvider.settings.provider,
+      }
+    : null;
+  const aiCallTimeoutMs = defaultAIWindowTimeoutMs(providerMetadata?.providerType);
   const documentConcurrency = extractionDocumentConcurrency();
 
   extractionServiceLog("document extraction phase started", {
+    aiCallTimeoutMs,
     documentConcurrency,
     preparedDocumentCount: preparedDocumentIds.length,
+    providerId: providerMetadata?.providerId ?? null,
+    providerModel: providerMetadata?.model ?? null,
+    providerType: providerMetadata?.providerType ?? null,
     readyRepresentationCount,
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
@@ -1742,6 +1775,9 @@ async function executeExtractionStep(
   ): Promise<DocumentProfileExtractionOutcome> {
     const readyDocument = readyDocumentById.get(matterDocumentId);
     const documentName = readyDocument?.fileName ?? matterDocumentId;
+    const extractionStartedAt = Date.now();
+    const queuedElapsedMs = extractionStartedAt -
+      (extractionQueuedAtByDocumentId.get(matterDocumentId) ?? extractionStartedAt);
 
     if (!readyDocument?.markdown.trim()) {
       progressItems = updateProgressItem(progressItems, matterDocumentId, {
@@ -1802,11 +1838,18 @@ async function executeExtractionStep(
       documentId: matterDocumentId,
       fileName: readyDocument.fileName,
       markdownCharacterCount: readyDocument.markdown.length,
+      providerId: providerMetadata?.providerId ?? null,
+      providerModel: providerMetadata?.model ?? null,
+      providerType: providerMetadata?.providerType ?? null,
+      queuedElapsedMs,
       stepId: input.step.id,
+      timeoutMs: aiCallTimeoutMs,
       workflowRunId: input.workflowRunId,
     });
 
     const documentProfileResult = await runExtractionProfile(profile, {
+      aiCallTimeoutMs,
+      aiProvider: providerMetadata ?? undefined,
       aiService: aiService!,
       onWindowProgress: async (event) => {
         const windowMessage = extractionWindowMessage(event);
@@ -1817,6 +1860,10 @@ async function executeExtractionStep(
           pageEnd: event.pageEnd,
           pageStart: event.pageStart,
           promptCharacterCount: event.promptCharacterCount,
+          providerId: event.providerId,
+          providerModel: event.providerModel,
+          providerType: event.providerType,
+          queuedElapsedMs: event.queuedElapsedMs,
           timeoutMs: event.timeoutMs,
           windowCount: event.windowCount,
           windowIndex: event.windowIndex,
@@ -1934,7 +1981,10 @@ async function executeExtractionStep(
           },
         });
       },
+      queuedElapsedMs,
       readyDocuments: [readyDocument],
+      workflowRunId: input.workflowRunId,
+      workflowStepId: input.step.id,
     });
 
     extractionServiceLog("document profile run completed", {

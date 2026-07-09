@@ -155,7 +155,10 @@ function classifiedCode(input: {
   return "AI_PROVIDER_REQUEST_FAILED";
 }
 
-function userMessageForCode(code: AIProviderErrorCode) {
+function userMessageForCode(
+  code: AIProviderErrorCode,
+  provider?: string | null,
+) {
   if (code === "AI_PROVIDER_AUTH_FAILED") {
     return "Matter Layer could not reach the configured AI provider because the saved API key or provider access is not valid.";
   }
@@ -173,7 +176,11 @@ function userMessageForCode(code: AIProviderErrorCode) {
   }
 
   if (code === "AI_PROVIDER_TIMEOUT") {
-    return "The configured AI provider did not return a response in time. Try again or ask an admin to check provider availability.";
+    const providerLabel = provider?.trim();
+
+    return providerLabel
+      ? `The AI provider ${providerLabel} did not return a response in time. Try again with fewer documents or ask an admin to check provider availability.`
+      : "The AI provider did not return a response in time. Try again with fewer documents or ask an admin to check provider availability.";
   }
 
   return "Matter Layer could not complete the AI provider request. Try again or ask an admin to review the configured AI provider.";
@@ -206,7 +213,7 @@ export function classifyAIProviderError(
     provider,
     providerCode: code,
     status,
-    userMessage: userMessageForCode(classified),
+    userMessage: userMessageForCode(classified, provider),
   });
 }
 
@@ -218,6 +225,6 @@ export function createAIProviderTimeoutError(input: {
     code: "AI_PROVIDER_TIMEOUT",
     message: sanitizeProviderMessage(input.message),
     provider: input.provider,
-    userMessage: userMessageForCode("AI_PROVIDER_TIMEOUT"),
+    userMessage: userMessageForCode("AI_PROVIDER_TIMEOUT", input.provider),
   });
 }

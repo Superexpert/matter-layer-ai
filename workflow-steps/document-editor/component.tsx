@@ -9,7 +9,7 @@ import StarterKit from "@tiptap/starter-kit";
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { CitationNode, type CitationNodeAttributes } from "./citation-extension";
 import { exportEditorContentToDocx } from "./docx-export";
-import { editorHtmlToMarkdown, sourceMarkdownToPreviewHtml } from "./conversion";
+import { editorHtmlToMarkdown } from "./conversion";
 import type { DocumentEditorStepOutput } from "./schema";
 import type { DocumentEditorStepState } from "./server";
 
@@ -48,7 +48,10 @@ type DocumentEditorSavePayload = {
 };
 
 export type CitationSourcePreview = {
-  contentMarkdown: string;
+  originalUrl: string;
+  sourceFileName: string;
+  sourceMimeType: string;
+  sourceSize: number;
   title: string;
 };
 
@@ -93,6 +96,75 @@ function documentActionButtonClass(variant: "primary" | "secondary" = "secondary
   }
 
   return `${baseClass} border border-[#CFC5DA] bg-white text-[#4B3861] hover:bg-[#FBFAFC] disabled:text-[#A79AB4]`;
+}
+
+function formatFileSize(size: number) {
+  if (!Number.isFinite(size) || size < 0) {
+    return "";
+  }
+
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  const kib = size / 1024;
+  if (kib < 1024) {
+    return `${kib.toFixed(kib >= 10 ? 0 : 1)} KB`;
+  }
+
+  const mib = kib / 1024;
+  return `${mib.toFixed(mib >= 10 ? 0 : 1)} MB`;
+}
+
+function formatMimeType(mimeType: string) {
+  if (mimeType === "application/pdf") {
+    return "PDF";
+  }
+
+  if (
+    mimeType ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return "DOCX";
+  }
+
+  if (mimeType === "text/plain") {
+    return "Text";
+  }
+
+  if (mimeType === "text/markdown") {
+    return "Markdown";
+  }
+
+  return mimeType || "Unknown";
+}
+
+function locationParts(citation: CitationNodeAttributes) {
+  const parts: string[] = [];
+
+  if (citation.page) {
+    parts.push(`Page ${citation.page}`);
+  }
+
+  if (citation.paragraphNumber) {
+    parts.push(`paragraph ${citation.paragraphNumber}`);
+  }
+
+  if (citation.locationLabel) {
+    parts.push(citation.locationLabel);
+  }
+
+  if (citation.locationText && !parts.includes(citation.locationText)) {
+    parts.push(citation.locationText);
+  }
+
+  return parts;
+}
+
+function citationExcerpt(citation: CitationNodeAttributes) {
+  return citation.citedText?.trim()
+    || citation.surroundingText?.trim()
+    || null;
 }
 
 function editorContentClass() {
@@ -151,7 +223,14 @@ function CitationSourceModal({
   onClose: () => void;
   preview: CitationSourcePreview | null;
 }) {
-  const html = preview ? sourceMarkdownToPreviewHtml(preview.contentMarkdown) : "";
+  const excerpt = citationExcerpt(citation);
+  const noExcerptMessage = "No source excerpt was captured for this citation.";
+  const locations = locationParts(citation);
+  const fileDescription = preview
+    ? [formatMimeType(preview.sourceMimeType), formatFileSize(preview.sourceSize)]
+      .filter(Boolean)
+      .join(" · ")
+    : "";
 
   return (
     <div
@@ -168,10 +247,10 @@ function CitationSourceModal({
               className="text-base font-semibold text-[#211B27]"
               id="citation-source-title"
             >
-              {preview?.title ?? citation.sourceDocumentName}
+              Citation Source
             </h2>
             <p className="mt-1 text-xs font-semibold text-[#74677F]">
-              {citation.label}
+              {preview?.sourceFileName ?? citation.sourceDocumentName}
             </p>
           </div>
           <button
@@ -197,10 +276,72 @@ function CitationSourceModal({
             </p>
           ) : preview ? (
             <div
-              className="document-editor document-editor-source-preview text-sm leading-7 text-[#211B27] prose prose-sm max-w-none"
+              className="grid gap-5 text-sm text-[#211B27]"
               data-testid="citation-source-modal-content"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+            >
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74677F]">
+                  Document
+                </h3>
+                <p className="mt-2 font-semibold text-[#211B27]">
+                  {preview.sourceFileName}
+                </p>
+                {fileDescription ? (
+                  <p className="mt-1 text-xs font-medium text-[#74677F]">
+                    {fileDescription}
+                  </p>
+                ) : null}
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74677F]">
+                  Cited Text
+                </h3>
+                <blockquote
+                  className="mt-2 rounded-lg border-l-4 border-[#CFC5DA] bg-[#FBFAFC] px-4 py-3 text-sm leading-6 text-[#211B27]"
+                  data-testid="citation-source-modal-cited-text"
+                >
+                  {excerpt ?? noExcerptMessage}
+                </blockquote>
+              </section>
+
+              {citation.surroundingText && citation.surroundingText !== excerpt ? (
+                <section>
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74677F]">
+                    Context
+                  </h3>
+                  <p className="mt-2 rounded-lg border border-[#E3DEEA] bg-white px-4 py-3 leading-6 text-[#4F4658]">
+                    {citation.surroundingText}
+                  </p>
+                </section>
+              ) : null}
+
+              {locations.length ? (
+                <section>
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74677F]">
+                    Location
+                  </h3>
+                  <p className="mt-2 leading-6 text-[#4F4658]">
+                    {locations.join(" / ")}
+                  </p>
+                </section>
+              ) : null}
+
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#74677F]">
+                  Actions
+                </h3>
+                <a
+                  className="mt-2 inline-flex h-9 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-3 text-sm font-semibold text-[#4B3861] hover:bg-[#FBFAFC]"
+                  data-testid="citation-source-open-original"
+                  href={preview.originalUrl}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  Open Original
+                </a>
+              </section>
+            </div>
           ) : (
             <p className="text-sm leading-6 text-[#74677F]">
               This citation does not include a linked source document.

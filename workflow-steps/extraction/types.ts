@@ -56,6 +56,10 @@ export type ExtractionWindowProgressEvent = {
   pageEnd: number | null;
   pageStart: number | null;
   promptCharacterCount?: number;
+  providerId?: string | null;
+  providerModel?: string | null;
+  providerType?: string | null;
+  queuedElapsedMs?: number;
   status: "completed" | "failed" | "started" | "waiting";
   timeoutMs?: number;
   windowCount: number;
@@ -65,15 +69,23 @@ export type ExtractionWindowProgressEvent = {
 export type ExtractionProfileContext = {
   aiCallTimeoutMs?: number;
   aiHeartbeatMs?: number;
+  aiProvider?: {
+    model: string | null;
+    providerId: string | null;
+    providerType: string | null;
+  };
   aiService: ExtractionAIService;
   onWindowProgress?: (
     event: ExtractionWindowProgressEvent,
   ) => Promise<void> | void;
+  queuedElapsedMs?: number;
   readyDocuments: Array<{
     fileName: string;
     id: string;
     markdown: string;
   }>;
+  workflowRunId?: string;
+  workflowStepId?: string;
 };
 
 export type ExtractionModelParseResult<TItem> = {

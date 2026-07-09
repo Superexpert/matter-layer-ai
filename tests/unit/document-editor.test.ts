@@ -119,16 +119,24 @@ describe("document editor Markdown conversion", () => {
 
   it("preserves structured citation metadata across editor serialization", () => {
     const citation = citationMarkdown({
+      citedText: "The initial offer was mailed on March 1.",
+      locationLabel: "Offer summary",
       page: 2,
+      paragraphNumber: 8,
       sourceDocumentId: "doc_offer",
       sourceDocumentName: "Initial Offer Letter.pdf",
+      surroundingText: "The initial offer was mailed on March 1. The owner responded later.",
     });
     const html = markdownToEditorHtml(`The offer was sent ${citation}.`);
     const markdown = editorHtmlToMarkdown(html);
 
     expect(html).toContain('data-citation-source-document-id="doc_offer"');
+    expect(html).toContain('data-citation-cited-text="The initial offer was mailed on March 1."');
+    expect(html).toContain('data-citation-location-label="Offer summary"');
+    expect(html).toContain('data-citation-paragraph-number="8"');
     expect(html).toContain('data-citation-label="Initial Offer Letter p. 2"');
     expect(markdown).toContain('data-citation-source-document-id="doc_offer"');
+    expect(markdown).toContain('data-citation-surrounding-text="The initial offer was mailed on March 1. The owner responded later."');
     expect(markdown).toContain('data-citation-printable-text="(Initial Offer Letter, p. 2)"');
   });
 
@@ -172,6 +180,8 @@ describe("document editor styling boundary", () => {
 
     expect(componentSource).toContain("document-editor");
     expect(componentSource).toContain("document-editor-content");
+    expect(componentSource).toContain("No source excerpt was captured for this citation.");
+    expect(componentSource).not.toContain("|| citation.printableText?.trim()");
     expect(componentSource).not.toMatch(/is[A-Z][A-Za-z]+Editor/);
     expect(componentSource).not.toContain("ChronologyParagraph");
     expect(componentSource).not.toContain("chronology-editor");

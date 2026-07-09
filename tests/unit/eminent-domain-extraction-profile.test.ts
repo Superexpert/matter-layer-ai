@@ -63,6 +63,8 @@ function assessmentResponse() {
             issue: "Temporary construction access concern",
             severity: "medium",
             sourceCitation: "Owner notes",
+            sourceExcerpt:
+              "The owner reports west driveway access could be blocked during peak business hours.",
           },
         ],
         recommendedNextActions: ["Request the traffic-control plan backup."],
@@ -81,6 +83,8 @@ function assessmentResponse() {
             event:
               "Owner reported continued concerns about construction access near the west driveway.",
             sourceCitation: "2026-04-15 Owner Notes Access Concerns.txt",
+            sourceExcerpt:
+              "Owner reported continued concerns about construction access near the west driveway.",
           },
         ],
         valuationSummary: {
@@ -118,6 +122,7 @@ describe("Eminent Domain extraction profile", () => {
 
     expect(prompt).toContain("Use null for unknown optional values.");
     expect(prompt).toContain("Use null for unsupported object fields");
+    expect(prompt).toContain("sourceExcerpt must be the short supporting text");
   });
 
   it("works with the GPT/OpenAI provider adapter structured output request", async () => {
@@ -194,6 +199,8 @@ describe("Eminent Domain extraction profile", () => {
         timeline: [
           {
             date: "2026-04-15",
+            sourceExcerpt:
+              "Owner reported continued concerns about construction access near the west driveway.",
           },
         ],
       },

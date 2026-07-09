@@ -200,8 +200,14 @@ describe("chronology Markdown artifact", () => {
     );
     expect(markdown).toContain('data-citation-source-document-id="doc_1"');
     expect(markdown).toContain('data-citation-label="Officer Benton Supplemental Report p. 1"');
+    expect(markdown).toContain(
+      'data-citation-cited-text="On 01/14/2026, I, Officer Tessa Benton (#6118), responded as backup to Officer Daniel Alvarez in the 1900 block of E. Riverside Dr."',
+    );
     expect(markdown).toContain('data-citation-source-document-id="doc_2"');
     expect(markdown).toContain('data-citation-label="Incident Report p. 3"');
+    expect(markdown).toContain(
+      'data-citation-cited-text="On 01/14/2026 at approximately 2214 hours, Officer Alvarez was on routine patrol."',
+    );
     expect(markdown).not.toContain("02_Supplemental_Report_Officer_Benton.pdf");
     expect(markdown).not.toContain("Marcus Reed's date of birth");
     expect(markdown).not.toContain("Unsupported unsourced event.");

@@ -22,6 +22,7 @@ const assessmentItem: EminentDomainAssessmentItem = {
         issue: "Special commissioners hearing scheduled",
         severity: "high",
         sourceCitation: "Notice at 1",
+        sourceExcerpt: "The notice sets a special commissioners hearing date.",
       },
     ],
     recommendedNextActions: ["Request backup for the traffic-control plan."],
@@ -35,6 +36,7 @@ const assessmentItem: EminentDomainAssessmentItem = {
         date: "2026-04-08",
         event: "Special commissioners hearing notice was issued",
         sourceCitation: "Notice at 1",
+        sourceExcerpt: "Special commissioners hearing notice was issued.",
       },
     ],
     valuationSummary: {
@@ -69,6 +71,12 @@ describe("Eminent Domain Lawyer Memo composer", () => {
     expect(markdown).toContain("## Recommended Next Steps");
     expect(markdown).toContain("## Source Notes");
     expect(markdown).toContain("$125,000");
+    expect(markdown).toContain(
+      'data-citation-cited-text="Special commissioners hearing notice was issued."',
+    );
+    expect(markdown).toContain(
+      'data-citation-cited-text="The notice sets a special commissioners hearing date."',
+    );
     expect(markdown).toContain(
       "2026-04-08 Special Commissioners Hearing Notice.pdf: Notice at 1",
     );

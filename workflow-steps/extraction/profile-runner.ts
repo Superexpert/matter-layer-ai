@@ -16,6 +16,12 @@ type GenerateTextResult = Awaited<
   ReturnType<ExtractionProfileContext["aiService"]["generateText"]>
 >;
 
+export const DEFAULT_AI_TIMEOUTS_MS = {
+  anthropic: 120_000,
+  ollama: 300_000,
+  openai: 120_000,
+} as const;
+
 function conciseError(error: unknown) {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim().slice(0, 1000);
@@ -24,11 +30,19 @@ function conciseError(error: unknown) {
   return "Extraction failed.";
 }
 
-function defaultAIWindowTimeoutMs() {
+export function defaultAIWindowTimeoutMs(providerType?: string | null) {
   const rawValue = process.env.MATTER_LAYER_EXTRACTION_AI_WINDOW_TIMEOUT_MS;
 
   if (!rawValue) {
-    return 90_000;
+    if (providerType === "ollama") {
+      return DEFAULT_AI_TIMEOUTS_MS.ollama;
+    }
+
+    if (providerType === "anthropic") {
+      return DEFAULT_AI_TIMEOUTS_MS.anthropic;
+    }
+
+    return DEFAULT_AI_TIMEOUTS_MS.openai;
   }
 
   const parsedValue = Number.parseInt(rawValue, 10);
@@ -64,7 +78,11 @@ async function withAIWindowMonitoring(input: {
   heartbeatMs: number;
   onHeartbeat: (elapsedMs: number) => Promise<void> | void;
   profileLabel: string;
-  promise: Promise<GenerateTextResult>;
+  providerId?: string | null;
+  providerModel?: string | null;
+  providerType?: string | null;
+  queuedElapsedMs?: number;
+  run: () => Promise<GenerateTextResult>;
   timeoutMs: number;
   windowDescription: Record<string, unknown>;
 }) {
@@ -73,35 +91,52 @@ async function withAIWindowMonitoring(input: {
   const startedAt = Date.now();
 
   try {
-    return await Promise.race([
-      input.promise,
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(
-            createAIProviderTimeoutError({
-              message:
-                `AI provider did not return ${input.profileLabel} extraction within ${Math.round(input.timeoutMs / 1000)} seconds.`,
-            }),
-          );
-        }, input.timeoutMs);
-        heartbeatId = setInterval(() => {
-          const elapsedMs = Date.now() - startedAt;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        const elapsedMs = Date.now() - startedAt;
 
-          console.info("[extraction:ai-window] still waiting for AI provider", {
-            ...input.windowDescription,
-            elapsedMs,
-            heartbeatMs: input.heartbeatMs,
-            profile: input.profileLabel,
-            timeoutMs: input.timeoutMs,
+        console.error("[extraction:ai-window] AI provider call timed out", {
+          ...input.windowDescription,
+          elapsedMs,
+          profile: input.profileLabel,
+          providerId: input.providerId ?? null,
+          providerModel: input.providerModel ?? null,
+          providerType: input.providerType ?? null,
+          queuedElapsedMs: input.queuedElapsedMs ?? null,
+          timeoutMs: input.timeoutMs,
+        });
+        reject(
+          createAIProviderTimeoutError({
+            message:
+              `AI provider did not return ${input.profileLabel} extraction within ${Math.round(input.timeoutMs / 1000)} seconds.`,
+            provider: input.providerModel ?? input.providerId,
+          }),
+        );
+      }, input.timeoutMs);
+      heartbeatId = setInterval(() => {
+        const elapsedMs = Date.now() - startedAt;
+
+        console.info("[extraction:ai-window] still waiting for AI provider", {
+          ...input.windowDescription,
+          elapsedMs,
+          heartbeatMs: input.heartbeatMs,
+          profile: input.profileLabel,
+          providerId: input.providerId ?? null,
+          providerModel: input.providerModel ?? null,
+          providerType: input.providerType ?? null,
+          queuedElapsedMs: input.queuedElapsedMs ?? null,
+          timeoutMs: input.timeoutMs,
+        });
+        void Promise.resolve(input.onHeartbeat(elapsedMs)).catch((error: unknown) => {
+          console.error("Extraction heartbeat failed", {
+            error,
           });
-          void Promise.resolve(input.onHeartbeat(elapsedMs)).catch((error: unknown) => {
-            console.error("Extraction heartbeat failed", {
-              error,
-            });
-          });
-        }, input.heartbeatMs);
-      }),
-    ]);
+        });
+      }, input.heartbeatMs);
+    });
+    const providerPromise = Promise.resolve().then(input.run);
+
+    return await Promise.race([providerPromise, timeoutPromise]);
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId);
@@ -215,8 +250,13 @@ export async function runExtractionProfile<TItem>(
   let itemCountsByType: Record<string, number> = {};
   let provider: string | null = null;
   let model: string | null = null;
-  const aiCallTimeoutMs = context.aiCallTimeoutMs ?? defaultAIWindowTimeoutMs();
+  const aiCallTimeoutMs = context.aiCallTimeoutMs ??
+    defaultAIWindowTimeoutMs(context.aiProvider?.providerType);
   const aiHeartbeatMs = context.aiHeartbeatMs ?? defaultAIHeartbeatMs();
+  const providerId = context.aiProvider?.providerId ?? null;
+  const providerModel = context.aiProvider?.model ?? null;
+  const providerType = context.aiProvider?.providerType ?? null;
+  const queuedElapsedMs = context.queuedElapsedMs;
 
   for (const window of windows) {
     const userPrompt = profile.buildUserPrompt(window);
@@ -229,7 +269,13 @@ export async function runExtractionProfile<TItem>(
       pageStart: window.pageStart,
       profile: profile.id,
       promptCharacterCount,
+      providerId,
+      providerModel,
+      providerType,
+      queuedElapsedMs,
       timeoutMs: aiCallTimeoutMs,
+      workflowRunId: context.workflowRunId,
+      workflowStepId: context.workflowStepId,
       windowCount: windows.length,
       windowIndex: window.windowIndex + 1,
     };
@@ -243,6 +289,10 @@ export async function runExtractionProfile<TItem>(
       pageEnd: window.pageEnd,
       pageStart: window.pageStart,
       promptCharacterCount,
+      providerId,
+      providerModel,
+      providerType,
+      queuedElapsedMs,
       status: "started",
       timeoutMs: aiCallTimeoutMs,
       windowCount: windows.length,
@@ -266,26 +316,35 @@ export async function runExtractionProfile<TItem>(
             pageEnd: window.pageEnd,
             pageStart: window.pageStart,
             promptCharacterCount,
+            providerId,
+            providerModel,
+            providerType,
+            queuedElapsedMs,
             status: "waiting",
             timeoutMs: aiCallTimeoutMs,
             windowCount: windows.length,
             windowIndex: window.windowIndex + 1,
           }),
         profileLabel: profile.id,
-        promise: context.aiService.generateText({
-          maxOutputTokens: profile.maxOutputTokens ?? 6000,
-          messages: [
-            {
-              content: profile.systemPrompt,
-              role: "system",
-            },
-            {
-              content: userPrompt,
-              role: "user",
-            },
-          ],
-          responseFormat: profile.responseFormat,
-        }),
+        providerId,
+        providerModel,
+        providerType,
+        queuedElapsedMs,
+        run: () =>
+          context.aiService.generateText({
+            maxOutputTokens: profile.maxOutputTokens ?? 6000,
+            messages: [
+              {
+                content: profile.systemPrompt,
+                role: "system",
+              },
+              {
+                content: userPrompt,
+                role: "user",
+              },
+            ],
+            responseFormat: profile.responseFormat,
+          }),
         timeoutMs: aiCallTimeoutMs,
         windowDescription,
       });
@@ -324,6 +383,7 @@ export async function runExtractionProfile<TItem>(
         }
 
         failureKindHint = "provider";
+        const invalidContent = response.content;
         const repairResponse = await withAIWindowMonitoring({
           heartbeatMs: aiHeartbeatMs,
           onHeartbeat: (elapsedMs) =>
@@ -336,30 +396,39 @@ export async function runExtractionProfile<TItem>(
               pageEnd: window.pageEnd,
               pageStart: window.pageStart,
               promptCharacterCount,
+              providerId,
+              providerModel,
+              providerType,
+              queuedElapsedMs,
               status: "waiting",
               timeoutMs: aiCallTimeoutMs,
               windowCount: windows.length,
               windowIndex: window.windowIndex + 1,
             }),
           profileLabel: `${profile.id} JSON repair`,
-          promise: context.aiService.generateText({
-            maxOutputTokens: profile.maxOutputTokens ?? 6000,
-            messages: [
-              {
-                content: "You repair extraction JSON. Return only valid JSON.",
-                role: "system",
-              },
-              {
-                content: repairPrompt({
-                  invalidContent: response.content,
-                  parseError: error,
-                  profile: profile as ExtractionProfile<unknown>,
-                }),
-                role: "user",
-              },
-            ],
-            responseFormat: profile.responseFormat,
-          }),
+          providerId,
+          providerModel,
+          providerType,
+          queuedElapsedMs,
+          run: () =>
+            context.aiService.generateText({
+              maxOutputTokens: profile.maxOutputTokens ?? 6000,
+              messages: [
+                {
+                  content: "You repair extraction JSON. Return only valid JSON.",
+                  role: "system",
+                },
+                {
+                  content: repairPrompt({
+                    invalidContent,
+                    parseError: error,
+                    profile: profile as ExtractionProfile<unknown>,
+                  }),
+                  role: "user",
+                },
+              ],
+              responseFormat: profile.responseFormat,
+            }),
           timeoutMs: aiCallTimeoutMs,
           windowDescription: {
             ...windowDescription,
@@ -468,7 +537,12 @@ export async function runExtractionProfile<TItem>(
         fileName: window.fileName,
         pageEnd: window.pageEnd,
         pageStart: window.pageStart,
+        providerId,
+        providerModel,
+        providerType,
+        queuedElapsedMs,
         status: "failed",
+        timeoutMs: aiCallTimeoutMs,
         windowCount: windows.length,
         windowIndex: window.windowIndex + 1,
       });

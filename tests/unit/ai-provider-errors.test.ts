@@ -76,11 +76,15 @@ describe("AI provider errors", () => {
   });
 
   it("classifies timeout and unknown request failures", () => {
-    expect(
-      createAIProviderTimeoutError({
-        message: "AI provider did not return chronology extraction within 90 seconds.",
-      }).code,
-    ).toBe("AI_PROVIDER_TIMEOUT");
+    const timeoutError = createAIProviderTimeoutError({
+      message: "AI provider did not return chronology extraction within 90 seconds.",
+      provider: "gemma3:4b",
+    });
+
+    expect(timeoutError.code).toBe("AI_PROVIDER_TIMEOUT");
+    expect(timeoutError.userMessage).toBe(
+      "The AI provider gemma3:4b did not return a response in time. Try again with fewer documents or ask an admin to check provider availability.",
+    );
     expect(classifyAIProviderError(new Error("socket closed")).code).toBe(
       "AI_PROVIDER_REQUEST_FAILED",
     );

@@ -23,6 +23,10 @@ function sentence(value: string) {
   return /[.!?]$/.test(trimmedValue) ? trimmedValue : `${trimmedValue}.`;
 }
 
+function citedText(value: string | null | undefined) {
+  return clean(value?.replace(/\*\*[^*]+:\*\*\s*/g, "").replace(/\*\*/g, ""));
+}
+
 function sourceNote(input: {
   sourceDocumentId?: string;
   sourceCitation?: string;
@@ -56,6 +60,7 @@ function labeledValue(label: string, value: string | null | undefined) {
 }
 
 function sourceSuffix(input: {
+  citedText?: string;
   sourceDocumentId?: string;
   sourceCitation?: string;
   sourceFileName: string;
@@ -63,6 +68,7 @@ function sourceSuffix(input: {
   const citation = clean(input.sourceCitation);
 
   return ` ${citationMarkdown({
+    citedText: citedText(input.citedText),
     locationText: citation,
     sourceDocumentId: input.sourceDocumentId,
     sourceDocumentName: input.sourceFileName,
@@ -84,7 +90,7 @@ function caseOverview(items: EminentDomainAssessmentItem[]) {
       labeledValue("Property address", overview.propertyAddress),
       labeledValue("County", overview.county),
       labeledValue("Procedural posture", overview.proceduralPosture),
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
   });
 
   return bulletSection("Case Overview", bullets);
@@ -96,6 +102,7 @@ function timeline(items: EminentDomainAssessmentItem[]) {
       const prefix = clean(event.date) ? `**${event.date}:** ` : "";
 
       return `${prefix}${sentence(event.event)}${sourceSuffix({
+        citedText: event.sourceExcerpt ?? event.event,
         sourceDocumentId: item.sourceDocumentId,
         sourceCitation: event.sourceCitation,
         sourceFileName: item.sourceFileName,
@@ -121,7 +128,7 @@ function propertyInformation(items: EminentDomainAssessmentItem[]) {
       labeledValue("Remainder property", taking.remainderProperty),
       labeledValue("Project purpose", taking.projectPurpose),
       ...(taking.keyConcerns ?? []).map((concern) => labeledValue("Property concern", concern)),
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
   });
 
   return bulletSection("Property and Parcel Information", bullets);
@@ -138,7 +145,7 @@ function offerHistory(items: EminentDomainAssessmentItem[]) {
     return [
       labeledValue("Initial offer", valuation.initialOffer),
       labeledValue("Final offer", valuation.finalOffer),
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
   });
 
   return bulletSection("Offer History", bullets);
@@ -160,7 +167,7 @@ function valuationIssues(items: EminentDomainAssessmentItem[]) {
       labeledValue("Temporary damages", valuation.temporaryDamages),
       labeledValue("Cost to cure", valuation.costToCure),
       ...(valuation.valuationGaps ?? []).map((gap) => labeledValue("Valuation gap", gap)),
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
   });
 
   return bulletSection("Appraisal and Valuation Issues", bullets);
@@ -171,18 +178,25 @@ function accessAndRemainderIssues(items: EminentDomainAssessmentItem[]) {
   const bullets = items.flatMap((item) => {
     const concerns = (item.assessment.takingSummary?.keyConcerns ?? [])
       .filter((concern) => issuePattern.test(concern))
-      .map((concern) => `**Concern:** ${sentence(concern)}${sourceSuffix(item)}`);
+      .map(
+        (concern) =>
+          `**Concern:** ${sentence(concern)}${sourceSuffix({
+            ...item,
+            citedText: concern,
+          })}`,
+      );
     const valuation = item.assessment.valuationSummary;
     const valuationBullets = [
       labeledValue("Remainder damages", valuation?.remainderDamages),
       labeledValue("Temporary damages", valuation?.temporaryDamages),
       labeledValue("Cost to cure", valuation?.costToCure),
-    ].map((value) => (value ? `${value}${sourceSuffix(item)}` : null));
+    ].map((value) => (value ? `${value}${sourceSuffix({ ...item, citedText: value })}` : null));
     const flags = (item.assessment.proceduralFlags ?? [])
       .filter((flag) => issuePattern.test(`${flag.issue} ${flag.explanation}`))
       .map(
         (flag) =>
           `**${flag.issue}:** ${sentence(flag.explanation)}${sourceSuffix({
+            citedText: flag.sourceExcerpt ?? flag.explanation,
             sourceDocumentId: item.sourceDocumentId,
             sourceCitation: flag.sourceCitation,
             sourceFileName: item.sourceFileName,
@@ -201,6 +215,7 @@ function proceduralFlags(items: EminentDomainAssessmentItem[]) {
       const severity = clean(flag.severity) ? ` Severity: ${flag.severity}.` : "";
 
       return `**${flag.issue}:** ${sentence(flag.explanation)}${severity}${sourceSuffix({
+        citedText: flag.sourceExcerpt ?? flag.explanation,
         sourceDocumentId: item.sourceDocumentId,
         sourceCitation: flag.sourceCitation,
         sourceFileName: item.sourceFileName,
@@ -214,7 +229,7 @@ function proceduralFlags(items: EminentDomainAssessmentItem[]) {
 function missingInformation(items: EminentDomainAssessmentItem[]) {
   const bullets = items.flatMap((item) =>
     (item.assessment.missingDocuments ?? []).map(
-      (document) => `${sentence(document)}${sourceSuffix(item)}`,
+      (document) => `${sentence(document)}${sourceSuffix({ ...item, citedText: document })}`,
     ),
   );
 
@@ -224,7 +239,7 @@ function missingInformation(items: EminentDomainAssessmentItem[]) {
 function recommendedNextActions(items: EminentDomainAssessmentItem[]) {
   const bullets = items.flatMap((item) =>
     (item.assessment.recommendedNextActions ?? []).map(
-      (action) => `${sentence(action)}${sourceSuffix(item)}`,
+      (action) => `${sentence(action)}${sourceSuffix({ ...item, citedText: action })}`,
     ),
   );
 

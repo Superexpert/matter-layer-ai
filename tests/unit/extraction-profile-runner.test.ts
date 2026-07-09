@@ -4,7 +4,11 @@ import {
   JsonModelOutputParseError,
   extractModelOutputItems,
 } from "../../workflow-steps/extraction/json-output";
-import { runExtractionProfile } from "../../workflow-steps/extraction/profile-runner";
+import {
+  DEFAULT_AI_TIMEOUTS_MS,
+  defaultAIWindowTimeoutMs,
+  runExtractionProfile,
+} from "../../workflow-steps/extraction/profile-runner";
 import type { ExtractionProfile } from "../../workflow-steps/extraction/types";
 
 type TestIssue = {
@@ -55,6 +59,14 @@ const testIssuesProfile = {
 } satisfies ExtractionProfile<TestIssue>;
 
 describe("generic extraction profile runner", () => {
+  it("uses provider-specific AI call timeout defaults", () => {
+    expect(defaultAIWindowTimeoutMs("openai")).toBe(DEFAULT_AI_TIMEOUTS_MS.openai);
+    expect(defaultAIWindowTimeoutMs("anthropic")).toBe(DEFAULT_AI_TIMEOUTS_MS.anthropic);
+    expect(defaultAIWindowTimeoutMs("ollama")).toBe(DEFAULT_AI_TIMEOUTS_MS.ollama);
+    expect(defaultAIWindowTimeoutMs("unknown")).toBe(DEFAULT_AI_TIMEOUTS_MS.openai);
+    expect(defaultAIWindowTimeoutMs(null)).toBe(DEFAULT_AI_TIMEOUTS_MS.openai);
+  });
+
   it("parses JSON from markdown fences and configured item keys", () => {
     expect(
       extractModelOutputItems({

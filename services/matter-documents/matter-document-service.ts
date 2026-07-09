@@ -8,7 +8,6 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   getMatterDocumentStorageProvider,
-  readMatterDocumentFile,
   type MatterFileStorageProviderName,
 } from "@/services/matter-documents/storage";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
@@ -32,7 +31,10 @@ export type EditableMatterDocument = MatterDocumentSummary & {
 };
 
 export type CitationSourceDocumentPreview = {
-  contentMarkdown: string;
+  originalUrl: string;
+  sourceFileName: string;
+  sourceMimeType: string;
+  sourceSize: number;
   title: string;
 };
 
@@ -243,15 +245,7 @@ export async function getCitationSourceDocumentPreview(input: {
       fileName: true,
       id: true,
       mimeType: true,
-      representations: {
-        select: {
-          content: true,
-        },
-        where: {
-          status: MatterDocumentRepresentationStatus.READY,
-          type: MatterDocumentRepresentationType.MARKDOWN,
-        },
-      },
+      size: true,
     },
     where: {
       id: input.matterDocumentId,
@@ -263,28 +257,13 @@ export async function getCitationSourceDocumentPreview(input: {
     throw new Error("The cited source document was not found.");
   }
 
-  const markdownRepresentation = document.representations[0]?.content?.trim();
-
-  if (markdownRepresentation) {
-    return {
-      contentMarkdown: markdownRepresentation,
-      title: document.fileName,
-    };
-  }
-
-  if (document.mimeType === "text/markdown" || document.mimeType === "text/plain") {
-    const file = await readMatterDocumentFile({
-      matterDocumentId: document.id,
-      matterId: input.matterId,
-    });
-
-    return {
-      contentMarkdown: file.bytes.toString("utf8"),
-      title: file.fileName,
-    };
-  }
-
-  throw new Error("The cited source document does not have readable Markdown content yet.");
+  return {
+    originalUrl: `/api/matters/${encodeURIComponent(input.matterId)}/documents/${encodeURIComponent(document.id)}/original`,
+    sourceFileName: document.fileName,
+    sourceMimeType: document.mimeType,
+    sourceSize: document.size,
+    title: "Citation Source",
+  };
 }
 
 export async function saveMatterDocumentEdits(

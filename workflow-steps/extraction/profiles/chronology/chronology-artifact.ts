@@ -78,6 +78,7 @@ function formatSourceCitation(source: ChronologySource) {
   const title = readableSourceTitle(source.sourceFileName);
 
   return citationMarkdown({
+    citedText: source.sourceQuote,
     locationText: pages,
     page: source.sourcePages[0] ?? null,
     sourceDocumentId: source.matterDocumentId,

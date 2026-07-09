@@ -119,12 +119,11 @@ export function MatterDetailShell({
       >
         <AppContainer className="flex h-11 items-center">
           {MATTER_TABS.map((tab, index) => {
+            const tabPaddingClassName = index === 0 ? "pr-4" : "px-4";
             const tabClassName =
               tab === activeTab
-                ? "h-11 border-b-2 border-[#5F4B76] pr-4 text-sm font-semibold text-[#4B3861]"
-                : `h-11 text-sm font-medium text-[#74677F] transition-colors hover:text-[#211B27] ${
-                    index === 0 ? "pr-4" : "px-4"
-                  }`;
+                ? `inline-flex h-11 items-center border-b-2 border-[#5F4B76] text-sm font-semibold text-[#4B3861] ${tabPaddingClassName}`
+                : `inline-flex h-11 items-center border-b-2 border-transparent text-sm font-medium text-[#74677F] transition-colors hover:text-[#211B27] ${tabPaddingClassName}`;
 
             if (onSelectTab) {
               return (
