@@ -8,12 +8,18 @@ import type {
   CollapseSummary,
 } from "../collapsed-fact";
 import type { ExtractedFact } from "../extracted-fact";
-import type { FactDef, FactFieldDef, FactIdentityRule } from "../fact-def";
+import type {
+  FactDef,
+  FactFieldDef,
+  FactFieldMergePolicy,
+  FactIdentityRule,
+} from "../fact-def";
 import { dedupeEvidence } from "./evidence";
 import { normalizeFieldValue, normalizedField } from "./normalizers";
 
 type ClusterSeed = {
   fact: ExtractedFact;
+  identityValues?: Record<string, string>;
   identityKey: string;
   matchedFields?: string[];
   ruleIndex?: number;
@@ -21,11 +27,20 @@ type ClusterSeed = {
 };
 
 type Cluster = {
+  identityValues?: Record<string, string>;
   identityKey: string;
   matchedFields?: string[];
   ruleIndex?: number;
   seeds: ClusterSeed[];
   strategy: string;
+};
+
+type CollapseDiagnostics = {
+  ambiguousFallbackCount: number;
+  fallbackJoinCount: number;
+  narrativeVariantCount: number;
+  setValueCount: number;
+  trueConflictCount: number;
 };
 
 function stableHash(value: string) {
@@ -136,6 +151,28 @@ function identityKeyForRule(input: {
   });
 }
 
+function identityValuesForRule(input: {
+  fact: ExtractedFact;
+  fieldDefs: Map<string, FactFieldDef>;
+  rule: FactIdentityRule;
+}) {
+  const values: Record<string, string> = {};
+
+  for (const fieldName of input.rule.fields) {
+    const normalized = normalizedValueForField({
+      fact: input.fact,
+      fieldDef: input.fieldDefs.get(fieldName),
+      fieldName,
+    });
+
+    if (normalized !== undefined && normalized !== null && normalized !== "") {
+      values[fieldName] = valueKey(normalized);
+    }
+  }
+
+  return values;
+}
+
 function uniqueAgainstValues(input: {
   fact: ExtractedFact;
   fieldDefs: Map<string, FactFieldDef>;
@@ -180,6 +217,8 @@ function ruleSeedForFact(input: {
   fact: ExtractedFact;
   factDef: FactDef;
   profileId: string;
+  rule: FactIdentityRule;
+  ruleIndex: number;
 }) {
   const identity = input.factDef.identity;
 
@@ -188,104 +227,162 @@ function ruleSeedForFact(input: {
   }
 
   const fieldDefs = fieldDefByName(input.factDef);
-  const rules = identity.rules ?? [];
-
-  for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
-    const rule = rules[ruleIndex]!;
-
-    if (!ruleApplies({
-      fact: input.fact,
-      fieldDefs,
-      rule,
-    })) {
-      continue;
-    }
-
-    return {
-      fact: input.fact,
-      identityKey: identityKeyForRule({
-        fact: input.fact,
-        fieldDefs,
-        profileId: input.profileId,
-        rule,
-      }),
-      matchedFields: rule.fields,
-      ruleIndex,
-      strategy: identity.strategy,
-    } satisfies ClusterSeed;
+  if (!ruleApplies({
+    fact: input.fact,
+    fieldDefs,
+    rule: input.rule,
+  })) {
+    return null;
   }
 
-  return null;
+  return {
+    fact: input.fact,
+    identityKey: identityKeyForRule({
+      fact: input.fact,
+      fieldDefs,
+      profileId: input.profileId,
+      rule: input.rule,
+    }),
+    identityValues: identityValuesForRule({
+      fact: input.fact,
+      fieldDefs,
+      rule: input.rule,
+    }),
+    matchedFields: input.rule.fields,
+    ruleIndex: input.ruleIndex,
+    strategy: identity.strategy,
+  } satisfies ClusterSeed;
 }
 
 function clusteredSeeds(input: {
+  diagnostics: CollapseDiagnostics;
   factDef: FactDef;
   facts: ExtractedFact[];
   profileId: string;
 }) {
-  const seeds = input.facts.map((fact) =>
-    ruleSeedForFact({
-      fact,
-      factDef: input.factDef,
-      profileId: input.profileId,
-    }),
-  );
   const fieldDefs = fieldDefByName(input.factDef);
   const rules = input.factDef.identity?.rules ?? [];
-  const clustersByKey = new Map<string, Cluster>();
+  const clusters: Cluster[] = [];
   const uncollapsed: Cluster[] = [];
+  const assignedFactIds = new Set<string>();
 
-  for (const seed of seeds) {
-    if (!seed) {
-      continue;
-    }
-
-    const cluster = clustersByKey.get(seed.identityKey) ?? {
-      identityKey: seed.identityKey,
+  function incompleteCluster(seed: ClusterSeed): Cluster {
+    return {
+      identityKey: JSON.stringify({
+        identityKey: seed.identityKey,
+        sourceFactId: seed.fact.id,
+      }),
+      identityValues: seed.identityValues,
       matchedFields: seed.matchedFields,
       ruleIndex: seed.ruleIndex,
-      seeds: [],
-      strategy: seed.strategy,
+      seeds: [seed],
+      strategy: "none",
     };
-    cluster.seeds.push(seed);
-    clustersByKey.set(seed.identityKey, cluster);
   }
 
-  for (const [identityKey, cluster] of [...clustersByKey.entries()]) {
-    const rule = cluster.ruleIndex === undefined ? undefined : rules[cluster.ruleIndex];
+  function compatibleClusters(seed: ClusterSeed) {
+    return clusters.filter((cluster) => {
+      if (cluster.ruleIndex === undefined || seed.ruleIndex === undefined) {
+        return false;
+      }
 
-    if (
-      rule?.action === "mergeWhenUnique" &&
-      mergeWhenUniqueAmbiguous({
-        candidates: cluster.seeds.map((seed) => seed.fact),
-        fieldDefs,
+      if (cluster.ruleIndex >= seed.ruleIndex) {
+        return false;
+      }
+
+      return (seed.matchedFields ?? []).every((fieldName) => {
+        const seedValue = seed.identityValues?.[fieldName];
+        const clusterValue = cluster.identityValues?.[fieldName];
+
+        return seedValue !== undefined && clusterValue !== undefined && seedValue === clusterValue;
+      });
+    });
+  }
+
+  for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
+    const rule = rules[ruleIndex]!;
+    const seeds = input.facts.flatMap((fact) => {
+      if (assignedFactIds.has(fact.id)) {
+        return [];
+      }
+
+      const seed = ruleSeedForFact({
+        fact,
+        factDef: input.factDef,
+        profileId: input.profileId,
         rule,
-      })
-    ) {
-      clustersByKey.delete(identityKey);
-      for (const seed of cluster.seeds) {
-        uncollapsed.push({
-          identityKey: JSON.stringify({
-            identityKey: seed.identityKey,
-            sourceFactId: seed.fact.id,
-          }),
-          matchedFields: seed.matchedFields,
-          ruleIndex: seed.ruleIndex,
-          seeds: [seed],
-          strategy: seed.strategy,
+        ruleIndex,
+      });
+
+      return seed ? [seed] : [];
+    });
+
+    const seedsByKey = new Map<string, ClusterSeed[]>();
+
+    for (const seed of seeds) {
+      if (rule.action === "mergeWhenUnique") {
+        const matches = compatibleClusters(seed);
+
+        if (matches.length === 1) {
+          matches[0]!.seeds.push(seed);
+          assignedFactIds.add(seed.fact.id);
+          input.diagnostics.fallbackJoinCount += 1;
+          continue;
+        }
+
+        if (matches.length > 1) {
+          uncollapsed.push(incompleteCluster(seed));
+          assignedFactIds.add(seed.fact.id);
+          input.diagnostics.ambiguousFallbackCount += 1;
+          continue;
+        }
+      }
+
+      const keyedSeeds = seedsByKey.get(seed.identityKey) ?? [];
+      keyedSeeds.push(seed);
+      seedsByKey.set(seed.identityKey, keyedSeeds);
+    }
+
+    for (const [identityKey, keyedSeeds] of seedsByKey.entries()) {
+      if (
+        rule.action === "mergeWhenUnique" &&
+        mergeWhenUniqueAmbiguous({
+          candidates: keyedSeeds.map((seed) => seed.fact),
+          fieldDefs,
+          rule,
+        })
+      ) {
+        for (const seed of keyedSeeds) {
+          uncollapsed.push(incompleteCluster(seed));
+          assignedFactIds.add(seed.fact.id);
+          input.diagnostics.ambiguousFallbackCount += 1;
+        }
+        continue;
+      }
+
+      const cluster = clusters.find((item) => item.identityKey === identityKey);
+
+      if (cluster) {
+        cluster.seeds.push(...keyedSeeds);
+      } else {
+        clusters.push({
+          identityKey,
+          identityValues: keyedSeeds[0]?.identityValues,
+          matchedFields: keyedSeeds[0]?.matchedFields,
+          ruleIndex: keyedSeeds[0]?.ruleIndex,
+          seeds: keyedSeeds,
+          strategy: keyedSeeds[0]?.strategy ?? "none",
         });
+      }
+
+      for (const seed of keyedSeeds) {
+        assignedFactIds.add(seed.fact.id);
       }
     }
   }
 
-  const clusteredFactIds = new Set(
-    [...clustersByKey.values(), ...uncollapsed].flatMap((cluster) =>
-      cluster.seeds.map((seed) => seed.fact.id),
-    ),
-  );
-
   for (const fact of input.facts) {
-    if (!clusteredFactIds.has(fact.id)) {
+    if (!assignedFactIds.has(fact.id)) {
       uncollapsed.push({
         identityKey: JSON.stringify({
           factType: fact.factType,
@@ -303,7 +400,7 @@ function clusteredSeeds(input: {
     }
   }
 
-  return [...clustersByKey.values(), ...uncollapsed];
+  return [...clusters, ...uncollapsed];
 }
 
 function groupedValuesForField(input: {
@@ -320,9 +417,15 @@ function groupedValuesForField(input: {
       continue;
     }
 
-    const normalizedValue = normalizeFieldValue(value, input.fieldDef?.normalizer);
-    const key = valueKey(normalizedValue);
+    const normalized = normalizedField(value, input.fieldDef?.normalizer);
+    const normalizedValue = normalized?.normalizedValue;
+    const key = normalizedValue === undefined
+      ? `raw:${valueKey(value)}`
+      : valueKey(normalizedValue);
     const existing = values.get(key) ?? {
+      ...(normalized?.canonicalValue === undefined
+        ? {}
+        : { canonicalValue: normalized.canonicalValue }),
       evidence: [],
       normalizedValue,
       sourceFactIds: [],
@@ -346,8 +449,39 @@ function groupedValuesForField(input: {
   }));
 }
 
+function resolvedValue(value: CollapsedFieldValue) {
+  return value.canonicalValue ?? value.value;
+}
+
+function fieldPolicy(input: {
+  factDef: FactDef;
+  fieldName: string;
+  matchedFields?: string[];
+}): FactFieldMergePolicy {
+  const explicitPolicy = input.factDef.identity?.mergeRules?.fieldPolicies?.[input.fieldName];
+
+  if (explicitPolicy) {
+    return explicitPolicy;
+  }
+
+  if (input.matchedFields?.includes(input.fieldName)) {
+    return "identity";
+  }
+
+  if (input.factDef.identity?.mergeRules?.preserveAlternateValues?.includes(input.fieldName)) {
+    return "narrative";
+  }
+
+  if (input.factDef.identity?.mergeRules?.preferNonEmptyFields) {
+    return "prefer-non-empty";
+  }
+
+  return "conflict";
+}
+
 function mergeCluster(input: {
   cluster: Cluster;
+  diagnostics: CollapseDiagnostics;
   factDef: FactDef;
   profileId: string;
 }): CollapsedFact[] {
@@ -358,6 +492,7 @@ function mergeCluster(input: {
   );
   const fields: Record<string, unknown> = {};
   const conflicts: CollapsedFactConflict[] = [];
+  const supportingValues: Record<string, CollapsedFieldValue[]> = {};
 
   for (const fieldDef of fieldDefs) {
     const values = groupedValuesForField({
@@ -371,7 +506,27 @@ function mergeCluster(input: {
     }
 
     if (values.length === 1) {
+      fields[fieldDef.name] = resolvedValue(values[0]!);
+      continue;
+    }
+
+    const policy = fieldPolicy({
+      factDef: input.factDef,
+      fieldName: fieldDef.name,
+      matchedFields: input.cluster.matchedFields,
+    });
+
+    if (policy === "narrative") {
       fields[fieldDef.name] = values[0]!.value;
+      supportingValues[fieldDef.name] = values;
+      input.diagnostics.narrativeVariantCount += values.length;
+      continue;
+    }
+
+    if (policy === "set") {
+      fields[fieldDef.name] = values.map((value) => value.value);
+      supportingValues[fieldDef.name] = values;
+      input.diagnostics.setValueCount += values.length;
       continue;
     }
 
@@ -384,17 +539,20 @@ function mergeCluster(input: {
               rejectOnConflictField: fieldDef.name,
               sourceFactId: fact.id,
             }),
+            identityValues: input.cluster.identityValues,
             matchedFields: input.cluster.matchedFields,
             ruleIndex: input.cluster.ruleIndex,
             seeds: [{
               fact,
               identityKey: fact.id,
+              identityValues: input.cluster.identityValues,
               matchedFields: input.cluster.matchedFields,
               ruleIndex: input.cluster.ruleIndex,
               strategy: input.cluster.strategy,
             }],
             strategy: input.cluster.strategy,
           },
+          diagnostics: input.diagnostics,
           factDef: input.factDef,
           profileId: input.profileId,
         }),
@@ -405,6 +563,7 @@ function mergeCluster(input: {
       field: fieldDef.name,
       values,
     });
+    input.diagnostics.trueConflictCount += 1;
   }
 
   const evidence = dedupeEvidence(facts.map((fact) => fact.evidence));
@@ -416,32 +575,41 @@ function mergeCluster(input: {
       : "resolved";
   const identityKey = input.cluster.identityKey;
 
-  return [
-    {
-      conflicts,
-      evidence,
-      factType: facts[0]?.factType ?? input.factDef.factType,
-      fields,
-      id: `collapsed_${stableHash(`${input.profileId}:${identityKey}`)}`,
-      identity: {
-        matchedFields: input.cluster.matchedFields,
-        ruleIndex: input.cluster.ruleIndex,
-        strategy: input.cluster.strategy,
-      },
-      identityKey,
-      sourceFactIds,
-      status,
+  const collapsedFact: CollapsedFact = {
+    conflicts,
+    evidence,
+    factType: facts[0]?.factType ?? input.factDef.factType,
+    fields,
+    id: `collapsed_${stableHash(`${input.profileId}:${identityKey}`)}`,
+    identity: {
+      matchedFields: input.cluster.matchedFields,
+      ruleIndex: input.cluster.ruleIndex,
+      strategy: input.cluster.strategy,
     },
-  ];
+    identityKey,
+    sourceFactIds,
+    status,
+  };
+
+  if (Object.keys(supportingValues).length > 0) {
+    collapsedFact.supportingValues = supportingValues;
+  }
+
+  return [collapsedFact];
 }
 
 function emptySummary(rawFactCount: number): CollapseSummary {
   return {
+    ambiguousFallbackCount: 0,
     collapsedFactCount: 0,
     conflictingCount: 0,
     countsByFactType: {},
+    fallbackJoinCount: 0,
+    narrativeVariantCount: 0,
     rawFactCount,
     resolvedCount: 0,
+    setValueCount: 0,
+    trueConflictCount: 0,
     uncollapsedCount: 0,
   };
 }
@@ -462,6 +630,13 @@ export function collapseExtractedFacts(input: {
 
   const collapsedFacts: CollapsedFact[] = [];
   const summary = emptySummary(input.facts.length);
+  const diagnostics: CollapseDiagnostics = {
+    ambiguousFallbackCount: 0,
+    fallbackJoinCount: 0,
+    narrativeVariantCount: 0,
+    setValueCount: 0,
+    trueConflictCount: 0,
+  };
 
   for (const [factType, facts] of [...factsByType.entries()].sort(([left], [right]) =>
     left.localeCompare(right),
@@ -473,6 +648,7 @@ export function collapseExtractedFacts(input: {
     }
 
     const clusters = clusteredSeeds({
+      diagnostics,
       factDef,
       facts,
       profileId: input.profileId,
@@ -480,6 +656,7 @@ export function collapseExtractedFacts(input: {
     const typeCollapsedFacts = clusters.flatMap((cluster) =>
       mergeCluster({
         cluster,
+        diagnostics,
         factDef,
         profileId: input.profileId,
       }),
@@ -495,7 +672,12 @@ export function collapseExtractedFacts(input: {
 
   summary.collapsedFactCount = collapsedFacts.length;
   summary.conflictingCount = collapsedFacts.filter((fact) => fact.status === "conflicting").length;
+  summary.ambiguousFallbackCount = diagnostics.ambiguousFallbackCount;
+  summary.fallbackJoinCount = diagnostics.fallbackJoinCount;
+  summary.narrativeVariantCount = diagnostics.narrativeVariantCount;
   summary.resolvedCount = collapsedFacts.filter((fact) => fact.status === "resolved").length;
+  summary.setValueCount = diagnostics.setValueCount;
+  summary.trueConflictCount = diagnostics.trueConflictCount;
   summary.uncollapsedCount = collapsedFacts.filter((fact) => fact.status === "incomplete").length;
 
   return {

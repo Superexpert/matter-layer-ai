@@ -534,12 +534,35 @@ export function createFactExtractionProfile(input: {
           profileId: input.id,
         });
         verboseExtractionLog("[extraction:collapse]", "collapse completed", {
+          ambiguousFallbackCount: collapseResult.summary.ambiguousFallbackCount,
           collapsedFactCount: collapseResult.summary.collapsedFactCount,
           conflictingCount: collapseResult.summary.conflictingCount,
           durationMs: Date.now() - collapseStartedAt,
+          fallbackJoinCount: collapseResult.summary.fallbackJoinCount,
+          narrativeVariantCount: collapseResult.summary.narrativeVariantCount,
           profileId: input.id,
           rawFactCount: collapseResult.summary.rawFactCount,
+          setValueCount: collapseResult.summary.setValueCount,
+          trueConflictCount: collapseResult.summary.trueConflictCount,
         });
+        if (collapseResult.summary.narrativeVariantCount > 0) {
+          verboseExtractionLog("[extraction:collapse]", "narrative variants aggregated", {
+            narrativeVariantCount: collapseResult.summary.narrativeVariantCount,
+            profileId: input.id,
+          });
+        }
+        if (collapseResult.summary.fallbackJoinCount > 0) {
+          verboseExtractionLog("[extraction:collapse]", "fallback fact joined specific cluster", {
+            fallbackJoinCount: collapseResult.summary.fallbackJoinCount,
+            profileId: input.id,
+          });
+        }
+        if (collapseResult.summary.ambiguousFallbackCount > 0) {
+          verboseExtractionLog("[extraction:collapse]", "fallback match ambiguous", {
+            ambiguousFallbackCount: collapseResult.summary.ambiguousFallbackCount,
+            profileId: input.id,
+          });
+        }
         for (const [factType, counts] of Object.entries(collapseResult.summary.countsByFactType)) {
           verboseExtractionLog("[extraction:collapse]", "fact type completed", {
             collapsedFactCount: counts.collapsed,

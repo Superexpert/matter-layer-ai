@@ -62,4 +62,65 @@ describe("OpenAIProvider", () => {
       },
     });
   });
+
+  it("sends GPT-5.4 nano through the shared Responses structured output path", async () => {
+    const capturedRequests: unknown[] = [];
+    const provider = new OpenAIProvider({
+      apiKey: "test-openai-api-key",
+      client: {
+        responses: {
+          async create(request) {
+            capturedRequests.push(request);
+
+            return {
+              output_text: "{\"facts\":[]}",
+            };
+          },
+          async *stream() {
+            yield {
+              type: "response.completed",
+            };
+          },
+        },
+      },
+      model: "gpt-5.4-nano",
+    });
+
+    await provider.generateText({
+      messages: [
+        {
+          content: "Extract facts.",
+          role: "user",
+        },
+      ],
+      responseFormat: {
+        name: "fact_extraction",
+        schema: {
+          properties: {
+            facts: {
+              items: {
+                type: "object",
+              },
+              type: "array",
+            },
+          },
+          required: ["facts"],
+          type: "object",
+        },
+        type: "json_schema",
+      },
+    });
+
+    expect(capturedRequests[0]).toMatchObject({
+      model: "gpt-5.4-nano",
+      store: false,
+      text: {
+        format: {
+          name: "fact_extraction",
+          strict: true,
+          type: "json_schema",
+        },
+      },
+    });
+  });
 });

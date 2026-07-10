@@ -26,8 +26,16 @@ export type FactIdentityRule = {
   whenNot?: FactIdentityRuleCondition;
 };
 
+export type FactFieldMergePolicy =
+  | "conflict"
+  | "identity"
+  | "narrative"
+  | "prefer-non-empty"
+  | "set";
+
 export type FactIdentityDef = {
   mergeRules?: {
+    fieldPolicies?: Record<string, FactFieldMergePolicy>;
     preferNonEmptyFields?: boolean;
     preserveAlternateValues?: string[];
     rejectOnConflictFields?: string[];

@@ -4,12 +4,7 @@ import { WorkflowRunStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
-import { composeEminentDomainClientSummary } from "@/workflow-steps/extraction/profiles/eminent-domain/client-summary-document";
-import { composeEminentDomainLawyerMemo } from "@/workflow-steps/extraction/profiles/eminent-domain/lawyer-memo-document";
-import type { EminentDomainAssessmentItem } from "@/workflow-steps/extraction/profiles/eminent-domain/schema";
 import { createWorkflowArtifactRevision } from "./workflow-artifact-service";
-import { readWorkflowStepOutput } from "./workflow-step-output-service";
-import { getWorkflowCatalogItem } from "./catalog-service";
 
 export type WorkflowRunWorkProductSummary = {
   createdAt: string;
@@ -354,45 +349,13 @@ export async function getWorkflowRunDetails(input: {
   };
 }
 
-function assessmentsFromOutput(output: unknown) {
-  if (!isObjectRecord(output)) {
-    throw new Error("Eminent domain extraction output was not found.");
-  }
-
-  const profileOutput = isObjectRecord(output.eminentDomainCaseAssessment)
-    ? output.eminentDomainCaseAssessment
-    : isObjectRecord(output.profileOutput)
-      ? output.profileOutput
-      : null;
-  const assessments = profileOutput?.assessments;
-
-  if (!Array.isArray(assessments)) {
-    throw new Error("Eminent domain extraction output did not include assessments.");
-  }
-
-  return assessments.filter((item): item is EminentDomainAssessmentItem => {
-    return (
-      isObjectRecord(item) &&
-      isObjectRecord(item.assessment) &&
-      typeof item.sourceDocumentId === "string" &&
-      typeof item.sourceFileName === "string"
-    );
-  });
-}
-
 export async function completeWorkflowRun(input: {
   matterId: string;
   workflowDefinitionId: string;
   workflowRunId: string;
 }) {
-  const workflow = await getWorkflowCatalogItem(input.workflowDefinitionId);
   const run = await prisma.workflowRun.findUnique({
     select: {
-      artifacts: {
-        select: {
-          title: true,
-        },
-      },
       matterId: true,
       status: true,
       workflowDefinitionId: true,
@@ -411,61 +374,6 @@ export async function completeWorkflowRun(input: {
     run.workflowDefinitionId !== input.workflowDefinitionId
   ) {
     throw new Error("Workflow run does not belong to the current matter.");
-  }
-
-  const existingTitles = new Set(run.artifacts.map((artifact) => artifact.title));
-
-  if (workflow.id === "eminent-domain-case-assessment") {
-    const output = await readWorkflowStepOutput({
-      stepId: "analyze-case-documents",
-      workflowRunId: input.workflowRunId,
-    });
-    const assessments = assessmentsFromOutput(output?.outputJson);
-
-    if (!existingTitles.has("Lawyer Memo")) {
-      await prisma.workflowArtifact.create({
-        data: {
-          content: composeEminentDomainLawyerMemo({
-            items: assessments,
-          }),
-          matterId: input.matterId,
-          metadataJson: {
-            description: "Attorney-facing analysis generated from selected case files.",
-            generatedArtifactKind: "eminent-domain-lawyer-memo",
-            profile: "eminent-domain-case-assessment",
-          },
-          stepId: "analyze-case-documents",
-          title: "Lawyer Memo",
-          type: "MARKDOWN",
-          workflowRunId: input.workflowRunId,
-        },
-      });
-    }
-
-    if (!existingTitles.has("Client Summary")) {
-      const lawyerMemo = composeEminentDomainLawyerMemo({
-        items: assessments,
-      });
-
-      await prisma.workflowArtifact.create({
-        data: {
-          content: composeEminentDomainClientSummary({
-            items: assessments,
-            reviewedLawyerMemoMarkdown: lawyerMemo,
-          }),
-          matterId: input.matterId,
-          metadataJson: {
-            description: "Plain-language client-facing summary generated from selected case files.",
-            generatedArtifactKind: "eminent-domain-client-summary",
-            profile: "eminent-domain-case-assessment",
-          },
-          stepId: "analyze-case-documents",
-          title: "Client Summary",
-          type: "MARKDOWN",
-          workflowRunId: input.workflowRunId,
-        },
-      });
-    }
   }
 
   await prisma.workflowRun.update({

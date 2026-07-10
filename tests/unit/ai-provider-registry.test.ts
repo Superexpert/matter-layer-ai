@@ -25,6 +25,10 @@ describe("AI provider registry", () => {
         id: "gpt-5.4-mini",
         label: "GPT-5.4 mini",
       },
+      {
+        id: "gpt-5.4-nano",
+        label: "GPT-5.4 nano",
+      },
     ]);
   });
 
@@ -32,6 +36,16 @@ describe("AI provider registry", () => {
     expect(isRegisteredAIModel("openai", "gpt-5.5")).toBe(true);
     expect(isRegisteredAIModel("openai", "gpt-5.5-mini")).toBe(true);
     expect(isRegisteredAIModel("openai", "gpt-5.4-mini")).toBe(true);
+    expect(isRegisteredAIModel("openai", "gpt-5.4-nano")).toBe(true);
+  });
+
+  it("does not register GPT-5.4 nano as an Anthropic or built-in Ollama option", () => {
+    const anthropic = getAIProviderRegistration("anthropic");
+    const ollama = getAIProviderRegistration("ollama");
+
+    expect(isRegisteredAIModel("anthropic", "gpt-5.4-nano")).toBe(false);
+    expect(anthropic?.models.some((model) => model.id === "gpt-5.4-nano")).toBe(false);
+    expect(ollama?.models.some((model) => model.id === "gpt-5.4-nano")).toBe(false);
   });
 
   it("registers Ollama Local with dynamic installed model names", () => {

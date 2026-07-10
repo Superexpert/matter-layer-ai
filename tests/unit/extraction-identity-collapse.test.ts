@@ -187,7 +187,14 @@ describe("deterministic extraction identity collapse", () => {
     expect(normalizeFieldValue("$435,000.00", "currency"))
       .toBe(normalizeFieldValue("435000", "currency"));
     expect(normalizeFieldValue("2026-02-20T12:00:00Z", "date")).toBe("2026-02-20");
-    expect(normalizeFieldValue("May 4 notes", "date")).toBe("may 4 notes");
+    expect(normalizeFieldValue("February 5, 2026", "date")).toBe("2026-02-05");
+    expect(normalizeFieldValue("February 5 2026", "date")).toBe("2026-02-05");
+    expect(normalizeFieldValue("Feb 5, 2026", "date")).toBe("2026-02-05");
+    expect(normalizeFieldValue("Feb. 5 2026", "date")).toBe("2026-02-05");
+    expect(normalizeFieldValue("February 30, 2026", "date")).toBeUndefined();
+    expect(normalizeFieldValue("2026-02-30", "date")).toBeUndefined();
+    expect(normalizeFieldValue("02/05/2026", "date")).toBeUndefined();
+    expect(normalizeFieldValue("May 4 notes", "date")).toBeUndefined();
     expect(normalizeFieldValue("approximately 0.84 acres", "acreage"))
       .toBe(normalizeFieldValue("0.840 acre", "acreage"));
     expect(normalizeFieldValue("1428 East Braker Lane", "postal-address"))
@@ -369,6 +376,9 @@ describe("deterministic extraction identity collapse", () => {
     );
 
     expect(petition?.sourceFactIds).toEqual(["event_1", "event_2"]);
+    expect(petition?.status).toBe("resolved");
+    expect(petition?.conflicts).toEqual([]);
+    expect(petition?.supportingValues?.description).toHaveLength(2);
     expect(undated).toHaveLength(2);
   });
 
@@ -418,20 +428,399 @@ describe("deterministic extraction identity collapse", () => {
 
     expect(result.collapsedFacts).toHaveLength(2);
     expect(customerParking).toMatchObject({
-      conflicts: expect.arrayContaining([
+      conflicts: [
         expect.objectContaining({
           field: "quantifiedImpact",
         }),
-        expect.objectContaining({
-          field: "sourceRole",
-        }),
-        expect.objectContaining({
-          field: "assertionStatus",
-        }),
-      ]),
+      ],
       sourceFactIds: ["impact_1", "impact_2"],
       status: "conflicting",
     });
+    expect(customerParking?.supportingValues?.sourceRole).toEqual([
+      expect.objectContaining({ value: "appraiser" }),
+      expect.objectContaining({ value: "owner" }),
+    ]);
+    expect(customerParking?.supportingValues?.assertionStatus).toEqual([
+      expect.objectContaining({ value: "assumed" }),
+      expect.objectContaining({ value: "alleged" }),
+    ]);
+    expect(customerParking?.supportingValues?.description).toHaveLength(2);
+  });
+
+  it("collapses equivalent English and ISO event dates without description conflicts", () => {
+    const result = collapse([
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Condemnor received a written appraisal summary.",
+          eventDate: "2026-02-05",
+          eventType: "appraisal-completed",
+          parcelNumber: "Parcel 14",
+        },
+        id: "appraisal_event_1",
+      }),
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Lone Star Valuation Group prepared an appraisal summary relied on by the offer.",
+          eventDate: "February 5, 2026",
+          eventType: "appraisal-completed",
+          parcelNumber: "14",
+        },
+        id: "appraisal_event_2",
+      }),
+    ], eminentDomainFactDefs);
+
+    expect(result.collapsedFacts).toHaveLength(1);
+    expect(result.collapsedFacts[0]).toMatchObject({
+      conflicts: [],
+      sourceFactIds: ["appraisal_event_1", "appraisal_event_2"],
+      status: "resolved",
+    });
+    expect(result.collapsedFacts[0]?.supportingValues?.description).toHaveLength(2);
+  });
+
+  it("joins a fallback event to one unique parcel-specific cluster", () => {
+    const result = collapse([
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "The final written offer was issued for Parcel 14.",
+          eventDate: "2026-02-20",
+          eventType: "final-offer-issued",
+          parcelNumber: "Parcel 14",
+        },
+        id: "final_offer_event_1",
+      }),
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "The City issued its final offer.",
+          eventDate: "February 20, 2026",
+          eventType: "final-offer-issued",
+        },
+        id: "final_offer_event_2",
+      }),
+    ], eminentDomainFactDefs);
+
+    expect(result.collapsedFacts).toHaveLength(1);
+    expect(result.collapsedFacts[0]).toMatchObject({
+      identity: expect.objectContaining({
+        matchedFields: ["eventType", "eventDate", "parcelNumber"],
+        ruleIndex: 0,
+      }),
+      sourceFactIds: ["final_offer_event_1", "final_offer_event_2"],
+      status: "resolved",
+    });
+    expect(result.summary.fallbackJoinCount).toBe(1);
+  });
+
+  it("keeps fallback events separate when more than one specific cluster is compatible", () => {
+    const result = collapse([
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Final offer issued for Parcel 14.",
+          eventDate: "2026-02-20",
+          eventType: "final-offer-issued",
+          parcelNumber: "Parcel 14",
+        },
+        id: "parcel_14_event",
+      }),
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Final offer issued for Parcel 22.",
+          eventDate: "2026-02-20",
+          eventType: "final-offer-issued",
+          parcelNumber: "Parcel 22",
+        },
+        id: "parcel_22_event",
+      }),
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Final offer issued.",
+          eventDate: "February 20, 2026",
+          eventType: "final-offer-issued",
+        },
+        id: "undifferentiated_event",
+      }),
+    ], eminentDomainFactDefs);
+
+    const undifferentiated = result.collapsedFacts.find((item) =>
+      item.sourceFactIds.includes("undifferentiated_event")
+    );
+
+    expect(result.collapsedFacts).toHaveLength(3);
+    expect(undifferentiated?.status).toBe("incomplete");
+    expect(result.summary.ambiguousFallbackCount).toBe(1);
+  });
+
+  it("preserves true deadline conflicts while aggregating final-offer descriptions", () => {
+    const result = collapse([
+      fact({
+        factType: "EVENT",
+        fields: {
+          deadline: "2026-03-09",
+          description: "The City issued a final written offer with a March 9 response deadline.",
+          eventDate: "2026-02-20",
+          eventType: "final-offer-issued",
+          parcelNumber: "Parcel 14",
+        },
+        id: "deadline_event_1",
+      }),
+      fact({
+        factType: "EVENT",
+        fields: {
+          deadline: "March 10, 2026",
+          description: "The final offer letter requested an owner response.",
+          eventDate: "February 20, 2026",
+          eventType: "final-offer-issued",
+          parcelNumber: "14",
+        },
+        id: "deadline_event_2",
+      }),
+    ], eminentDomainFactDefs);
+
+    expect(result.collapsedFacts).toHaveLength(1);
+    expect(result.collapsedFacts[0]).toMatchObject({
+      conflicts: [
+        expect.objectContaining({
+          field: "deadline",
+        }),
+      ],
+      status: "conflicting",
+    });
+    expect(result.collapsedFacts[0]?.supportingValues?.description).toHaveLength(2);
+  });
+
+  it("canonicalizes resolved dates in collapsed fields without mutating raw facts", () => {
+    const rawFacts = [
+      fact({
+        factType: "EVENT",
+        fields: {
+          deadline: "February 11, 2026",
+          description: "Initial offer issued with a response deadline.",
+          eventDate: "January 12, 2026",
+          eventType: "initial-offer-issued",
+          parcelNumber: "Parcel No. 14",
+        },
+        id: "initial_offer_event_1",
+      }),
+      fact({
+        factType: "EVENT",
+        fields: {
+          deadline: "2026-02-11",
+          description: "Initial written offer was issued.",
+          eventDate: "2026-01-12",
+          eventType: "initial-offer-issued",
+          parcelNumber: "14",
+        },
+        id: "initial_offer_event_2",
+      }),
+    ];
+    const original = JSON.stringify(rawFacts);
+    const result = collapse(rawFacts, eminentDomainFactDefs);
+
+    expect(JSON.stringify(rawFacts)).toBe(original);
+    expect(result.collapsedFacts).toHaveLength(1);
+    expect(result.collapsedFacts[0]?.fields).toMatchObject({
+      deadline: "2026-02-11",
+      eventDate: "2026-01-12",
+      parcelNumber: "Parcel 14",
+    });
+    expect(result.collapsedFacts[0]?.supportingValues?.description).toHaveLength(2);
+  });
+
+  it("canonicalizes resolved offer and appraisal dates", () => {
+    const result = collapse([
+      fact({
+        factType: "VALUATION",
+        fields: {
+          amount: "$435,000.00",
+          offerDate: "Feb. 20, 2026",
+          parcelNumber: "Parcel No. 14",
+          valuationType: "final-offer",
+        },
+        id: "final_offer_value",
+      }),
+      fact({
+        factType: "VALUATION",
+        fields: {
+          amount: "435000",
+          appraiser: "Lone Star Valuation Group",
+          effectiveDate: "February 1, 2026",
+          parcelNumber: "14",
+          reportDate: "February 5, 2026",
+          valuationType: "condemnor-appraisal",
+        },
+        id: "appraisal_value",
+      }),
+    ], eminentDomainFactDefs);
+
+    const offer = result.collapsedFacts.find((item) =>
+      item.sourceFactIds.includes("final_offer_value")
+    );
+    const appraisal = result.collapsedFacts.find((item) =>
+      item.sourceFactIds.includes("appraisal_value")
+    );
+
+    expect(offer?.fields).toMatchObject({
+      amount: "$435,000",
+      offerDate: "2026-02-20",
+      parcelNumber: "Parcel 14",
+    });
+    expect(appraisal?.fields).toMatchObject({
+      amount: "$435,000",
+      effectiveDate: "2026-02-01",
+      parcelNumber: "Parcel 14",
+      reportDate: "2026-02-05",
+    });
+  });
+
+  it("canonicalizes resolved acreage and keeps conflicting acreage unresolved", () => {
+    const result = collapse([
+      fact({
+        factType: "PROPERTY_INTEREST",
+        fields: {
+          area: "0.840 acre",
+          interestType: "fee-simple",
+          parcelNumber: "Parcel No. 14",
+        },
+        id: "fee_area_1",
+      }),
+      fact({
+        factType: "PROPERTY_INTEREST",
+        fields: {
+          area: "0.84 acres",
+          interestType: "fee-simple",
+          parcelNumber: "14",
+        },
+        id: "fee_area_2",
+      }),
+      fact({
+        factType: "PROPERTY_INTEREST",
+        fields: {
+          area: "0.94 acres",
+          interestType: "subject-property",
+          parcelNumber: "Parcel 14",
+        },
+        id: "subject_area_1",
+      }),
+      fact({
+        factType: "PROPERTY_INTEREST",
+        fields: {
+          area: "0.84 acres",
+          interestType: "subject-property",
+          parcelNumber: "14",
+        },
+        id: "subject_area_2",
+      }),
+    ], eminentDomainFactDefs);
+
+    const fee = result.collapsedFacts.find((item) => item.sourceFactIds.includes("fee_area_1"));
+    const subject = result.collapsedFacts.find((item) =>
+      item.sourceFactIds.includes("subject_area_1")
+    );
+
+    expect(fee?.fields).toMatchObject({
+      area: "0.84 acres",
+      parcelNumber: "Parcel 14",
+    });
+    expect(subject?.fields.area).toBeUndefined();
+    expect(subject?.conflicts).toEqual([
+      expect.objectContaining({
+        field: "area",
+        values: [
+          expect.objectContaining({
+            canonicalValue: "0.94 acres",
+            normalizedValue: "acres:0.9400",
+            value: "0.94 acres",
+          }),
+          expect.objectContaining({
+            canonicalValue: "0.84 acres",
+            normalizedValue: "acres:0.8400",
+            value: "0.84 acres",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("keeps conflicting currency values unresolved while retaining originals", () => {
+    const result = collapse([
+      fact({
+        factType: "VALUATION",
+        fields: {
+          amount: "$435,000.00",
+          offerDate: "2026-02-20",
+          parcelNumber: "Parcel 14",
+          valuationType: "final-offer",
+        },
+        id: "offer_conflict_1",
+      }),
+      fact({
+        factType: "VALUATION",
+        fields: {
+          amount: "450000",
+          offerDate: "February 20, 2026",
+          parcelNumber: "14",
+          valuationType: "final-offer",
+        },
+        id: "offer_conflict_2",
+      }),
+    ], eminentDomainFactDefs);
+
+    expect(result.collapsedFacts[0]?.fields.amount).toBeUndefined();
+    expect(result.collapsedFacts[0]?.conflicts).toEqual([
+      expect.objectContaining({
+        field: "amount",
+        values: [
+          expect.objectContaining({
+            canonicalValue: "$435,000",
+            normalizedValue: "435000.00",
+            value: "$435,000.00",
+          }),
+          expect.objectContaining({
+            canonicalValue: "$450,000",
+            normalizedValue: "450000.00",
+            value: "450000",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("keeps collapsed ids stable across formatting-only canonicalization", () => {
+    const iso = collapse([
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Final offer issued.",
+          eventDate: "2026-02-20",
+          eventType: "final-offer-issued",
+          parcelNumber: "Parcel 14",
+        },
+        id: "iso_event",
+      }),
+    ], eminentDomainFactDefs);
+    const english = collapse([
+      fact({
+        factType: "EVENT",
+        fields: {
+          description: "Final offer issued.",
+          eventDate: "February 20, 2026",
+          eventType: "final-offer-issued",
+          parcelNumber: "Parcel No. 14",
+        },
+        id: "english_event",
+      }),
+    ], eminentDomainFactDefs);
+
+    expect(iso.collapsedFacts[0]?.id).toBe(english.collapsedFacts[0]?.id);
+    expect(english.collapsedFacts[0]?.fields.eventDate).toBe("2026-02-20");
+    expect(english.collapsedFacts[0]?.fields.parcelNumber).toBe("Parcel 14");
   });
 
   it("does not call an AI provider during collapse", () => {

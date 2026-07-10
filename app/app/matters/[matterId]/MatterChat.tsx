@@ -37,6 +37,8 @@ import type { DocumentEditorStepOutput } from "@/workflow-steps/document-editor/
 import { FileSelectorStepComponent } from "@/workflow-steps/file-selector/component";
 import type { FileSelectorStepOutput } from "@/workflow-steps/file-selector/schema";
 import { ReviewWorkProductsStepComponent } from "@/workflow-steps/review-work-products/component";
+import { AnalyzeStepComponent } from "@/workflow-steps/analyze/component";
+import type { AnalyzeStepOutput } from "@/workflow-steps/analyze/schema";
 
 import {
   MatterDetailShell,
@@ -52,10 +54,12 @@ import {
   listWorkflowRunSummariesAction,
   listMatterDocumentsAction,
   loadReviewWorkProductsStepStateAction,
+  loadAnalyzeStepStateAction,
   loadExtractionStepStateAction,
   loadDocumentEditorStepStateAction,
   loadFileSelectorStepStateAction,
   runExtractionStepAction,
+  runAnalyzeStepAction,
   saveDocumentEditorArtifactAction,
   saveWorkflowArtifactEditsAction,
   saveMatterDocumentEditsAction,
@@ -134,6 +138,7 @@ const WORKFLOW_EDITOR_STEP_TYPES = [
   "fileSelector",
   "form",
   "extraction",
+  "analyze",
   "ai",
   "documentEditor",
   "reviewWorkProducts",
@@ -1158,6 +1163,25 @@ export function MatterChat({
     ]);
   }
 
+  function completeAnalyzeStep(output: AnalyzeStepOutput) {
+    if (!activeWorkflow || !activeWorkflowStep) {
+      throw new Error("Completing Analyze requires an active workflow step.");
+    }
+    const currentStepIndex = activeWorkflow.workflowDefinition.steps.findIndex(
+      (step) => step.id === activeWorkflowStep.id,
+    );
+    const nextStep = activeWorkflow.workflowDefinition.steps[currentStepIndex + 1];
+    setActiveWorkflow({
+      ...activeWorkflow,
+      activeStepId: nextStep?.id ?? activeWorkflow.activeStepId,
+      completed: !nextStep,
+      stepOutputs: { ...activeWorkflow.stepOutputs, [activeWorkflowStep.id]: output },
+    });
+    setMessages((currentMessages) => [...currentMessages, createWorkflowMessage(
+      nextStep ? `Work products prepared. Next step: ${nextStep.name}.` : "Work products prepared. Workflow complete.",
+    )]);
+  }
+
   function returnToWorkflowStep(stepId: string) {
     if (!activeWorkflow) {
       throw new Error("Returning to a workflow step requires an active workflow.");
@@ -1979,6 +2003,18 @@ export function MatterChat({
                     onComplete={completeExtractionStep}
                     onReturnToInputStep={returnToWorkflowStep}
                     runStep={runExtractionStepAction}
+                    step={activeWorkflowStep}
+                    workflowDefinitionId={activeWorkflow.workflowDefinition.id}
+                    workflowRunId={activeWorkflow.workflowRunId}
+                  />
+                ) : selectedTab === "Workflows" &&
+                  activeWorkflow &&
+                  activeWorkflowStep?.type === "analyze" ? (
+                  <AnalyzeStepComponent
+                    loadStepState={loadAnalyzeStepStateAction}
+                    matterId={matterId}
+                    onComplete={completeAnalyzeStep}
+                    runStep={runAnalyzeStepAction}
                     step={activeWorkflowStep}
                     workflowDefinitionId={activeWorkflow.workflowDefinition.id}
                     workflowRunId={activeWorkflow.workflowRunId}

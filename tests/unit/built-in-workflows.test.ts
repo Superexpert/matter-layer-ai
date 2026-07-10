@@ -12,7 +12,7 @@ describe("built-in workflow registration", () => {
     );
 
     expect(builtInWorkflow).toMatchObject({
-      builtInVersion: 3,
+      builtInVersion: 4,
       isEnabledByDefault: true,
       isSystem: false,
       slug: "eminent-domain-case-assessment",
@@ -24,61 +24,20 @@ describe("built-in workflow registration", () => {
       id: "eminent-domain-case-assessment",
       name: "Eminent Domain Case Assessment",
     });
-    expect(eminentDomainCaseAssessmentDefinition.steps).toEqual([
-      {
-        description:
-          "Select the offer letters, appraisal reports, petitions, maps, surveys, correspondence, and other documents related to the eminent domain matter.",
-        id: "select-documents",
-        name: "Select Case Files",
-        parameters: {
-          acceptedMimeTypes: [
-            "application/pdf",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "text/plain",
-          ],
-          allowExistingMatterFiles: true,
-          allowUpload: true,
-          maxFiles: null,
-          minFiles: 1,
-        },
-        type: "fileSelector",
-      },
-      {
-        autorun: true,
-        description:
-          "Extract raw typed facts about parties, property, takings, offers, appraisals, events, impacts, and document references from the selected case files.",
-        id: "analyze-case-documents",
-        name: "Extract Facts",
-        parameters: {
-          inputStepId: "select-documents",
-          outputKey: "eminentDomainCaseAssessment",
-          profile: "eminent-domain-facts",
-          representationType: "MARKDOWN",
-          taskId: "eminent-domain-facts",
-          ui: {
-            profileLine: null,
-            retryButtonLabel: "Retry extraction",
-            runButtonLabel: "Extract case facts",
-            runningButtonLabel: "Extracting...",
-            runningDocumentLabel: "Extracting",
-          },
-        },
-        type: "extraction",
-      },
-      {
-        description: "Review generated work products inline.",
-        id: "review-work-products",
-        name: "Review Work Products",
-        parameters: {
-          inputStepId: "analyze-case-documents",
-        },
-        type: "reviewWorkProducts",
-      },
-    ]);
     expect(eminentDomainCaseAssessmentDefinition.steps.map((step) => step.name)).toEqual([
       "Select Case Files",
       "Extract Facts",
+      "Analyze Case",
       "Review Work Products",
     ]);
+    expect(eminentDomainCaseAssessmentDefinition.steps[2]).toMatchObject({
+      autorun: true,
+      id: "analyze-case",
+      parameters: { inputStepId: "analyze-case-documents" },
+      type: "analyze",
+    });
+    expect(eminentDomainCaseAssessmentDefinition.steps[3]?.parameters).toEqual({
+      inputStepId: "analyze-case",
+    });
   });
 });

@@ -19,3 +19,15 @@ Promotion path for a custom workflow:
    definition and built-in metadata.
 4. Export the metadata from `workflows/index.ts`.
 5. Commit, deploy, and run built-in workflow sync.
+
+## Analyze authoring boundary
+
+Analyze steps use only serializable configuration: an input step, an optional
+provider/model override, and generator names, output names, and instructions.
+The runtime owns fact compaction, prompting, parallel generation, retries, and
+artifact persistence. This boundary is intentional so a future Markdown
+workflow parser can produce the same configuration without changing Analyze.
+
+The current Admin workflow detail supports the registered Analyze provider
+setting and displays the configured step data. Rich generator instruction
+editing remains configuration-driven for this initial implementation.

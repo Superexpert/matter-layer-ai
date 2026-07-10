@@ -12,6 +12,7 @@ export type NormalizerName =
   | "trim";
 
 export type NormalizedFactField = {
+  canonicalValue?: unknown;
   normalizedValue: unknown;
   originalValue: unknown;
 };
@@ -80,6 +81,16 @@ function normalizeParcelNumber(value: unknown) {
   return normalized;
 }
 
+function canonicalParcelNumber(normalizedValue: unknown) {
+  if (typeof normalizedValue !== "string") {
+    return undefined;
+  }
+
+  const match = /^parcel:(.+)$/.exec(normalizedValue);
+
+  return match?.[1] ? `Parcel ${match[1]}` : undefined;
+}
+
 function isValidIsoDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
 
@@ -97,6 +108,65 @@ function isValidIsoDate(value: string) {
     date.getUTCDate() === day;
 }
 
+function isoDateForParts(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
+
+  return [
+    String(year).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0"),
+  ].join("-");
+}
+
+const MONTH_NUMBERS = new Map([
+  ["january", 1],
+  ["jan", 1],
+  ["february", 2],
+  ["feb", 2],
+  ["march", 3],
+  ["mar", 3],
+  ["april", 4],
+  ["apr", 4],
+  ["may", 5],
+  ["june", 6],
+  ["jun", 6],
+  ["july", 7],
+  ["jul", 7],
+  ["august", 8],
+  ["aug", 8],
+  ["september", 9],
+  ["sep", 9],
+  ["sept", 9],
+  ["october", 10],
+  ["oct", 10],
+  ["november", 11],
+  ["nov", 11],
+  ["december", 12],
+  ["dec", 12],
+]);
+
+function normalizeEnglishDate(value: string) {
+  const match = /^([A-Za-z]+)\.?\s+(\d{1,2})(?:,)?\s+(\d{4})$/.exec(value);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const month = MONTH_NUMBERS.get(match[1]!.toLowerCase());
+  const day = Number(match[2]);
+  const year = Number(match[3]);
+
+  return month === undefined ? undefined : isoDateForParts(year, month, day);
+}
+
 function normalizeDate(value: unknown) {
   const trimmed = stringValue(value);
 
@@ -108,13 +178,43 @@ function normalizeDate(value: unknown) {
     return trimmed;
   }
 
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return undefined;
+  }
+
   const dateTimePrefix = /^(\d{4}-\d{2}-\d{2})T/.exec(trimmed);
 
   if (dateTimePrefix?.[1] && isValidIsoDate(dateTimePrefix[1])) {
     return dateTimePrefix[1];
   }
 
-  return collapseWhitespace(trimmed.toLowerCase());
+  const englishDate = normalizeEnglishDate(collapseWhitespace(trimmed));
+
+  if (englishDate) {
+    return englishDate;
+  }
+
+  return undefined;
+}
+
+function canonicalCurrencyFromNormalized(value: unknown) {
+  if (typeof value !== "string" || !/^-?\d+\.\d{2}$/.test(value)) {
+    return undefined;
+  }
+
+  const negative = value.startsWith("-");
+  const absoluteValue = negative ? value.slice(1) : value;
+  const [whole = "0", cents = "00"] = absoluteValue.split(".");
+  const formattedWhole = Number(whole).toLocaleString("en-US", {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    useGrouping: true,
+  });
+  const formatted = cents === "00"
+    ? `$${formattedWhole}`
+    : `$${formattedWhole}.${cents}`;
+
+  return negative ? `-${formatted}` : formatted;
 }
 
 function normalizeCurrency(value: unknown) {
@@ -133,6 +233,32 @@ function normalizeCurrency(value: unknown) {
   }
 
   return Number(numericText).toFixed(2);
+}
+
+function canonicalAcreageFromNormalized(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const match = /^acres:(-?\d+(?:\.\d+)?)$/.exec(value);
+
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  const acreage = Number(match[1]);
+
+  if (!Number.isFinite(acreage)) {
+    return undefined;
+  }
+
+  const formatted = acreage.toLocaleString("en-US", {
+    maximumFractionDigits: 4,
+    minimumFractionDigits: 0,
+    useGrouping: false,
+  });
+
+  return `${formatted} ${acreage === 1 ? "acre" : "acres"}`;
 }
 
 function normalizeAcreage(value: unknown) {
@@ -229,6 +355,24 @@ export function normalizeFieldValue(
   }
 }
 
+function canonicalFieldValue(
+  normalizedValue: unknown,
+  normalizer: string | undefined,
+): unknown {
+  switch (normalizer as NormalizerName | undefined) {
+    case "date":
+      return typeof normalizedValue === "string" ? normalizedValue : undefined;
+    case "currency":
+      return canonicalCurrencyFromNormalized(normalizedValue);
+    case "parcel-number":
+      return canonicalParcelNumber(normalizedValue);
+    case "acreage":
+      return canonicalAcreageFromNormalized(normalizedValue);
+    default:
+      return undefined;
+  }
+}
+
 export function normalizedField(
   value: unknown,
   normalizer: string | undefined,
@@ -241,8 +385,12 @@ export function normalizedField(
     return undefined;
   }
 
+  const normalizedValue = normalizeFieldValue(value, normalizer);
+  const canonicalValue = canonicalFieldValue(normalizedValue, normalizer);
+
   return {
-    normalizedValue: normalizeFieldValue(value, normalizer),
+    ...(canonicalValue === undefined ? {} : { canonicalValue }),
+    normalizedValue,
     originalValue: value,
   };
 }

@@ -6,6 +6,7 @@ import {
   isCollapsedFactLoggingEnabled,
   isExtractedFactLoggingEnabled,
   isVerboseAiLoggingEnabled,
+  isVerboseAnalyzeLoggingEnabled,
   isVerboseExtractionLoggingEnabled,
   logCollapsedFacts,
   logExtractedFacts,
@@ -13,6 +14,7 @@ import {
   logRejectedExtractedFact,
   parseBooleanEnv,
   verboseAiLog,
+  verboseAnalyzeLog,
   verboseExtractionLog,
 } from "@/services/diagnostics/verbose-logging";
 import type { ExtractedFact } from "@/workflow-steps/extraction/extracted-fact";
@@ -23,6 +25,7 @@ import { runExtractionProfile } from "@/workflow-steps/extraction/profile-runner
 const originalAiLogging = process.env.MATTER_LAYER_VERBOSE_AI_LOGGING;
 const originalExtractionLogging =
   process.env.MATTER_LAYER_VERBOSE_EXTRACTION_LOGGING;
+const originalAnalyzeLogging = process.env.MATTER_LAYER_VERBOSE_ANALYZE_LOGGING;
 const originalExtractedFactLogging =
   process.env.MATTER_LAYER_LOG_EXTRACTED_FACTS;
 const originalCollapsedFactLogging =
@@ -30,10 +33,13 @@ const originalCollapsedFactLogging =
 
 function setVerboseEnv(input: {
   ai?: string;
+  analyze?: string;
   collapsedFacts?: string;
   extraction?: string;
   facts?: string;
 }) {
+  if (input.analyze === undefined) delete process.env.MATTER_LAYER_VERBOSE_ANALYZE_LOGGING;
+  else process.env.MATTER_LAYER_VERBOSE_ANALYZE_LOGGING = input.analyze;
   if (input.ai === undefined) {
     delete process.env.MATTER_LAYER_VERBOSE_AI_LOGGING;
   } else {
@@ -60,6 +66,8 @@ function setVerboseEnv(input: {
 }
 
 afterEach(() => {
+  if (originalAnalyzeLogging === undefined) delete process.env.MATTER_LAYER_VERBOSE_ANALYZE_LOGGING;
+  else process.env.MATTER_LAYER_VERBOSE_ANALYZE_LOGGING = originalAnalyzeLogging;
   if (originalAiLogging === undefined) {
     delete process.env.MATTER_LAYER_VERBOSE_AI_LOGGING;
   } else {
@@ -214,6 +222,44 @@ describe("verbose logging categories", () => {
     expect(logSpy).toHaveBeenCalledWith("[ai:generateText] request completed");
     expect(logSpy).toHaveBeenCalledWith(
       "[extraction:service] document result merged",
+    );
+  });
+
+  it("includes GPT-5.4 nano model metadata in shared AI diagnostics", async () => {
+    setVerboseEnv({ ai: "true" });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const provider: AIProvider = {
+      generateText: async (request) => ({
+        content: "{\"facts\":[]}",
+        model: request.model ?? "gpt-5.4-nano",
+        provider: "openai",
+      }),
+      name: "openai",
+      streamText: async function* () {
+        yield {
+          response: {
+            content: "",
+            model: "gpt-5.4-nano",
+            provider: "openai",
+          },
+          type: "done",
+        };
+      },
+    };
+
+    await new AIService(provider).generateText({
+      messages: [{ content: "Extract facts.", role: "user" }],
+      model: "gpt-5.4-nano",
+    });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      "[ai:generateText] request completed",
+      expect.objectContaining({
+        model: "gpt-5.4-nano",
+        provider: "openai",
+        responseModel: "gpt-5.4-nano",
+        responseProvider: "openai",
+      }),
     );
   });
 
@@ -440,6 +486,7 @@ describe("extracted fact logging", () => {
       },
     ];
     const summary = {
+      ambiguousFallbackCount: 0,
       collapsedFactCount: 1,
       conflictingCount: 0,
       countsByFactType: {
@@ -449,8 +496,12 @@ describe("extracted fact logging", () => {
           raw: 1,
         },
       },
+      fallbackJoinCount: 0,
+      narrativeVariantCount: 0,
       rawFactCount: 1,
       resolvedCount: 1,
+      setValueCount: 0,
+      trueConflictCount: 0,
       uncollapsedCount: 0,
     };
 
@@ -582,5 +633,20 @@ describe("extracted fact logging", () => {
       disabledResult.itemCountsByType,
     );
     expect(enabledResult.status).toBe(disabledResult.status);
+  });
+
+  it("keeps Analyze logging disabled by default and independent from AI logging", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    setVerboseEnv({ ai: "true", analyze: "false", extraction: "false" });
+    expect(isVerboseAnalyzeLoggingEnabled()).toBe(false);
+    verboseAnalyzeLog("[analyze:service]", "run started", { stepId: "analyze" });
+    expect(logSpy).not.toHaveBeenCalledWith("[analyze:service] run started", expect.anything());
+
+    setVerboseEnv({ ai: "false", analyze: "true", extraction: "false" });
+    expect(isVerboseAnalyzeLoggingEnabled()).toBe(true);
+    expect(isVerboseAiLoggingEnabled()).toBe(false);
+    expect(isVerboseExtractionLoggingEnabled()).toBe(false);
+    verboseAnalyzeLog("[analyze:service]", "run started", { stepId: "analyze" });
+    expect(logSpy).toHaveBeenCalledWith("[analyze:service] run started", { stepId: "analyze" });
   });
 });

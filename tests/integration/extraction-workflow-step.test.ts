@@ -18,6 +18,7 @@ import {
 import { extractionStep as registeredExtractionStep } from "../../workflow-steps/extraction/definition";
 import { runExtractionProfile } from "../../workflow-steps/extraction/profile-runner";
 import { chronologyRunnerProfile } from "../../workflow-steps/extraction/profiles/chronology/extractor";
+import { eminentDomainFactsProfile } from "../../workflow-steps/extraction/profiles/eminent-domain";
 
 const prisma = new PrismaClient();
 
@@ -459,6 +460,83 @@ test.each([
     });
   },
 );
+
+test("Eminent Domain extraction parses mocked GPT-5.4 nano structured facts", async () => {
+  let requestedSchema: Record<string, unknown> | undefined;
+  const result = await runExtractionProfile(eminentDomainFactsProfile, {
+    aiService: {
+      generateText: async (request) => {
+        requestedSchema = request.responseFormat?.schema;
+
+        return {
+          content: JSON.stringify({
+            facts: [
+              {
+                extractionConfidence: "high",
+                factType: "MATTER_ENTITY",
+                fields: {
+                  entityType: "property-owner",
+                  name: "Ramirez Family Holdings, LLC",
+                },
+                pageEnd: 1,
+                pageStart: 1,
+                sourceExcerpt: "Ramirez Family Holdings, LLC owns Parcel 14.",
+              },
+              {
+                extractionConfidence: "high",
+                factType: "EVENT",
+                fields: {
+                  description: "The City issued its final written offer.",
+                  eventDate: "February 20, 2026",
+                  eventType: "final-offer-issued",
+                  parcelNumber: "Parcel 14",
+                },
+                pageEnd: 1,
+                pageStart: 1,
+                sourceExcerpt: "The City issued its final written offer on February 20, 2026.",
+              },
+            ],
+          }),
+          model: "gpt-5.4-nano",
+          provider: "openai",
+        };
+      },
+    },
+    readyDocuments: [
+      {
+        fileName: "2026-02-20 Final Offer Letter - Parcel 14.pdf",
+        id: "doc_gpt_54_nano",
+        markdown: [
+          "<!-- ml:page {\"page\":1} -->",
+          "Ramirez Family Holdings, LLC owns Parcel 14.",
+          "The City issued its final written offer on February 20, 2026.",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  expect(requestedSchema).toBe(eminentDomainFactsProfile.responseFormat?.schema);
+  expect(result).toMatchObject({
+    error: null,
+    itemCount: 2,
+    model: "gpt-5.4-nano",
+    provider: "openai",
+    status: "COMPLETED",
+  });
+  expect(result.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        evidence: expect.objectContaining({
+          documentId: "doc_gpt_54_nano",
+          documentName: "2026-02-20 Final Offer Letter - Parcel 14.pdf",
+          pageEnd: 1,
+          pageStart: 1,
+        }),
+        factType: "EVENT",
+      }),
+    ]),
+  );
+});
 
 test("generic extraction step runs eminent domain assessment with configured output key", async () => {
   const { matter, user } = await createUserAndMatter();

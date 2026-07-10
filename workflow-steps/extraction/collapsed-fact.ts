@@ -3,6 +3,7 @@ import type { ExtractedFactEvidence } from "./extracted-fact";
 export type CollapsedFactStatus = "conflicting" | "incomplete" | "resolved";
 
 export type CollapsedFieldValue = {
+  canonicalValue?: unknown;
   evidence: ExtractedFactEvidence[];
   normalizedValue?: unknown;
   sourceFactIds: string[];
@@ -28,9 +29,11 @@ export type CollapsedFact = {
   identityKey: string;
   sourceFactIds: string[];
   status: CollapsedFactStatus;
+  supportingValues?: Record<string, CollapsedFieldValue[]>;
 };
 
 export type CollapseSummary = {
+  ambiguousFallbackCount: number;
   collapsedFactCount: number;
   conflictingCount: number;
   countsByFactType: Record<string, {
@@ -38,8 +41,12 @@ export type CollapseSummary = {
     conflicting: number;
     raw: number;
   }>;
+  fallbackJoinCount: number;
+  narrativeVariantCount: number;
   rawFactCount: number;
   resolvedCount: number;
+  setValueCount: number;
+  trueConflictCount: number;
   uncollapsedCount: number;
 };
 

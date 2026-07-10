@@ -27,6 +27,11 @@ Admin setup:
    internal Ollama server URL and refresh installed models.
 6. Save settings.
 
+Known OpenAI model options include `gpt-5.5`, `gpt-5.5-mini`,
+`gpt-5.4-mini`, and `gpt-5.4-nano`. `gpt-5.4-nano` is a lower-cost OpenAI
+option suited to high-volume extraction and classification workloads. It is not
+the default unless an administrator explicitly selects it.
+
 The Anthropic `sonnet-4` model option is a Matter Layer alias that resolves to
 Anthropic's current Claude API model ID `claude-sonnet-4-6`.
 

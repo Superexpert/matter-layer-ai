@@ -39,6 +39,7 @@ import {
   uploadMatterDocuments,
 } from "@/workflow-steps/file-selector/server";
 import type { FileSelectorStepConfig } from "@/workflow-steps/file-selector/schema";
+import { loadAnalyzeStepState, runAnalyzeStep } from "@/workflow-steps/analyze/server";
 
 function workflowDebugLog(scope: "activity" | "autorun", message: string, metadata: Record<string, unknown> = {}) {
   if (process.env.WORKFLOW_DEBUG !== "true" && process.env.WORKFLOW_DEBUG !== "1") {
@@ -320,6 +321,29 @@ export async function runExtractionStepAction(input: {
     });
     throw error;
   }
+}
+
+export async function loadAnalyzeStepStateAction(input: {
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+  return loadAnalyzeStepState(input);
+}
+
+export async function runAnalyzeStepAction(input: {
+  executionMode?: "autorun" | "manual" | "retry_failed";
+  matterId: string;
+  step: WorkflowStepDefinition;
+  workflowDefinitionId: string;
+  workflowRunId: string;
+}) {
+  noStore();
+  await requireCurrentUser();
+  return runAnalyzeStep(input);
 }
 
 export async function loadDocumentEditorStepStateAction(input: {

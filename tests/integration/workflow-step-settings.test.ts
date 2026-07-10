@@ -13,7 +13,11 @@ import {
   createExtractionAIService,
   loadExtractionStepState,
 } from "../../workflow-steps/extraction/server";
-import type { ConfiguredAISettings } from "../../services/ai/ai-settings-service";
+import {
+  createAIProviderConfig,
+  listAIProviderConfigs,
+  type ConfiguredAISettings,
+} from "../../services/ai/ai-settings-service";
 
 const prisma = new PrismaClient();
 
@@ -170,6 +174,72 @@ test("AI Provider setting resolution uses override, default, and stale fallback"
     },
     source: "fallback",
     warning: "The selected AI Provider no longer exists. The app default was used.",
+  });
+});
+
+test("Admin provider config can save and reload GPT-5.4 nano", async () => {
+  const formData = new FormData();
+  formData.set("aiProvider", "openai");
+  formData.set("aiModel", "gpt-5.4-nano");
+  formData.set("aiApiKey", "test-openai-key");
+
+  await createAIProviderConfig(formData);
+
+  await expect(prisma.aiProviderConfig.findFirstOrThrow()).resolves.toMatchObject({
+    isActive: true,
+    model: "gpt-5.4-nano",
+    provider: "openai",
+  });
+  await expect(listAIProviderConfigs()).resolves.toMatchObject([
+    {
+      model: "gpt-5.4-nano",
+      modelLabel: "GPT-5.4 nano",
+      provider: "openai",
+      providerName: "OpenAI",
+    },
+  ]);
+});
+
+test("Workflow provider override can select GPT-5.4 nano", async () => {
+  await createProvider({
+    isActive: true,
+    model: "gpt-5.5",
+    provider: "openai",
+  });
+  const overrideProvider = await createProvider({
+    isActive: false,
+    model: "gpt-5.4-nano",
+    provider: "openai",
+  });
+
+  await saveWorkflowStepSetting({
+    rawValue: overrideProvider.id,
+    settingKey: "aiProviderId",
+    stepId: "extract-chronology",
+    workflowId: "chronology",
+  });
+
+  await expect(
+    resolveWorkflowStepAIProvider({
+      stepId: "extract-chronology",
+      workflowId: "chronology",
+    }),
+  ).resolves.toMatchObject({
+    settings: {
+      model: "gpt-5.4-nano",
+      provider: "openai",
+    },
+    source: "override",
+  });
+  await expect(
+    effectiveWorkflowStepProvider({
+      stepId: "extract-chronology",
+      workflowId: "chronology",
+    }),
+  ).resolves.toMatchObject({
+    modelName: "GPT-5.4 nano",
+    providerName: "OpenAI",
+    source: "step-override",
   });
 });
 

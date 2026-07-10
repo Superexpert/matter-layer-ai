@@ -35,6 +35,10 @@ export const AI_PROVIDER_REGISTRY = [
         id: "gpt-5.4-mini",
         label: "GPT-5.4 mini",
       },
+      {
+        id: "gpt-5.4-nano",
+        label: "GPT-5.4 nano",
+      },
     ],
     name: "OpenAI",
     requiresApiKey: true,

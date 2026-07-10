@@ -2,6 +2,7 @@ export const WORKFLOW_STEP_TYPES = [
   "fileSelector",
   "form",
   "extraction",
+  "analyze",
   "ai",
   "documentEditor",
   "reviewWorkProducts",

@@ -38,6 +38,10 @@ export function isVerboseExtractionLoggingEnabled(): boolean {
   );
 }
 
+export function isVerboseAnalyzeLoggingEnabled(): boolean {
+  return parseBooleanEnv(process.env.MATTER_LAYER_VERBOSE_ANALYZE_LOGGING, false);
+}
+
 export function isExtractedFactLoggingEnabled(): boolean {
   return parseBooleanEnv(
     process.env.MATTER_LAYER_LOG_EXTRACTED_FACTS,
@@ -83,6 +87,18 @@ export function verboseExtractionLog(
   details?: Record<string, unknown>,
 ): void {
   if (!isVerboseExtractionLoggingEnabled()) {
+    return;
+  }
+
+  logVerboseMessage(prefix, message, details);
+}
+
+export function verboseAnalyzeLog(
+  prefix: string,
+  message: string,
+  details?: Record<string, unknown>,
+): void {
+  if (!isVerboseAnalyzeLoggingEnabled()) {
     return;
   }
 
@@ -196,6 +212,11 @@ export function logCollapsedFacts(context: {
   console.log(`Resolved: ${context.summary.resolvedCount}`);
   console.log(`Conflicting: ${context.summary.conflictingCount}`);
   console.log(`Uncollapsed: ${context.summary.uncollapsedCount}`);
+  console.log(`Narrative variants aggregated: ${context.summary.narrativeVariantCount}`);
+  console.log(`Set values aggregated: ${context.summary.setValueCount}`);
+  console.log(`Fallback joins: ${context.summary.fallbackJoinCount}`);
+  console.log(`Ambiguous fallback facts: ${context.summary.ambiguousFallbackCount}`);
+  console.log(`True conflict fields: ${context.summary.trueConflictCount}`);
   console.log("Counts by fact type:");
 
   for (const [factType, counts] of Object.entries(context.summary.countsByFactType)) {

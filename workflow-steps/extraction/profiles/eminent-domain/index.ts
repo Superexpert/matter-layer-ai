@@ -1,4 +1,4 @@
-import type { FactDef } from "../../fact-def";
+import type { FactDef, FactFieldMergePolicy } from "../../fact-def";
 import { createFactExtractionProfile } from "../../generic-fact-profile";
 import {
   validateEminentDomainMatterEntity,
@@ -100,7 +100,12 @@ export const eminentDomainFactDefs = [
     factType: "MATTER_ENTITY",
     identity: {
       mergeRules: {
-        preserveAlternateValues: ["department"],
+        fieldPolicies: {
+          department: "set",
+          entityType: "identity",
+          name: "identity",
+          projectNumber: "conflict",
+        } as Record<string, FactFieldMergePolicy>,
         rejectOnConflictFields: ["projectNumber"],
       },
       rules: [
@@ -177,7 +182,16 @@ export const eminentDomainFactDefs = [
     factType: "PROPERTY_INTEREST",
     identity: {
       mergeRules: {
-        preserveAlternateValues: ["address", "area", "county", "purpose", "remainderArea", "takingScope"],
+        fieldPolicies: {
+          address: "conflict",
+          area: "conflict",
+          county: "conflict",
+          interestType: "identity",
+          parcelNumber: "identity",
+          purpose: "narrative",
+          remainderArea: "conflict",
+          takingScope: "conflict",
+        } as Record<string, FactFieldMergePolicy>,
       },
       rules: [
         {
@@ -241,17 +255,20 @@ export const eminentDomainFactDefs = [
     factType: "VALUATION",
     identity: {
       mergeRules: {
-        preserveAlternateValues: [
-          "amount",
-          "appraiser",
-          "costToCure",
-          "effectiveDate",
-          "partTakenValue",
-          "remainderDamages",
-          "reportDate",
-          "responseDeadline",
-          "temporaryDamages",
-        ],
+        fieldPolicies: {
+          amount: "conflict",
+          appraiser: "conflict",
+          costToCure: "conflict",
+          effectiveDate: "conflict",
+          offerDate: "identity",
+          parcelNumber: "identity",
+          partTakenValue: "conflict",
+          remainderDamages: "conflict",
+          reportDate: "conflict",
+          responseDeadline: "conflict",
+          temporaryDamages: "conflict",
+          valuationType: "identity",
+        } as Record<string, FactFieldMergePolicy>,
       },
       rules: [
         {
@@ -350,7 +367,13 @@ export const eminentDomainFactDefs = [
     factType: "EVENT",
     identity: {
       mergeRules: {
-        preserveAlternateValues: ["deadline", "description"],
+        fieldPolicies: {
+          deadline: "conflict",
+          description: "narrative",
+          eventDate: "identity",
+          eventType: "identity",
+          parcelNumber: "identity",
+        } as Record<string, FactFieldMergePolicy>,
       },
       rules: [
         {
@@ -434,14 +457,17 @@ export const eminentDomainFactDefs = [
     factType: "PROPERTY_IMPACT",
     identity: {
       mergeRules: {
-        preserveAlternateValues: [
-          "assertionStatus",
-          "description",
-          "duration",
-          "quantifiedImpact",
-          "sourceName",
-          "sourceRole",
-        ],
+        fieldPolicies: {
+          affectedFeature: "identity",
+          assertionStatus: "set",
+          category: "identity",
+          description: "narrative",
+          duration: "conflict",
+          parcelNumber: "identity",
+          quantifiedImpact: "conflict",
+          sourceName: "set",
+          sourceRole: "set",
+        } as Record<string, FactFieldMergePolicy>,
       },
       rules: [
         {

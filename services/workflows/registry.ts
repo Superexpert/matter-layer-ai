@@ -8,6 +8,7 @@ import { extractionStep } from "@/workflow-steps/extraction/definition";
 import { fileSelectorStep } from "@/workflow-steps/file-selector/definition";
 import { documentEditorStep } from "@/workflow-steps/document-editor/definition";
 import { reviewWorkProductsStep } from "@/workflow-steps/review-work-products/definition";
+import { analyzeStep } from "@/workflow-steps/analyze/definition";
 
 function placeholderExecute(): never {
   throw new Error("Workflow execution is not implemented yet.");
@@ -64,6 +65,7 @@ function register(
 }
 
 export const workflowStepRegistry: Record<WorkflowStepType, WorkflowStepRegistration> = {
+  analyze: analyzeStep,
   ai: register(
     "ai",
     "AI",
