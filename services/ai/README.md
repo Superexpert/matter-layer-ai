@@ -32,3 +32,17 @@ Anthropic's current Claude API model ID `claude-sonnet-4-6`.
 
 For intranet deployments, Ollama Local defaults to `http://localhost:11434`.
 Use a different internal URL only when Ollama runs on another server.
+
+Verbose Terminal diagnostics are disabled by default. Set
+`MATTER_LAYER_VERBOSE_AI_LOGGING=true` to show shared AI request lifecycle
+metadata such as provider/model, timing, message counts, prompt character
+counts, response character counts, and output token limits. Set
+`MATTER_LAYER_VERBOSE_EXTRACTION_LOGGING=true` to show Extraction workflow
+lifecycle diagnostics. These toggles are independent; errors and actionable
+warnings remain visible regardless of either setting.
+
+Set `MATTER_LAYER_LOG_EXTRACTED_FACTS=true` only during local diagnosis to print
+validated extracted facts and source excerpts grouped by document during
+Extraction runs. This setting is independent from AI and Extraction lifecycle
+logging and may expose privileged or confidential matter content in Terminal
+logs. It is disabled by default and should not be enabled in shared logs.

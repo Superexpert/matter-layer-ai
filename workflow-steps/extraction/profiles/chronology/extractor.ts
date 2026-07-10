@@ -1,153 +1,81 @@
-import { runExtractionProfile } from "../../profile-runner";
+import { createFactExtractionProfile } from "../../generic-fact-profile";
+import type { ExtractedFact } from "../../extracted-fact";
 import type {
-  ExtractionProfile,
   ExtractionProfileContext,
   ExtractionProfileRunResult,
 } from "../../types";
-import { buildChronologyUserPrompt, chronologySystemPrompt } from "./prompts";
-import {
-  countFactsByType,
-  parseChronologyExtractionOutput,
-  type ChronologyFact,
-} from "./schema";
+import type { FactDef } from "../../fact-def";
 import { createChronologyMarkdownWindows } from "./windowing";
 
-export type ChronologyExtractionResult = ExtractionProfileRunResult<ChronologyFact> & {
+export const chronologyFactDefs = [
+  {
+    description: "A dated or undated event suitable for a legal chronology.",
+    extraction: {
+      fields: [
+        {
+          description: "Normalized YYYY-MM-DD date when available.",
+          name: "date",
+          required: false,
+          type: "date",
+        },
+        {
+          description: "Concise factual sentence describing what happened.",
+          name: "description",
+          required: true,
+          type: "string",
+        },
+        {
+          description: "People involved, as stated in the source.",
+          name: "people",
+          required: false,
+          type: "string",
+        },
+        {
+          description: "Organizations involved, as stated in the source.",
+          name: "organizations",
+          required: false,
+          type: "string",
+        },
+      ],
+      instructions:
+        "Extract facts that belong in a legal chronology: things that happened, important document events, or legally meaningful undated facts. Avoid footer dates, print dates, boilerplate dates, and unrelated citation dates.",
+    },
+    factType: "DATED_EVENT",
+  },
+] satisfies FactDef[];
+
+export type ChronologyExtractionResult = ExtractionProfileRunResult<ExtractedFact> & {
   extractedFactCount: number;
-  extractionWarnings: ExtractionProfileRunResult<ChronologyFact>["warnings"];
+  extractionWarnings: ExtractionProfileRunResult<ExtractedFact>["warnings"];
   extractionWindowCount: number;
-  facts: ChronologyFact[];
+  facts: ExtractedFact[];
   factsByType: Record<string, number>;
 };
 
-const chronologyFactJsonSchema = {
-  additionalProperties: false,
-  properties: {
-    facts: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          confidence: {
-            type: ["string", "null"],
-          },
-          date: {
-            type: ["string", "null"],
-          },
-          dateText: {
-            type: ["string", "null"],
-          },
-          timeText: {
-            type: ["string", "null"],
-          },
-          labels: {
-            items: {
-              type: "string",
-            },
-            type: "array",
-          },
-          organizations: {
-            items: {
-              type: "string",
-            },
-            type: "array",
-          },
-          people: {
-            items: {
-              type: "string",
-            },
-            type: "array",
-          },
-          sourceDocumentId: {
-            type: "string",
-          },
-          sourceFileName: {
-            type: "string",
-          },
-          sourcePages: {
-            items: {
-              type: "number",
-            },
-            type: "array",
-          },
-          sourceQuote: {
-            type: "string",
-          },
-          summary: {
-            type: "string",
-          },
-        },
-        required: [
-          "date",
-          "dateText",
-          "timeText",
-          "summary",
-          "people",
-          "organizations",
-          "sourceDocumentId",
-          "sourceFileName",
-          "sourcePages",
-          "sourceQuote",
-          "confidence",
-          "labels",
-        ],
-        type: "object",
-      },
-      type: "array",
-    },
-  },
-  required: ["facts"],
-  type: "object",
-} satisfies Record<string, unknown>;
-
-const chronologyJsonRepairInstructions = [
-  "Return a JSON object with exactly this top-level shape:",
-  "{\"facts\":[{\"date\":\"YYYY-MM-DD|null\",\"dateText\":\"source date text|null\",\"timeText\":\"source time text|null\",\"summary\":\"what happened\",\"people\":[\"person names\"],\"organizations\":[\"organization names\"],\"sourceDocumentId\":\"document id\",\"sourceFileName\":\"file name\",\"sourcePages\":[1],\"sourceQuote\":\"exact supporting quote\",\"confidence\":\"high|medium|low|unknown\",\"labels\":[\"optional labels\"]}]}",
-  "Use null for unknown dates.",
-  "Use null for unknown times.",
-  "Use empty arrays for people, organizations, or labels when none are listed.",
-  "Every fact must include sourceDocumentId, sourceFileName, sourcePages, and sourceQuote.",
-].join("\n");
-
-export const chronologyRunnerProfile = {
-  buildUserPrompt: buildChronologyUserPrompt,
+export const chronologyRunnerProfile = createFactExtractionProfile({
   createWindows: createChronologyMarkdownWindows,
   description: "Extract dated and undated chronology facts from selected documents.",
+  factDefs: chronologyFactDefs,
   id: "chronology",
   itemLabel: "chronology fact",
   itemPluralLabel: "chronology facts",
-  jsonRepairInstructions: chronologyJsonRepairInstructions,
   label: "Chronology",
   maxOutputTokens: 6000,
-  parseModelOutput: (content: string, context) => {
-    const parsed = parseChronologyExtractionOutput(content, {
-      sourceDocumentId: context.window.documentId,
-      sourceFileName: context.window.fileName,
-      sourcePages: [context.window.pageStart ?? 1],
-    });
-    const facts = parsed.facts.filter(
-      (fact) =>
-        fact.sourceDocumentId === context.window.documentId &&
-        fact.sourceFileName === context.window.fileName,
-    );
-
-    return {
-      itemCountsByType: countFactsByType(facts),
-      items: facts,
-      warnings: parsed.warnings,
-    };
-  },
-  responseFormat: {
-    name: "chronology_extraction",
-    schema: chronologyFactJsonSchema,
-    type: "json_schema",
-  },
-  systemPrompt: chronologySystemPrompt,
-} satisfies ExtractionProfile<ChronologyFact>;
+  profileInstructions: [
+    "Extract sourced chronology facts for legal case preparation.",
+    "Each fact should describe one event or factual occurrence.",
+    "Preserve source page numbers from <!-- ml:page {\"page\":n} --> markers when available.",
+    "Use the whole provided window; facts may begin on one page and continue on the next.",
+    "Do not generate final chronology prose.",
+  ].join("\n"),
+});
 
 export async function runChronologyExtraction(
   context: ExtractionProfileContext,
 ): Promise<ChronologyExtractionResult> {
-  const result = await runExtractionProfile(chronologyRunnerProfile, context);
+  const result = await import("../../profile-runner").then(({ runExtractionProfile }) =>
+    runExtractionProfile(chronologyRunnerProfile, context),
+  );
 
   return {
     ...result,

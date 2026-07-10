@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { extractionStep } from "../../workflow-steps/extraction/definition";
 import { getExtractionProfile } from "../../workflow-steps/extraction/profiles";
-import { parseEminentDomainAssessmentOutput } from "../../workflow-steps/extraction/profiles/eminent-domain/schema";
 import { normalizeExtractionStepConfig } from "../../workflow-steps/extraction/schema";
 
 const rootDir = process.cwd();
@@ -16,9 +15,9 @@ describe("generic extraction step configuration", () => {
       normalizeExtractionStepConfig({
         inputStepId: "select-documents",
         outputKey: "eminentDomainCaseAssessment",
-        profile: "eminent-domain-case-assessment",
+        profile: "eminent-domain-facts",
         representationType: "MARKDOWN",
-        taskId: "eminent-domain-case-assessment",
+        taskId: "eminent-domain-facts",
         ui: {
           profileLine: null,
           runButtonLabel: "Analyze case documents",
@@ -27,9 +26,9 @@ describe("generic extraction step configuration", () => {
     ).toEqual({
       inputStepId: "select-documents",
       outputKey: "eminentDomainCaseAssessment",
-      profile: "eminent-domain-case-assessment",
+      profile: "eminent-domain-facts",
       representationType: "MARKDOWN",
-      taskId: "eminent-domain-case-assessment",
+      taskId: "eminent-domain-facts",
       ui: {
         profileLine: null,
         queuedDocumentMessage: undefined,
@@ -56,58 +55,16 @@ describe("generic extraction step configuration", () => {
       id: "chronology",
       label: "Chronology",
     });
-    expect(getExtractionProfile("eminent-domain-case-assessment")).toMatchObject({
-      id: "eminent-domain-case-assessment",
-      label: "Eminent Domain Case Assessment",
-      taskId: "eminent-domain-case-assessment",
+    expect(getExtractionProfile("eminent-domain-facts")).toMatchObject({
+      id: "eminent-domain-facts",
+      label: "Eminent Domain Facts",
+      taskId: "eminent-domain-facts",
     });
-  });
-
-  it("validates the eminent domain assessment schema scaffold", () => {
-    const parsed = parseEminentDomainAssessmentOutput(
-      JSON.stringify({
-        assessments: [
-          {
-            matterOverview: {
-              condemningAuthority: "City of Austin",
-              propertyOwner: "Jane Owner",
-            },
-            proceduralFlags: [
-              {
-                explanation: "Petition date is missing from the selected documents.",
-                issue: "Unable to verify filing deadline.",
-                severity: "medium",
-              },
-            ],
-            timeline: [
-              {
-                confidence: "high",
-                date: "2026-01-15",
-                event: "Initial offer letter sent.",
-                sourceCitation: "Offer Letter, p. 1",
-              },
-            ],
-          },
-        ],
-      }),
-      {
-        sourceDocumentId: "doc_ed",
-        sourceFileName: "offer-letter.pdf",
-      },
-    );
-
-    expect(parsed.assessments).toEqual([
-      {
-        assessment: expect.objectContaining({
-          matterOverview: expect.objectContaining({
-            condemningAuthority: "City of Austin",
-            propertyOwner: "Jane Owner",
-          }),
-        }),
-        sourceDocumentId: "doc_ed",
-        sourceFileName: "offer-letter.pdf",
-      },
-    ]);
+    expect(getExtractionProfile("eminent-domain-case-assessment")).toMatchObject({
+      id: "eminent-domain-facts",
+      label: "Eminent Domain Facts",
+      taskId: "eminent-domain-facts",
+    });
   });
 
   it("keeps chronology strings out of generic extraction UI and runtime files", () => {

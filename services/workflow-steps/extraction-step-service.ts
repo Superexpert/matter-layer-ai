@@ -9,6 +9,11 @@ import {
 
 import { prisma } from "@/lib/prisma";
 import {
+  logExtractedFacts,
+  logExtractionFactSummary,
+  verboseExtractionLog,
+} from "@/services/diagnostics/verbose-logging";
+import {
   classifyAIProviderError,
   isAIProviderError,
 } from "@/services/ai/provider-errors";
@@ -42,6 +47,8 @@ import {
 } from "@/services/workflows/workflow-step-progress";
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { extractionRepresentationDisplayState } from "@/workflow-steps/extraction/display-state";
+import type { ExtractedFact } from "@/workflow-steps/extraction/extracted-fact";
+import { resolveExtractionDocumentMetadata } from "@/workflow-steps/extraction/document-metadata";
 import {
   defaultAIWindowTimeoutMs,
   runExtractionProfile,
@@ -152,6 +159,39 @@ async function resolveExtractionAIProviderForStep(
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractionFactDocumentId(value: unknown) {
+  if (!isObjectRecord(value) || !isObjectRecord(value.evidence)) {
+    return null;
+  }
+
+  return typeof value.evidence.documentId === "string"
+    ? value.evidence.documentId
+    : null;
+}
+
+function isExtractedFact(value: unknown): value is ExtractedFact {
+  return (
+    isObjectRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.factType === "string" &&
+    isObjectRecord(value.fields) &&
+    isObjectRecord(value.evidence) &&
+    typeof value.evidence.documentId === "string" &&
+    typeof value.evidence.documentName === "string"
+  );
+}
+
+function extractionFactsForDocument(input: {
+  items: unknown[];
+  matterDocumentId: string;
+}) {
+  return input.items.filter(
+    (item): item is ExtractedFact =>
+      isExtractedFact(item) &&
+      extractionFactDocumentId(item) === input.matterDocumentId,
+  );
 }
 
 function selectedIdsFromOutputJson(value: Prisma.JsonValue | null | undefined) {
@@ -357,7 +397,7 @@ function workflowDebugLog(message: string, metadata: Record<string, unknown> = {
 }
 
 function extractionServiceLog(message: string, metadata: Record<string, unknown> = {}) {
-  console.info(`[extraction:service] ${message}`, metadata);
+  verboseExtractionLog("[extraction:service]", message, metadata);
 }
 
 function extractionDocumentConcurrency() {
@@ -472,6 +512,8 @@ function autorunStartingOutput(input: {
     artifactReferences: {},
     collapsedEventCount: 0,
     collapsedEvents: [],
+    collapsedFacts: [],
+    collapseSummary: null,
     documentResults: [],
     error: null,
     extractedFactCount: 0,
@@ -495,6 +537,7 @@ function autorunStartingOutput(input: {
       totalItems: 0,
     },
     readyRepresentationCount: 0,
+    rawFacts: [],
     schemaVersion: 1,
     selectedMatterDocumentIds: [],
     status: "running",
@@ -515,6 +558,8 @@ function failedOutput(input: {
     artifactReferences: {},
     collapsedEventCount: 0,
     collapsedEvents: [],
+    collapsedFacts: [],
+    collapseSummary: null,
     documentResults: [],
     error: input.error,
     extractedFactCount: 0,
@@ -531,6 +576,7 @@ function failedOutput(input: {
     profileOutput: null,
     progress: input.progress ?? null,
     readyRepresentationCount: input.readyRepresentationCount,
+    rawFacts: [],
     schemaVersion: 1,
     selectedMatterDocumentIds: input.selectedMatterDocumentIds,
     status: "failed",
@@ -548,6 +594,8 @@ function runningOutput(input: {
     artifactReferences: {},
     collapsedEventCount: 0,
     collapsedEvents: [],
+    collapsedFacts: [],
+    collapseSummary: null,
     documentResults: [],
     error: null,
     extractedFactCount: 0,
@@ -564,6 +612,7 @@ function runningOutput(input: {
     profileOutput: null,
     progress: input.progress,
     readyRepresentationCount: 0,
+    rawFacts: [],
     schemaVersion: 1,
     selectedMatterDocumentIds: input.selectedMatterDocumentIds,
     status: "running",
@@ -1765,9 +1814,11 @@ async function executeExtractionStep(
     select: {
       fileName: true,
       id: true,
+      mimeType: true,
       representations: {
         select: {
           content: true,
+          metadataJson: true,
         },
         where: {
           status: MatterDocumentRepresentationStatus.READY,
@@ -1789,6 +1840,12 @@ async function executeExtractionStep(
         fileName: document.fileName,
         id: document.id,
         markdown: document.representations[0]?.content ?? "",
+        metadata: resolveExtractionDocumentMetadata({
+          documentId: document.id,
+          documentName: document.fileName,
+          mimeType: document.mimeType,
+          representationMetadata: document.representations[0]?.metadataJson,
+        }),
       },
     ]),
   );
@@ -2062,6 +2119,21 @@ async function executeExtractionStep(
       stepId: input.step.id,
       workflowRunId: input.workflowRunId,
     });
+    logExtractedFacts(
+      {
+        completedWindowCount:
+          documentProfileResult.windowCount - documentProfileResult.failedWindowCount,
+        documentId: matterDocumentId,
+        documentName: readyDocument.fileName,
+        failedWindowCount: documentProfileResult.failedWindowCount,
+        profileId: config.profile,
+        status: documentProfileResult.status,
+      },
+      extractionFactsForDocument({
+        items: documentProfileResult.items,
+        matterDocumentId,
+      }),
+    );
 
     if (documentProfileResult.status !== "COMPLETED") {
       const userMessage = documentUserMessageForExtractionError(documentProfileResult);
@@ -2158,7 +2230,9 @@ async function executeExtractionStep(
   for (const outcome of documentExtractionOutcomes) {
     if (outcome.documentError) {
       extractionDocumentErrors.push(outcome.documentError);
-    } else {
+    }
+
+    if (!outcome.documentError || outcome.profileResult.itemCount > 0) {
       profileResult = mergeExtractionResult(
         profileResult,
         outcome.profileResult,
@@ -2305,13 +2379,27 @@ async function executeExtractionStep(
     artifactReferences,
     collapsedEventCount: postprocessResult.stepOutputPatch?.collapsedEventCount ?? 0,
     collapsedEvents: postprocessResult.stepOutputPatch?.collapsedEvents ?? [],
-    documentResults: documentExtractionOutcomes.map((outcome) => ({
-      documentError: outcome.documentError,
-      itemCount: outcome.profileResult.itemCount,
-      matterDocumentId: outcome.matterDocumentId,
-      status: outcome.profileResult.status,
-      windowCount: outcome.profileResult.windowCount,
-    })),
+    collapsedFacts: postprocessResult.stepOutputPatch?.collapsedFacts ?? [],
+    collapseSummary: postprocessResult.stepOutputPatch?.collapseSummary ?? null,
+    documentResults: documentExtractionOutcomes.map((outcome) => {
+      const selectedDocument = selectedDocumentById.get(outcome.matterDocumentId);
+      const facts = extractionFactsForDocument({
+        items: outcome.profileResult.items,
+        matterDocumentId: outcome.matterDocumentId,
+      });
+
+      return {
+        documentError: outcome.documentError,
+        documentId: outcome.matterDocumentId,
+        documentName: selectedDocument?.fileName ?? outcome.matterDocumentId,
+        facts,
+        itemCount: outcome.profileResult.itemCount,
+        matterDocumentId: outcome.matterDocumentId,
+        status: outcome.profileResult.status === "COMPLETED" ? "completed" : "failed",
+        warnings: outcome.profileResult.warnings.map((warning) => warning.message),
+        windowCount: outcome.profileResult.windowCount,
+      };
+    }),
     error: structuredError,
     extractedFactCount:
       postprocessResult.stepOutputPatch?.extractedFactCount ?? profileResult.itemCount,
@@ -2332,6 +2420,9 @@ async function executeExtractionStep(
     profile: config.profile,
     profileOutput: postprocessResult.profileOutput,
     progress: finalProgress,
+    rawFacts: postprocessResult.stepOutputPatch?.rawFacts ??
+      postprocessResult.stepOutputPatch?.facts ??
+      postprocessResult.displayItems ?? [],
     readyRepresentationCount,
     schemaVersion: 1,
     selectedMatterDocumentIds,
@@ -2343,6 +2434,18 @@ async function executeExtractionStep(
   for (const [outputKey, artifactId] of Object.entries(artifactReferences)) {
     output[outputKey] = artifactId;
   }
+  logExtractionFactSummary({
+    completedDocumentCount: output.documentResults.filter(
+      (documentResult) => documentResult.status === "completed",
+    ).length,
+    failedDocumentCount: output.documentResults.filter(
+      (documentResult) => documentResult.status !== "completed",
+    ).length,
+    factsByType: output.factsByType,
+    profileId: config.profile,
+    totalFactCount: output.extractedFactCount,
+    workflowRunId: input.workflowRunId,
+  });
 
   extractionServiceLog("extraction run update started", {
     extractionRunId: extractionRun.id,
@@ -2359,6 +2462,7 @@ async function executeExtractionStep(
         aiModel: profileResult.model,
         aiProvider: profileResult.provider,
         artifactReferences,
+        collapseSummary: output.collapseSummary,
         ...postprocessResult.artifactMetadata,
         documentRepresentations: representationResults,
         itemCount: profileResult.itemCount,

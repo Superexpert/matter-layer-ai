@@ -1,5 +1,6 @@
 import type { WorkflowStepError } from "@/services/workflows/workflow-step-errors";
 import type { WorkflowStepProgress } from "@/services/workflows/workflow-step-progress";
+import type { CollapsedFact, CollapseSummary } from "./collapsed-fact";
 import type { ExtractionWarning } from "./types";
 import type { ExtractionProfileUICopy } from "./types";
 
@@ -29,6 +30,8 @@ export type ExtractionStepOutput = {
   artifactReferences: Record<string, string | null>;
   collapsedEventCount: number;
   collapsedEvents: Array<Record<string, unknown>>;
+  collapsedFacts: CollapsedFact[];
+  collapseSummary: CollapseSummary | null;
   documentResults: Array<Record<string, unknown>>;
   extractedFactCount: number;
   extractionWarnings: ExtractionWarning[];
@@ -44,6 +47,7 @@ export type ExtractionStepOutput = {
   profile: ExtractionProfileId;
   profileOutput: unknown;
   progress: WorkflowStepProgress | null;
+  rawFacts: Array<Record<string, unknown>>;
   readyRepresentationCount: number;
   schemaVersion: 1;
   selectedMatterDocumentIds: string[];

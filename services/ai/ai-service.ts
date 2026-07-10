@@ -8,6 +8,7 @@ import {
 } from "./providers/provider-factory";
 import type { AIRequest, AIResponse, AIStreamEvent } from "./types";
 import { classifyAIProviderError } from "./provider-errors";
+import { verboseAiLog } from "@/services/diagnostics/verbose-logging";
 
 export class AIService {
   constructor(private readonly provider: AIProvider) {}
@@ -28,10 +29,10 @@ export class AIService {
     };
 
     try {
-      console.info("[ai:generateText] request started", requestMetadata);
+      verboseAiLog("[ai:generateText]", "request started", requestMetadata);
       const response = await this.provider.generateText(request);
 
-      console.info("[ai:generateText] request completed", {
+      verboseAiLog("[ai:generateText]", "request completed", {
         ...requestMetadata,
         durationMs: Date.now() - startedAt,
         responseCharacterCount: response.content.length,
@@ -59,8 +60,64 @@ export class AIService {
 
   async *streamText(request: AIRequest): AsyncIterable<AIStreamEvent> {
     this.validateRequest(request, "streamText");
+    const startedAt = Date.now();
+    const requestMetadata = {
+      maxOutputTokens: request.maxOutputTokens ?? null,
+      messageCount: request.messages.length,
+      model: request.model?.trim() || null,
+      provider: this.provider.name,
+      promptCharacterCount: request.messages.reduce(
+        (total, message) => total + message.content.length,
+        0,
+      ),
+      temperature: request.temperature ?? null,
+    };
+    let responseCharacterCount = 0;
 
-    yield* this.provider.streamText(request);
+    verboseAiLog("[ai:streamText]", "request started", requestMetadata);
+
+    try {
+      for await (const event of this.provider.streamText(request)) {
+        if (event.type === "text-delta") {
+          responseCharacterCount += event.delta.length;
+          yield event;
+          continue;
+        }
+
+        if (event.type === "done") {
+          verboseAiLog("[ai:streamText]", "request completed", {
+            ...requestMetadata,
+            durationMs: Date.now() - startedAt,
+            responseCharacterCount,
+            responseModel: event.response.model,
+            responseProvider: event.response.provider,
+          });
+          yield event;
+          continue;
+        }
+
+        console.error("[ai:streamText] request failed", {
+          ...requestMetadata,
+          durationMs: Date.now() - startedAt,
+          errorMessage: event.error,
+        });
+        yield event;
+      }
+    } catch (error) {
+      const providerError = classifyAIProviderError(error, this.provider.name);
+
+      console.error("[ai:streamText] request failed", {
+        ...requestMetadata,
+        durationMs: Date.now() - startedAt,
+        errorCode: providerError.code,
+        errorMessage: providerError.message,
+        errorProvider: providerError.provider,
+        errorStatus: providerError.status,
+        errorUserMessage: providerError.userMessage,
+      });
+
+      throw providerError;
+    }
   }
 
   private validateRequest(

@@ -2,6 +2,7 @@ import {
   classifyAIProviderError,
   createAIProviderTimeoutError,
 } from "@/services/ai/provider-errors";
+import { verboseExtractionLog } from "@/services/diagnostics/verbose-logging";
 
 import { JsonModelOutputParseError } from "./json-output";
 import { createMarkdownWindows } from "./markdown-windowing";
@@ -116,7 +117,7 @@ async function withAIWindowMonitoring(input: {
       heartbeatId = setInterval(() => {
         const elapsedMs = Date.now() - startedAt;
 
-        console.info("[extraction:ai-window] still waiting for AI provider", {
+        verboseExtractionLog("[extraction:ai-window]", "still waiting for AI provider", {
           ...input.windowDescription,
           elapsedMs,
           heartbeatMs: input.heartbeatMs,
@@ -237,6 +238,7 @@ export async function runExtractionProfile<TItem>(
   const windows = context.readyDocuments.flatMap((document) =>
     createWindows({
       documentId: document.id,
+      documentMetadata: document.metadata,
       fileName: document.fileName,
       markdown: document.markdown,
     }),
@@ -280,7 +282,11 @@ export async function runExtractionProfile<TItem>(
       windowIndex: window.windowIndex + 1,
     };
 
-    console.info("[extraction:ai-window] extraction window started", windowDescription);
+    verboseExtractionLog(
+      "[extraction:ai-window]",
+      "extraction window started",
+      windowDescription,
+    );
     await context.onWindowProgress?.({
       documentId: window.documentId,
       failedWindowCount: errors.length,
@@ -452,7 +458,7 @@ export async function runExtractionProfile<TItem>(
           });
           throw repairError;
         }
-        console.info("[extraction:ai-window] model output JSON repair succeeded", {
+        verboseExtractionLog("[extraction:ai-window]", "model output JSON repair succeeded", {
           ...windowDescription,
           diagnostics: error.diagnostics,
         });
@@ -463,7 +469,7 @@ export async function runExtractionProfile<TItem>(
       itemCountsByType = mergeItemCounts(itemCountsByType, parsed.itemCountsByType);
       provider = response.provider;
       model = response.model;
-      console.info("[extraction:ai-window] extraction window completed", {
+      verboseExtractionLog("[extraction:ai-window]", "extraction window completed", {
         ...windowDescription,
         itemCount: parsed.items.length,
         model: response.model,

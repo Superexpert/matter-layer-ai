@@ -27,21 +27,21 @@ export const eminentDomainCaseAssessmentDefinition: WorkflowDefinition = {
     {
       autorun: true,
       description:
-        "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected case files.",
+        "Extract raw typed facts about parties, property, takings, offers, appraisals, events, impacts, and document references from the selected case files.",
       id: "analyze-case-documents",
       name: "Extract Facts",
       parameters: {
         inputStepId: "select-documents",
         outputKey: "eminentDomainCaseAssessment",
-        profile: "eminent-domain-case-assessment",
+        profile: "eminent-domain-facts",
         representationType: "MARKDOWN",
-        taskId: "eminent-domain-case-assessment",
+        taskId: "eminent-domain-facts",
         ui: {
           profileLine: null,
-          retryButtonLabel: "Retry analysis",
-          runButtonLabel: "Analyze case files",
-          runningButtonLabel: "Analyzing...",
-          runningDocumentLabel: "Analyzing",
+          retryButtonLabel: "Retry extraction",
+          runButtonLabel: "Extract case facts",
+          runningButtonLabel: "Extracting...",
+          runningDocumentLabel: "Extracting",
         },
       },
       type: "extraction",

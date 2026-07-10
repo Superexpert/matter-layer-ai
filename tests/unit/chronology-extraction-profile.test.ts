@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildChronologyUserPrompt,
-  chronologySystemPrompt,
-} from "../../workflow-steps/extraction/profiles/chronology/prompts";
-import {
   parseChronologyExtractionOutput,
   sortChronologyFacts,
   validateChronologyFact,
@@ -168,10 +164,15 @@ describe("chronology Markdown windowing", () => {
 describe("chronology prompts and parser", () => {
   it("uses an OpenAI strict-compatible response schema", () => {
     assertOpenAIStrictObjectSchema(chronologyRunnerProfile.responseFormat?.schema);
+    expect(chronologyRunnerProfile.factDefs).toEqual([
+      expect.objectContaining({
+        factType: "DATED_EVENT",
+      }),
+    ]);
   });
 
-  it("asks for sourced chronology facts, not entity taxonomy records", () => {
-    const prompt = buildChronologyUserPrompt({
+  it("asks for sourced DATED_EVENT facts, not entity taxonomy records", () => {
+    const prompt = chronologyRunnerProfile.buildUserPrompt({
       documentId: "doc_123",
       fileName: "Police Report.pdf",
       markdown: '<!-- ml:page {"page":1} -->\nText',
@@ -180,11 +181,12 @@ describe("chronology prompts and parser", () => {
       windowIndex: 0,
     });
 
-    expect(chronologySystemPrompt).toContain("chronology facts");
+    expect(chronologyRunnerProfile.systemPrompt).toContain("Extract only facts explicitly supported");
     expect(prompt).toContain("matterDocumentId: doc_123");
     expect(prompt).toContain("sourceFileName: Police Report.pdf");
+    expect(prompt).toContain("DATED_EVENT");
     expect(prompt).toContain('"facts"');
-    expect(prompt).toContain("Do not return standalone person");
+    expect(prompt).toContain("Do not generate final chronology prose");
   });
 
   it("parses valid JSON and Markdown code fences", () => {
@@ -441,7 +443,23 @@ describe("chronology extraction runner", () => {
           aiRequest = request;
           return {
             content: JSON.stringify({
-              facts: [legacyDatedEvent],
+              facts: [
+                {
+                  confidence: "high",
+                  factType: "DATED_EVENT",
+                  fields: {
+                    date: "2024-01-12",
+                    description:
+                      "Officer Smith stopped the defendant near Congress Avenue.",
+                    organizations: null,
+                    people: "Officer Smith, Defendant",
+                  },
+                  pageEnd: 1,
+                  pageStart: 1,
+                  sourceExcerpt:
+                    "On January 12, 2024, Officer Smith stopped the defendant near Congress Avenue.",
+                },
+              ],
             }),
             model: "gpt-5-mini",
             provider: "openai",
@@ -464,13 +482,15 @@ describe("chronology extraction runner", () => {
     expect(result.extractedFactCount).toBe(1);
     expect(result.facts).toHaveLength(1);
     expect(result.facts[0]).toMatchObject({
-      factType: "chronology_fact",
-      summary: "Officer Smith stopped the defendant near Congress Avenue.",
+      factType: "DATED_EVENT",
+      fields: {
+        description: "Officer Smith stopped the defendant near Congress Avenue.",
+      },
     });
     expect(aiRequest).toMatchObject({
       maxOutputTokens: 6000,
       responseFormat: {
-        name: "chronology_extraction",
+        name: "chronology_facts",
         type: "json_schema",
       },
     });

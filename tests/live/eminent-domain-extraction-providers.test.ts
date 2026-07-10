@@ -8,7 +8,7 @@ import { OllamaProvider } from "@/services/ai/providers/ollama-provider-core";
 import { OpenAIProvider } from "@/services/ai/providers/openai-provider-core";
 import { extractPdfPages } from "@/services/matter-documents/pdfjs";
 import { runExtractionProfile } from "@/workflow-steps/extraction/profile-runner";
-import { eminentDomainCaseAssessmentProfile } from "@/workflow-steps/extraction/profiles/eminent-domain";
+import { eminentDomainFactsProfile } from "@/workflow-steps/extraction/profiles/eminent-domain";
 import type { ExtractionAIService } from "@/workflow-steps/extraction/types";
 
 type LiveProviderCase = {
@@ -223,7 +223,7 @@ describe("live Eminent Domain extraction across AI providers", () => {
         readyDocuments.every((document) => document.markdown.trim().length > 0),
       ).toBe(true);
 
-      const result = await runExtractionProfile(eminentDomainCaseAssessmentProfile, {
+      const result = await runExtractionProfile(eminentDomainFactsProfile, {
         aiCallTimeoutMs:
           positiveIntegerEnv("MATTER_LAYER_LIVE_EXTRACTION_AI_TIMEOUT_MS") ??
           180_000,
@@ -247,17 +247,20 @@ describe("live Eminent Domain extraction across AI providers", () => {
       expect(result.failedWindowCount).toBe(0);
       expect(result.windowCount).toBeGreaterThanOrEqual(readyDocuments.length);
       expect(result.itemCount).toBeGreaterThan(0);
-      expect(result.itemCountsByType).toMatchObject({
-        eminent_domain_case_assessment: result.itemCount,
-      });
+      expect(Object.keys(result.itemCountsByType).length).toBeGreaterThan(0);
       expect(
         result.items.every(
           (item) =>
-            typeof item.sourceDocumentId === "string" &&
-            typeof item.sourceFileName === "string" &&
-            Boolean(item.assessment),
+            typeof item.evidence.documentId === "string" &&
+            typeof item.evidence.documentName === "string" &&
+            typeof item.factType === "string" &&
+            item.fields &&
+            typeof item.fields === "object",
         ),
       ).toBe(true);
+      expect(result.items.map((item) => item.factType)).not.toContain(
+        "eminent_domain_case_assessment",
+      );
     },
   );
 });

@@ -1,3 +1,6 @@
+import type { CollapsedFact, CollapseSummary } from "./collapsed-fact";
+import type { ExtractionDocumentMetadata } from "./document-metadata";
+
 export type ExtractionAIService = {
   generateText: (request: {
     maxOutputTokens?: number;
@@ -32,10 +35,18 @@ export type RejectedExtractionItem = {
 };
 
 export type ExtractionMarkdownWindow = {
+  characterEnd?: number;
+  characterStart?: number;
   documentId: string;
+  documentMetadata?: ExtractionDocumentMetadata;
   fileName: string;
   markdown: string;
   pageEnd: number | null;
+  pageSegments?: Array<{
+    page: number;
+    textEnd: number;
+    textStart: number;
+  }>;
   pageStart: number | null;
   windowIndex: number;
 };
@@ -83,6 +94,7 @@ export type ExtractionProfileContext = {
     fileName: string;
     id: string;
     markdown: string;
+    metadata?: ExtractionDocumentMetadata;
   }>;
   workflowRunId?: string;
   workflowStepId?: string;
@@ -131,9 +143,12 @@ export type ExtractionProfilePostprocessResult = {
   stepOutputPatch?: {
     collapsedEventCount?: number;
     collapsedEvents?: Array<Record<string, unknown>>;
+    collapsedFacts?: CollapsedFact[];
+    collapseSummary?: CollapseSummary;
     extractedFactCount?: number;
     facts?: Array<Record<string, unknown>>;
     factsByType?: Record<string, number>;
+    rawFacts?: Array<Record<string, unknown>>;
   };
 };
 
@@ -150,6 +165,7 @@ export type ExtractionProfile<TItem = unknown> = {
   buildUserPrompt: (window: ExtractionMarkdownWindow) => string;
   createWindows?: (input: {
     documentId: string;
+    documentMetadata?: ExtractionDocumentMetadata;
     fileName: string;
     markdown: string;
   }) => ExtractionMarkdownWindow[];

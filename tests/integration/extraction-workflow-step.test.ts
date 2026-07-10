@@ -267,7 +267,6 @@ function mockChronologyAI(options?: {
         }
 
         const prompt = request.messages.at(-1)?.content ?? "";
-        const sourceDocumentId = promptField(prompt, "matterDocumentId");
         const sourceFileName = promptField(prompt, "sourceFileName");
         const hasPageTwo = prompt.includes('<!-- ml:page {"page":2} -->');
 
@@ -275,28 +274,17 @@ function mockChronologyAI(options?: {
           content: JSON.stringify({
             facts: [
               {
-                actors: ["Officer Smith", "Defendant"],
-                confidence: "high",
-                date: "2024-01-12",
-                dateText: "January 12, 2024",
-                eventSummary: `Chronology fact from ${sourceFileName}.`,
-                factType: "dated_event",
-                isApproximateDate: false,
-                sourceDocumentId,
-                sourceFileName,
-                sourcePages: hasPageTwo ? [1, 2] : [],
-                sourceQuote: hasPageTwo ? "First page text Second page text" : "Chronology text notes.",
-              },
-              {
-                aliases: [],
-                confidence: "medium",
-                factType: "person",
-                name: "Officer Smith",
-                role: "officer",
-                sourceDocumentId,
-                sourceFileName,
-                sourcePages: hasPageTwo ? [1] : [],
-                sourceQuote: "Officer Smith",
+                extractionConfidence: "high",
+                factType: "DATED_EVENT",
+                fields: {
+                  date: "2024-01-12",
+                  description: `Chronology fact from ${sourceFileName}.`,
+                  organizations: null,
+                  people: "Officer Smith, Defendant",
+                },
+                pageEnd: hasPageTwo ? 2 : null,
+                pageStart: 1,
+                sourceExcerpt: hasPageTwo ? "First page text Second page text" : "Chronology text notes.",
               },
             ],
           }),
@@ -322,32 +310,65 @@ function mockEminentDomainAI(): MockAIService {
 
       return {
         content: JSON.stringify({
-          assessments: [
+          facts: [
             {
-              matterOverview: {
-                condemningAuthority: "City of Austin",
-                propertyOwner: "Jane Owner",
+              extractionConfidence: "high",
+              factType: "MATTER_ENTITY",
+              fields: {
+                entityType: "property-owner",
+                name: "Jane Owner",
               },
-              proceduralFlags: [
-                {
-                  explanation: "The selected documents do not include a served petition.",
-                  issue: "Petition service cannot be confirmed.",
-                  severity: "medium",
-                  sourceCitation: "Correspondence, p. 1",
-                  sourceExcerpt:
-                    "The selected documents do not include a served petition.",
-                },
-              ],
-              recommendedNextActions: ["Request the petition and service packet."],
-              timeline: [
-                {
-                  confidence: "high",
-                  date: "2026-01-15",
-                  event: "Initial offer letter sent.",
-                  sourceCitation: "Offer Letter, p. 1",
-                  sourceExcerpt: "Initial offer letter sent.",
-                },
-              ],
+              pageEnd: 1,
+              pageStart: 1,
+              sourceExcerpt: "Offer letter from City of Austin to Jane Owner.",
+            },
+            {
+              extractionConfidence: "high",
+              factType: "MATTER_ENTITY",
+              fields: {
+                department: null,
+                entityType: "condemning-authority",
+                name: "City of Austin",
+              },
+              pageEnd: 1,
+              pageStart: 1,
+              sourceExcerpt: "Offer letter from City of Austin to Jane Owner.",
+            },
+          ],
+        }),
+        model: "mock-model",
+        provider: "mock",
+      };
+    },
+  };
+}
+
+function mockEminentDomainOwnerResponseAI(input?: {
+  onPrompt?: (prompt: string) => void;
+}): MockAIService {
+  let callCount = 0;
+
+  return {
+    get callCount() {
+      return callCount;
+    },
+    generateText: async (request): Promise<MockGenerateTextResponse> => {
+      callCount += 1;
+      input?.onPrompt?.(request.messages.at(-1)?.content ?? "");
+
+      return {
+        content: JSON.stringify({
+          facts: [
+            {
+              extractionConfidence: "high",
+              factType: "EVENT",
+              fields: {
+                description:
+                  "Owner called to report continued concerns about construction access near the west driveway.",
+                eventType: "owner-response",
+              },
+              sourceExcerpt:
+                "Owner called to report continued concerns about construction access near the west driveway.",
             },
           ],
         }),
@@ -389,17 +410,17 @@ test("extraction step is registered", () => {
 
 test.each([
   {
-    content: "{\"facts\":[{\"confidence\":\"high\",\"date\":\"2026-01-15\",\"dateText\":\"January 15, 2026\",\"timeText\":null,\"labels\":[],\"organizations\":[],\"people\":[\"Jane Owner\"],\"sourceDocumentId\":\"doc_provider\",\"sourceFileName\":\"provider-notes.txt\",\"sourcePages\":[1],\"sourceQuote\":\"Initial offer letter sent.\",\"summary\":\"Initial offer letter was sent.\"}]}",
+    content: "{\"facts\":[{\"extractionConfidence\":\"high\",\"factType\":\"DATED_EVENT\",\"fields\":{\"date\":\"2026-01-15\",\"description\":\"Initial offer letter was sent.\",\"people\":\"Jane Owner\",\"organizations\":null},\"sourceExcerpt\":\"Initial offer letter sent.\",\"pageStart\":1,\"pageEnd\":1}]}",
     model: "gpt-5-mini",
     provider: "openai",
   },
   {
-    content: "```json\n{\"facts\":[{\"confidence\":\"medium\",\"date\":\"2026-01-15\",\"dateText\":\"January 15, 2026\",\"timeText\":null,\"labels\":[],\"organizations\":[],\"people\":[\"Jane Owner\"],\"sourceDocumentId\":\"doc_provider\",\"sourceFileName\":\"provider-notes.txt\",\"sourcePages\":[1],\"sourceQuote\":\"Initial offer letter sent.\",\"summary\":\"Initial offer letter was sent.\"}]}\n```",
+    content: "```json\n{\"facts\":[{\"extractionConfidence\":\"medium\",\"factType\":\"DATED_EVENT\",\"fields\":{\"date\":\"2026-01-15\",\"description\":\"Initial offer letter was sent.\",\"people\":\"Jane Owner\",\"organizations\":null},\"sourceExcerpt\":\"Initial offer letter sent.\",\"pageStart\":1,\"pageEnd\":1}]}\n```",
     model: "gemma3:4b",
     provider: "ollama",
   },
   {
-    content: "Here is the structured extraction.\n{\"facts\":[{\"confidence\":\"low\",\"date\":\"2026-01-15\",\"dateText\":\"January 15, 2026\",\"timeText\":null,\"labels\":[],\"organizations\":[],\"people\":[\"Jane Owner\"],\"sourceDocumentId\":\"doc_provider\",\"sourceFileName\":\"provider-notes.txt\",\"sourcePages\":[1],\"sourceQuote\":\"Initial offer letter sent.\",\"summary\":\"Initial offer letter was sent.\"}]}\nNo additional facts found.",
+    content: "Here is the structured extraction.\n{\"facts\":[{\"extractionConfidence\":\"low\",\"factType\":\"DATED_EVENT\",\"fields\":{\"date\":\"2026-01-15\",\"description\":\"Initial offer letter was sent.\",\"people\":\"Jane Owner\",\"organizations\":null},\"sourceExcerpt\":\"Initial offer letter sent.\",\"pageStart\":1,\"pageEnd\":1}]}\nNo additional facts found.",
     model: "claude-sonnet-4-6",
     provider: "anthropic",
   },
@@ -445,15 +466,15 @@ test("generic extraction step runs eminent domain assessment with configured out
   const eminentDomainExtractionStep: WorkflowStepDefinition = {
     autorun: true,
     description:
-      "Extract the case timeline, taking summary, valuation facts, procedural flags, missing documents, and recommended next actions from the selected documents.",
+      "Extract raw typed facts from the selected documents.",
     id: "analyze-case-documents",
     name: "Analyze Case Documents",
     parameters: {
       inputStepId: "select-source-files",
       outputKey: "eminentDomainCaseAssessment",
-      profile: "eminent-domain-case-assessment",
+      profile: "eminent-domain-facts",
       representationType: "MARKDOWN",
-      taskId: "eminent-domain-case-assessment",
+      taskId: "eminent-domain-facts",
       ui: {
         profileLine: null,
         runButtonLabel: "Analyze case documents",
@@ -491,26 +512,47 @@ test("generic extraction step runs eminent domain assessment with configured out
     expect(output).toMatchObject({
       artifactReferences: {},
       outputKey: "eminentDomainCaseAssessment",
-      profile: "eminent-domain-case-assessment",
+      profile: "eminent-domain-facts",
       readyRepresentationCount: 1,
       status: "completed",
     });
     expect(output.eminentDomainCaseAssessment).toMatchObject({
-      assessments: [
-        {
-          assessment: {
-            matterOverview: {
-              condemningAuthority: "City of Austin",
-              propertyOwner: "Jane Owner",
-            },
+      facts: [
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            documentId: textDocument.id,
+            documentName: "offer-letter.txt",
+          }),
+          factType: "MATTER_ENTITY",
+          fields: {
+            entityType: "property-owner",
+            name: "Jane Owner",
           },
-          sourceDocumentId: textDocument.id,
-          sourceFileName: "offer-letter.txt",
-        },
+        }),
+        expect.objectContaining({
+          factType: "MATTER_ENTITY",
+          fields: {
+            entityType: "condemning-authority",
+            name: "City of Austin",
+          },
+        }),
       ],
+      profileId: "eminent-domain-facts",
     });
     expect(output.factsByType).toEqual({
-      eminent_domain_case_assessment: 1,
+      MATTER_ENTITY: 2,
+    });
+    expect(output.rawFacts).toHaveLength(2);
+    expect(output.collapsedFacts).toHaveLength(2);
+    expect(output.collapseSummary).toMatchObject({
+      collapsedFactCount: 2,
+      rawFactCount: 2,
+      countsByFactType: {
+        MATTER_ENTITY: {
+          collapsed: 2,
+          raw: 2,
+        },
+      },
     });
 
     const extractionRun = await prisma.workflowExtractionRun.findUniqueOrThrow({
@@ -521,17 +563,162 @@ test("generic extraction step runs eminent domain assessment with configured out
 
     expect(extractionRun).toMatchObject({
       matterId: matter.id,
-      profile: "eminent-domain-case-assessment",
+      profile: "eminent-domain-facts",
       representationType: "MARKDOWN",
       status: WorkflowExtractionRunStatus.COMPLETED,
       stepId: eminentDomainExtractionStep.id,
       workflowRunId,
     });
     expect(extractionRun.metadataJson).toMatchObject({
+      collapseSummary: {
+        collapsedFactCount: 2,
+        rawFactCount: 2,
+      },
       itemCountsByType: {
-        eminent_domain_case_assessment: 1,
+        MATTER_ENTITY: 2,
       },
       selectedDocumentCount: 1,
+    });
+  } finally {
+    await cleanupMatter(matter.id);
+  }
+});
+
+test("eminent domain extraction persists document-metadata-derived dates", async () => {
+  const { matter, user } = await createUserAndMatter();
+  const workflowRunId = `eminent-domain-metadata-run-${Date.now()}`;
+  const eminentDomainExtractionStep: WorkflowStepDefinition = {
+    autorun: true,
+    description:
+      "Extract raw typed facts from the selected documents.",
+    id: "analyze-case-documents",
+    name: "Analyze Case Documents",
+    parameters: {
+      inputStepId: "select-source-files",
+      outputKey: "eminentDomainCaseAssessment",
+      profile: "eminent-domain-facts",
+      representationType: "MARKDOWN",
+      taskId: "eminent-domain-facts",
+    },
+    type: "extraction",
+  };
+  let capturedPrompt = "";
+
+  try {
+    const textDocument = await uploadFixture({
+      bytes: Buffer.from(
+        "Owner called to report continued concerns about construction access near the west driveway.",
+      ),
+      fileName: "2026-04-15 Owner Notes Access Concerns.txt",
+      matterId: matter.id,
+      mimeType: "text/plain",
+      userId: user.id,
+    });
+
+    await saveSelection({
+      documentIds: [textDocument.id],
+      matterId: matter.id,
+      userId: user.id,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    const output = await runExtractionStep({
+      aiService: mockEminentDomainOwnerResponseAI({
+        onPrompt: (prompt) => {
+          capturedPrompt = prompt;
+        },
+      }),
+      matterId: matter.id,
+      step: eminentDomainExtractionStep,
+      workflowDefinitionId: "eminent-domain-case-assessment",
+      workflowRunId,
+    });
+
+    expect(capturedPrompt).toContain("Document metadata:");
+    expect(capturedPrompt).toContain("- Document date: 2026-04-15");
+    expect(capturedPrompt).toContain("- Document date source: filename");
+    expect(output).toMatchObject({
+      collapsedFacts: [
+        expect.objectContaining({
+          factType: "EVENT",
+          fields: expect.objectContaining({
+            eventDate: "2026-04-15",
+          }),
+        }),
+      ],
+      collapseSummary: expect.objectContaining({
+        collapsedFactCount: 1,
+        rawFactCount: 1,
+      }),
+      extractedFactCount: 1,
+      factsByType: {
+        EVENT: 1,
+      },
+      status: "completed",
+    });
+    expect(output.rawFacts).toHaveLength(1);
+
+    const [fact] = output.facts as Array<{
+      evidence: Record<string, unknown>;
+      fields: Record<string, unknown>;
+      factType: string;
+    }>;
+
+    expect(fact).toMatchObject({
+      evidence: {
+        documentDate: "2026-04-15",
+        documentDateSource: "filename",
+        documentId: textDocument.id,
+        documentName: "2026-04-15 Owner Notes Access Concerns.txt",
+      },
+      factType: "EVENT",
+      fields: {
+        eventDate: "2026-04-15",
+        eventType: "owner-response",
+      },
+    });
+    expect(fact?.evidence.pageStart).toBeUndefined();
+    expect(fact?.evidence.pageEnd).toBeUndefined();
+
+    const stepOutput = await prisma.workflowRunStepOutput.findUniqueOrThrow({
+      where: {
+        workflowRunId_stepId: {
+          stepId: eminentDomainExtractionStep.id,
+          workflowRunId,
+        },
+      },
+    });
+
+    expect(stepOutput.outputJson).toMatchObject({
+      collapsedFacts: [
+        expect.objectContaining({
+          factType: "EVENT",
+        }),
+      ],
+      collapseSummary: expect.objectContaining({
+        collapsedFactCount: 1,
+        rawFactCount: 1,
+      }),
+      facts: [
+        expect.objectContaining({
+          evidence: expect.objectContaining({
+            documentDate: "2026-04-15",
+            documentDateSource: "filename",
+          }),
+          fields: expect.objectContaining({
+            eventDate: "2026-04-15",
+          }),
+        }),
+      ],
+      rawFacts: [
+        expect.objectContaining({
+          fields: expect.objectContaining({
+            eventDate: "2026-04-15",
+          }),
+        }),
+      ],
+      status: "completed",
     });
   } finally {
     await cleanupMatter(matter.id);
@@ -725,7 +912,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
       failedRepresentationCount: 0,
       extractedFactCount: 2,
       factsByType: {
-        chronology_fact: 2,
+        DATED_EVENT: 2,
       },
       profile: "chronology",
       readyRepresentationCount: 2,
@@ -760,7 +947,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
       },
       itemCount: 2,
       itemCountsByType: {
-        chronology_fact: 2,
+        DATED_EVENT: 2,
       },
       selectedDocumentCount: 2,
     });
@@ -795,8 +982,8 @@ test("extraction step prepares TXT and PDF representations and persists output",
       workflowRunId,
     });
     expect(artifact.content).not.toContain("Chronology of Events");
-    expect(artifact.content).toContain("Source: Notes, p. 1.");
-    expect(artifact.content).toContain("Source: Report, pp. 1-2.");
+    expect(artifact.content).toContain("Notes p. 1");
+    expect(artifact.content).toContain("Report pp. 1-2");
     expect(artifact.content).not.toContain("Generated from selected matter documents.");
     expect(artifact.metadataJson).toMatchObject({
       collapsedEventCount: 2,
@@ -837,14 +1024,21 @@ test("extraction step prepares TXT and PDF representations and persists output",
       activityEvents.some((event) => event.documentName === "report.pdf"),
     ).toBe(true);
 
-    expect(output.facts).toHaveLength(2);
-    expect(output.facts.map((fact) => fact.sourceDocumentId).sort()).toEqual(
+    const rawFacts = output.facts as Array<{
+      evidence: { documentId: string; pageEnd?: number; pageStart?: number };
+    }>;
+
+    expect(rawFacts).toHaveLength(2);
+    expect(rawFacts.map((fact) => fact.evidence.documentId).sort()).toEqual(
       [pdfDocument.id, textDocument.id].sort(),
     );
     expect(
-      output.facts.find((fact) => fact.sourceDocumentId === pdfDocument.id)
-        ?.sourcePages,
-    ).toEqual([1, 2]);
+      rawFacts.find((fact) => fact.evidence.documentId === pdfDocument.id)
+        ?.evidence,
+    ).toMatchObject({
+      pageEnd: 2,
+      pageStart: 1,
+    });
 
     const representations = await prisma.matterDocumentRepresentation.findMany({
       orderBy: {
@@ -883,7 +1077,7 @@ test("extraction step prepares TXT and PDF representations and persists output",
       extractedFactCount: 2,
       extractionRunId: output.extractionRunId,
       factsByType: {
-        chronology_fact: 2,
+        DATED_EVENT: 2,
       },
       readyRepresentationCount: 2,
       status: "completed",
@@ -974,7 +1168,7 @@ test("chronology extraction runs documents with bounded parallelism and preserve
 
     expect(maxActiveCallCount).toBe(2);
     expect(output.status).toBe("completed");
-    expect(output.facts.map((fact) => fact.sourceDocumentId)).toEqual([
+    expect((output.facts as Array<{ evidence: { documentId: string } }>).map((fact) => fact.evidence.documentId)).toEqual([
       firstDocument.id,
       secondDocument.id,
     ]);
