@@ -124,6 +124,30 @@ body {
   margin: 0.15rem 0 1.2rem 1rem;
 }
 
+.ProseMirror.document-editor .document-table {
+  border-collapse: collapse;
+  display: block;
+  margin: 0.75rem 0 1rem;
+  max-width: 100%;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.ProseMirror.document-editor .document-table th,
+.ProseMirror.document-editor .document-table td {
+  border: 1px solid #d8d2df;
+  min-width: 9rem;
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ProseMirror.document-editor .document-table th {
+  background: #f7f5f9;
+  color: #211b27;
+  font-weight: 650;
+}
+
 .ProseMirror.document-editor ul,
 .ProseMirror.document-editor ol,
 .ProseMirror.document-editor table {

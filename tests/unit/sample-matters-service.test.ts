@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { readdir } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("sample matters service", () => {
@@ -27,6 +28,15 @@ describe("sample matters service", () => {
         name: "Eminent Domain Matter (Sample)",
       },
     ]);
+  });
+
+  it("includes appraisal-review demonstration evidence in the Eminent Domain sample", async () => {
+    const files = await readdir(path.join(process.cwd(), "sample-evidence", "eminent-domain"));
+    expect(files).toEqual(expect.arrayContaining([
+      "2026-02-05 Condemnor Appraisal Summary - Parcel 14.pdf",
+      "2026-03-18 Exhibit B Parcel Plat Summary.pdf",
+      "2026-03-04 Owner Response Email re Access and Parking.pdf",
+    ]));
   });
 
   it("does not crash when sample evidence is missing", async () => {

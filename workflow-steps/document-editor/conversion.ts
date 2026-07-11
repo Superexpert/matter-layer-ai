@@ -59,6 +59,7 @@ export function editorHtmlToMarkdown(html: string) {
       node.getAttribute("data-ml-citation") === "true",
     replacement: (_content, node) => citationHtmlToMarkdown(node as HTMLElement),
   });
+  turndown.keep(["table", "thead", "tbody", "tr", "th", "td"]);
 
   return turndown
     .turndown(html)

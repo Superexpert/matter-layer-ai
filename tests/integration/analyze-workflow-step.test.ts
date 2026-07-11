@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeEach, expect, test } from "vitest";
 
 import { runAnalyzeStep } from "../../workflow-steps/analyze/server";
-import { eminentDomainCaseAssessmentDefinition } from "../../workflows";
+import { condemnorAppraisalReviewDefinition, eminentDomainCaseAssessmentDefinition } from "../../workflows";
 import { syncBuiltInWorkflows } from "../../services/workflows/catalog-service";
 import { getEditableWorkflowArtifact, saveWorkflowArtifactEdits } from "../../services/workflows/workflow-run-service";
 
@@ -122,3 +122,47 @@ test.each(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])(
     expect(output.model).toBe(model);
   },
 );
+
+test("Condemnor Appraisal Review aggregates five parallel structured generators into one cited work product", async () => {
+  const matter = await prisma.matter.create({ data: { name: "Appraisal Review Matter" } });
+  const workflowRun = await prisma.workflowRun.create({ data: { id: `appraisal-${Date.now()}`, matterId: matter.id, workflowDefinitionId: condemnorAppraisalReviewDefinition.id } });
+  await prisma.workflowRunStepOutput.create({ data: {
+    outputJson: {
+      collapsedFacts: [{ conflicts: [], evidence: [{ documentId: "appraisal-doc", documentName: "Condemnor Appraisal.pdf", excerpt: "Total compensation is $425,000.", pageEnd: 3, pageStart: 3 }], factType: "APPRAISAL_VALUATION", fields: { concept: "total_compensation", numericValue: 425000, statedValue: "$425,000" }, id: "appraisal-fact", identity: { matchedFields: ["concept"], ruleIndex: 0, strategy: "multiKey" }, identityKey: "total", sourceFactIds: ["raw-1"], status: "resolved" }],
+      profile: "condemnor-appraisal-review", status: "completed",
+    },
+    stepId: "extract-appraisal-facts", workflowRunId: workflowRun.id,
+  } });
+  const step = condemnorAppraisalReviewDefinition.steps.find((candidate) => candidate.id === "analyze-appraisal")!;
+  let active = 0; let maxActive = 0;
+  const output = await runAnalyzeStep({
+    aiService: { generateText: async (request) => {
+      active += 1; maxActive = Math.max(maxActive, active); await new Promise((resolve) => setTimeout(resolve, 5)); active -= 1;
+      const prompt = request.messages[1]?.content ?? "";
+      const issue = prompt.includes("Comparable Sales") ? "Comp 1" : "Total Compensation";
+      return { content: JSON.stringify({ summary: "Evidence-based review summary.", items: [{ basis: "Stated analysis", citationIds: ["citation-1"], conclusion: "$425,000", issue, notes: "Confirm supporting detail." }] }), model: "gpt-5.5", provider: "openai" };
+    } },
+    matterId: matter.id, step, workflowDefinitionId: condemnorAppraisalReviewDefinition.id, workflowRunId: workflowRun.id,
+  });
+  expect(output.status).toBe("completed");
+  expect(output.generators).toHaveLength(5);
+  expect(maxActive).toBeGreaterThanOrEqual(2);
+  expect(output.artifactIds).toHaveLength(1);
+  const artifact = await prisma.workflowArtifact.findUniqueOrThrow({ where: { id: output.artifactIds[0] } });
+  expect(artifact.title).toBe("Condemnor Appraisal Review");
+  expect(artifact.content).toContain("| Issue | Appraiser Conclusion | Supporting Basis | Review Notes |");
+  expect(artifact.content).toContain('data-citation-source-document-id="appraisal-doc"');
+  expect(artifact.content).toContain("not an independent appraisal");
+  const editable = await getEditableWorkflowArtifact({ artifactId: artifact.id, matterId: matter.id, workflowRunId: workflowRun.id });
+  expect(editable.title).toBe("Condemnor Appraisal Review");
+  expect(editable.editorContentHtml).toContain("<table>");
+  expect(editable.editorContentHtml).toContain('data-ml-citation="true"');
+});
+
+test("Condemnor Appraisal Review fails clearly when extraction identifies no appraisal facts", async () => {
+  const matter = await prisma.matter.create({ data: { name: "No Appraisal Matter" } });
+  const workflowRun = await prisma.workflowRun.create({ data: { id: `no-appraisal-${Date.now()}`, matterId: matter.id, workflowDefinitionId: condemnorAppraisalReviewDefinition.id } });
+  await prisma.workflowRunStepOutput.create({ data: { outputJson: { collapsedFacts: [], profile: "condemnor-appraisal-review", status: "completed" }, stepId: "extract-appraisal-facts", workflowRunId: workflowRun.id } });
+  const step = condemnorAppraisalReviewDefinition.steps.find((candidate) => candidate.id === "analyze-appraisal")!;
+  await expect(runAnalyzeStep({ aiService: { generateText: async () => { throw new Error("must not run"); } }, matterId: matter.id, step, workflowDefinitionId: condemnorAppraisalReviewDefinition.id, workflowRunId: workflowRun.id })).rejects.toThrow("No appraisal could be identified");
+});

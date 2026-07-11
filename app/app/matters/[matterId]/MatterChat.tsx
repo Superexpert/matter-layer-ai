@@ -187,6 +187,16 @@ function workflowProducesLabel(workflow: WorkflowDefinition) {
     return "Lawyer Memo, Client Summary";
   }
 
+  const aggregateOutputNames = workflow.steps
+    .filter((step) => step.type === "analyze")
+    .flatMap((step) => {
+      const aggregate = step.parameters.aggregate;
+      if (!aggregate || typeof aggregate !== "object" || Array.isArray(aggregate)) return [];
+      const outputName = (aggregate as { outputName?: unknown }).outputName;
+      return typeof outputName === "string" && outputName.trim() ? [outputName.trim()] : [];
+    });
+  if (aggregateOutputNames.length) return aggregateOutputNames.join(", ");
+
   const editorTitles = workflow.steps
     .filter((step) => step.type === "documentEditor")
     .map((step) => {
@@ -1551,6 +1561,11 @@ export function MatterChat({
                               <h2 className="text-base font-semibold text-[#211B27]">
                                 {workflow.name}
                               </h2>
+                              {workflow.category ? (
+                                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#74677F]">
+                                  {workflow.category}
+                                </p>
+                              ) : null}
                               {workflow.description ? (
                                 <p className="mt-2 text-sm leading-6 text-[#74677F]">
                                   {workflow.description}

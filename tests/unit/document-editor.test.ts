@@ -383,6 +383,11 @@ describe("document editor DOCX export", () => {
     expect(documentXml).toContain("<w:hyperlink");
     expect(numbering).toContain('<w:numFmt w:val="bullet"/>');
     expect(numbering).toContain('<w:numFmt w:val="decimal"/>');
+    expect(documentXml).toContain("<w:tbl>");
+    expect(documentXml).toContain('<w:tblW w:type="dxa" w:w="9360"/>');
+    expect(documentXml).toContain('<w:vAlign w:val="top"/>');
+    expect(documentXml).toContain("Total compensation");
+    expect(documentXml).toContain(" (Condemnor Appraisal, p. 3)");
 
     function numberingIdFor(text: string) {
       const paragraph = documentXml.match(new RegExp(`<w:p(?:(?!</w:p>)[\\s\\S])*?<w:t[^>]*>${text}</w:t>(?:(?!</w:p>)[\\s\\S])*?</w:p>`))?.[0];
@@ -391,6 +396,13 @@ describe("document editor DOCX export", () => {
     const firstListId = numberingIdFor("Review the filed documents.");
     expect(numberingIdFor("Prepare for the hearing.")).toBe(firstListId);
     expect(numberingIdFor("This separate list restarts at one.")).not.toBe(firstListId);
+  });
+
+  it("preserves editable citation tables through HTML serialization", () => {
+    const html = '<table><tbody><tr><th><p>Issue</p></th><th><p>Basis</p></th></tr><tr><td><p>Access</p></td><td><p>Plan <span data-ml-citation="true" data-citation-label="Plan p. 2" data-citation-printable-text="(Plan, p. 2)" data-citation-source-document-id="plan-1" data-citation-source-document-name="Plan.pdf" data-citation-page="2">Plan p. 2</span></p></td></tr></tbody></table>';
+    const markdown = editorHtmlToMarkdown(html);
+    expect(markdown).toContain("<table>");
+    expect(markdown).toContain('data-citation-source-document-id="plan-1"');
   });
 
   it.each(["Lawyer Memo", "Client Summary", "Chronology"])("uses the same style system for %s", async (title) => {

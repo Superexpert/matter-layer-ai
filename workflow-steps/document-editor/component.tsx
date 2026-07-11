@@ -8,6 +8,7 @@ import StarterKit from "@tiptap/starter-kit";
 
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { CitationNode, type CitationNodeAttributes } from "./citation-extension";
+import { DocumentTable, DocumentTableCell, DocumentTableHeader, DocumentTableRow } from "./table-extensions";
 import { exportEditorContentToDocx } from "./docx-export";
 import { editorHtmlToMarkdown } from "./conversion";
 import type { DocumentEditorStepOutput } from "./schema";
@@ -443,6 +444,10 @@ export function DocumentEditorSurface({
         paragraph: false,
       }),
       DocumentParagraph,
+      DocumentTable,
+      DocumentTableRow,
+      DocumentTableHeader,
+      DocumentTableCell,
       CitationNode,
       Link.configure({
         openOnClick: false,

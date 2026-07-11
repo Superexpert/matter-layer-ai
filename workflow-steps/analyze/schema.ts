@@ -8,6 +8,7 @@ export type AnalyzeGeneratorConfig = {
 };
 
 export type AnalyzeStepConfig = {
+  aggregate?: { outputName: string; renderer: "condemnor-appraisal-review" };
   aiProviderId?: string;
   generators: AnalyzeGeneratorConfig[];
   inputStepId: string;
@@ -19,6 +20,7 @@ export type AnalyzeGeneratorResult = AnalyzeGeneratorConfig & {
   completedAt?: string;
   error?: WorkflowStepError;
   startedAt?: string;
+  resultJson?: unknown;
   status: "queued" | "running" | "completed" | "failed";
 };
 
@@ -68,6 +70,12 @@ export function normalizeAnalyzeStepConfig(parameters: unknown): AnalyzeStepConf
     throw new Error("Analyze step generator IDs must be unique.");
   }
   return {
+    aggregate: raw.aggregate === undefined ? undefined : (() => {
+      const aggregate = record(raw.aggregate);
+      const renderer = requiredString(aggregate.renderer, "aggregate.renderer");
+      if (renderer !== "condemnor-appraisal-review") throw new Error(`Analyze aggregate renderer is not supported: ${renderer}`);
+      return { outputName: requiredString(aggregate.outputName, "aggregate.outputName"), renderer };
+    })(),
     aiProviderId: typeof raw.aiProviderId === "string" && raw.aiProviderId.trim()
       ? raw.aiProviderId.trim()
       : undefined,

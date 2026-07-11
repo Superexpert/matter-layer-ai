@@ -7,7 +7,14 @@ import {
   PageOrientation,
   Packer,
   Paragraph,
+  ShadingType,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
   TextRun,
+  VerticalAlignTable,
+  WidthType,
   type ParagraphChild,
 } from "docx";
 
@@ -29,6 +36,7 @@ type TipTapNode = {
 type ExportContext = {
   nextListInstance: number;
 };
+type DocxBlock = Paragraph | Table;
 
 const DEFAULT_EXPORT_FILE_NAME = "Matter Document.docx";
 
@@ -146,7 +154,7 @@ function paragraphsFromListItem(item: TipTapNode, options: {
   kind: "bullet" | "number";
   level: number;
 }) {
-  const paragraphs: Paragraph[] = [];
+  const paragraphs: DocxBlock[] = [];
 
   for (const child of item.content ?? []) {
     if (child.type === "paragraph") {
@@ -176,13 +184,36 @@ function paragraphsFromListItem(item: TipTapNode, options: {
   return paragraphs;
 }
 
+function tableFromNode(node: TipTapNode, context: ExportContext) {
+  const rowNodes = node.content ?? [];
+  const columnCount = Math.max(1, ...rowNodes.map((row) => row.content?.length ?? 0));
+  const columnWidth = Math.floor(9360 / columnCount);
+  return new Table({
+    columnWidths: Array.from({ length: columnCount }, () => columnWidth),
+    layout: TableLayoutType.FIXED,
+    rows: rowNodes.map((row) => new TableRow({
+      children: (row.content ?? []).map((cell) => {
+        const paragraphs = (cell.content ?? []).flatMap((child) => paragraphsFromNode(child, 0, false, context)).filter((block): block is Paragraph => block instanceof Paragraph);
+        return new TableCell({
+          children: paragraphs.length ? paragraphs : [new Paragraph({ style: STYLE_IDS.normal })],
+          margins: { bottom: 100, left: 120, right: 120, top: 100 },
+          shading: cell.type === "tableHeader" ? { fill: "F2F0F5", type: ShadingType.CLEAR } : undefined,
+          verticalAlign: VerticalAlignTable.TOP,
+          width: { size: columnWidth, type: WidthType.DXA },
+        });
+      }),
+    })),
+    width: { size: 9360, type: WidthType.DXA },
+  });
+}
+
 function paragraphsFromNode(
   node: TipTapNode,
   listLevel = 0,
   isDocumentTitle = false,
   context: ExportContext = { nextListInstance: 1 },
   inheritedList?: { instance: number; kind: "bullet" | "number" },
-): Paragraph[] {
+): DocxBlock[] {
   if (node.type === "heading") {
     return [new Paragraph({
       children: inlineChildren(node.content),
@@ -219,6 +250,8 @@ function paragraphsFromNode(
       }),
     );
   }
+
+  if (node.type === "table") return [tableFromNode(node, context)];
 
   return (node.content ?? []).flatMap((child) => paragraphsFromNode(child, listLevel, false, context));
 }

@@ -23,6 +23,16 @@ export const representativeWorkProductEditorJson = {
       { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Review the filed documents." }] }] },
       { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Prepare for the hearing." }] }] },
     ] },
+    { type: "table", content: [
+      { type: "tableRow", content: [
+        { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Issue" }] }] },
+        { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Conclusion" }] }] },
+      ] },
+      { type: "tableRow", content: [
+        { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Total compensation" }] }] },
+        { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "$425,000" }, { type: "citation", attrs: { printableText: "(Condemnor Appraisal, p. 3)", sourceDocumentName: "Condemnor Appraisal.pdf", page: 3 } }] }] },
+      ] },
+    ] },
     { type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text: "Quoted source material remains visually distinct." }] }] },
     { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Separate Action List" }] },
     { type: "orderedList", content: [

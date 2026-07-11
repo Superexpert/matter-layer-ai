@@ -36,6 +36,7 @@ export function isWorkflowDefinition(value: unknown): value is WorkflowDefinitio
     typeof value.id === "string" &&
     typeof value.name === "string" &&
     typeof value.description === "string" &&
+    (value.category === undefined || typeof value.category === "string") &&
     Array.isArray(value.steps) &&
     value.steps.every(isWorkflowStepDefinition)
   );

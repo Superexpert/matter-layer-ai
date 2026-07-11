@@ -47,6 +47,7 @@ export type WorkflowStepDefinition = {
 };
 
 export type WorkflowDefinition = {
+  category?: string;
   id: string;
   name: string;
   description: string;
