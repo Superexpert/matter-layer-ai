@@ -15,6 +15,7 @@ import {
 } from "@/services/workflows/workflow-step-output-service";
 import type { WorkflowStepDefinition } from "@/services/workflows/types";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
+import { hydrateCitationMarkdown } from "@/workflow-steps/document-editor/citations";
 import {
   assertDocumentEditorStepOutput,
   normalizeDocumentEditorStepConfig,
@@ -352,7 +353,18 @@ export async function loadDocumentEditorStepState(
     stepId: input.step.id,
     workflowRunId: input.workflowRunId,
   });
-  const contentMarkdown = artifact.currentRevision?.content ?? artifact.content ?? "";
+  const storedMarkdown = artifact.currentRevision?.content ?? artifact.content ?? "";
+  const sourceDocuments = await prisma.matterDocument.findMany({
+    select: { fileName: true, id: true },
+    where: { matterId: input.matterId },
+  });
+  const contentMarkdown = hydrateCitationMarkdown({
+    markdown: storedMarkdown,
+    sourceDocuments: sourceDocuments.map((document) => ({
+      documentId: document.id,
+      documentName: document.fileName,
+    })),
+  });
 
   return {
     artifactId: artifact.id,

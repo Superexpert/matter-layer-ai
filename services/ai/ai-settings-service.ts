@@ -10,6 +10,7 @@ import {
 } from "./provider-registry";
 import { normalizeOllamaBaseUrl } from "./providers/ollama-base-url";
 import { testOllamaModel } from "./providers/ollama-setup";
+import { testOpenAIModel } from "./providers/openai-setup";
 
 const APP_SETTINGS_ID = "app";
 
@@ -296,6 +297,14 @@ export async function aiProviderConfigExists(configId: string) {
   });
 
   return Boolean(config);
+}
+
+export async function testSavedOpenAIProviderConfig(configId: string) {
+  const config = await prisma.aiProviderConfig.findUnique({ where: { id: configId } });
+  if (!config || config.provider !== "openai" || !config.apiKey?.trim()) {
+    return { error: "Saved OpenAI provider configuration was not found.", ok: false as const };
+  }
+  return testOpenAIModel({ apiKey: decodeApiKey(config.apiKey), model: config.model });
 }
 
 export async function requireConfiguredAISettings() {

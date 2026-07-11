@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { compactCollapsedFacts } from "../../workflow-steps/analyze/compact-facts";
 import { analyzeGeneratorMessages } from "../../workflow-steps/analyze/generators";
+import { normalizeGeneratedWorkProduct } from "../../workflow-steps/analyze/work-product-citations";
 import { normalizeAnalyzeStepConfig } from "../../workflow-steps/analyze/schema";
 import { workflowStepRegistry } from "../../services/workflows/registry";
 import type { CollapsedFact } from "../../workflow-steps/extraction/collapsed-fact";
@@ -43,8 +44,26 @@ describe("Analyze workflow step", () => {
     expect(first.facts[0]?.fields.eventDate).toBe("2026-03-18");
     expect(first.facts[0]?.conflicts?.[0]?.values).toHaveLength(2);
     expect(first.facts[0]?.supportingValues?.description).toHaveLength(1);
-    expect(first.facts[0]?.citations).toEqual([evidence]);
+    expect(first.facts[0]?.citations).toEqual([{ citationId: "citation-1", ...evidence }]);
     expect(first.sourceDocuments).toEqual([{ documentId: "doc-1", documentName: "Petition.pdf" }]);
+  });
+
+  it("expands multiple stable citation IDs into authoritative citation nodes", () => {
+    const secondEvidence = { documentId: "doc-2", documentName: "Hearing Notice.pdf", excerpt: "The hearing is set for June 2.", pageEnd: 4, pageStart: 4 };
+    const secondFact = fact();
+    secondFact.evidence = [evidence, secondEvidence];
+    const packet = compactCollapsedFacts({ collapsedFacts: [secondFact], profileId: "generic" });
+    const citationIds = packet.facts[0]!.citations.map((citation) => citation.citationId);
+    const markdown = normalizeGeneratedWorkProduct({
+      packet,
+      responseContent: JSON.stringify({ markdown: `Supported sentence ${citationIds.map((id) => `{{ml-citation:${id}}}`).join(" ")}.` }),
+    });
+    expect(markdown.match(/data-ml-citation="true"/g)).toHaveLength(2);
+    expect(markdown).toContain('data-citation-source-document-id="doc-1"');
+    expect(markdown).toContain('data-citation-source-document-id="doc-2"');
+    expect(markdown).toContain('data-citation-cited-text="The hearing is set for June 2."');
+    expect(markdown).not.toContain("{{ml-citation:");
+    expect(() => normalizeGeneratedWorkProduct({ packet, responseContent: JSON.stringify({ markdown: "Bad {{ml-citation:citation-999}}" }) })).toThrow("unknown evidence");
   });
 
   it("gives a generator only its own instructions", () => {
@@ -53,5 +72,7 @@ describe("Analyze workflow step", () => {
     expect(messages[1]?.content).toContain("Memo-only instruction");
     expect(messages[1]?.content).toContain(JSON.stringify(packet));
     expect(messages[1]?.content).not.toContain("Client-only instruction");
+    expect(messages[1]?.content).not.toContain('data-citation-label="Document p. 1"');
+    expect(messages[1]?.content).toContain("{{ml-citation:CITATION_ID}}");
   });
 });

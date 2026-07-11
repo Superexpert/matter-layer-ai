@@ -10,6 +10,7 @@ export type AIRequest = {
   model?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   responseFormat?: {
     name?: string;
     schema?: Record<string, unknown>;

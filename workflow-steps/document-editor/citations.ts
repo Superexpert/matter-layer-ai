@@ -5,6 +5,8 @@ export type CitationData = {
   locationLabel?: string | null;
   locationText?: string | null;
   page?: number | null;
+  pageEnd?: number | null;
+  pageStart?: number | null;
   paragraphNumber?: number | null;
   printableText: string;
   sourceDocumentId?: string | null;
@@ -20,6 +22,8 @@ const CITATION_ATTRIBUTE_NAMES = [
   "data-citation-location-label",
   "data-citation-location-text",
   "data-citation-page",
+  "data-citation-page-end",
+  "data-citation-page-start",
   "data-citation-paragraph-number",
   "data-citation-printable-text",
   "data-citation-source-document-id",
@@ -45,12 +49,37 @@ function stripFileExtension(value: string) {
   return value.replace(/\.[a-z0-9]+$/i, "");
 }
 
+function citationDocumentTitle(documentName: string | null | undefined) {
+  const name = stripFileExtension(cleanText(documentName) ?? "")
+    .replace(/^\d{4}-\d{2}-\d{2}\s+/, "")
+    .trim();
+  return name || "Source";
+}
+
+export function buildCitationDisplayLabel(input: {
+  documentName?: string | null;
+  pageEnd?: number | null;
+  pageStart?: number | null;
+}) {
+  const title = citationDocumentTitle(input.documentName);
+  const pageStart = input.pageStart && Number.isInteger(input.pageStart) && input.pageStart > 0
+    ? input.pageStart
+    : null;
+  const pageEnd = input.pageEnd && Number.isInteger(input.pageEnd) && input.pageEnd >= (pageStart ?? 1)
+    ? input.pageEnd
+    : pageStart;
+  if (!pageStart) return title;
+  return pageEnd && pageEnd !== pageStart
+    ? `${title} pp. ${pageStart}\u2013${pageEnd}`
+    : `${title} p. ${pageStart}`;
+}
+
 export function formatCitationLabel(input: {
   locationText?: string | null;
   page?: number | null;
   sourceDocumentName: string;
 }) {
-  const name = stripFileExtension(input.sourceDocumentName).trim();
+  const name = citationDocumentTitle(input.sourceDocumentName);
   const locationText = cleanText(input.locationText);
 
   if (locationText) {
@@ -69,7 +98,7 @@ export function formatPrintableCitation(input: {
   page?: number | null;
   sourceDocumentName: string;
 }) {
-  const name = stripFileExtension(input.sourceDocumentName).trim();
+  const name = citationDocumentTitle(input.sourceDocumentName);
   const locationText = cleanText(input.locationText);
 
   if (locationText) {
@@ -90,6 +119,8 @@ export function normalizeCitationData(input: {
   locationLabel?: string | null;
   locationText?: string | null;
   page?: number | null;
+  pageEnd?: number | null;
+  pageStart?: number | null;
   paragraphNumber?: number | null;
   printableText?: string | null;
   sourceDocumentId?: string | null;
@@ -102,24 +133,23 @@ export function normalizeCitationData(input: {
     throw new Error("Citation source document name is required.");
   }
 
-  const page = input.page && Number.isInteger(input.page) && input.page > 0
-    ? input.page
+  const page = input.pageStart ?? input.page;
+  const normalizedPage = page && Number.isInteger(page) && page > 0
+    ? page
     : null;
+  const pageStart = page && Number.isInteger(page) && page > 0 ? page : null;
+  const pageEnd = input.pageEnd && pageStart && Number.isInteger(input.pageEnd) && input.pageEnd >= pageStart
+    ? input.pageEnd
+    : pageStart;
   const paragraphNumber =
     input.paragraphNumber && Number.isInteger(input.paragraphNumber) && input.paragraphNumber > 0
       ? input.paragraphNumber
       : null;
   const locationText = cleanText(input.locationText);
-  const label = cleanText(input.label) ?? formatCitationLabel({
-    locationText,
-    page,
-    sourceDocumentName,
-  });
-  const printableText = cleanText(input.printableText) ?? formatPrintableCitation({
-    locationText,
-    page,
-    sourceDocumentName,
-  });
+  const label = locationText
+    ? `${citationDocumentTitle(sourceDocumentName)} ${locationText}`
+    : buildCitationDisplayLabel({ documentName: sourceDocumentName, pageEnd, pageStart });
+  const printableText = `(${label.replace(/ (pp?\.) /, ", $1 ")})`;
 
   return {
     citedText: cleanText(input.citedText),
@@ -127,7 +157,9 @@ export function normalizeCitationData(input: {
     label,
     locationLabel: cleanText(input.locationLabel),
     locationText,
-    page,
+    page: normalizedPage ?? pageStart,
+    pageEnd,
+    pageStart,
     paragraphNumber,
     printableText,
     sourceDocumentId: cleanText(input.sourceDocumentId),
@@ -143,6 +175,8 @@ export function citationMarkdown(input: {
   locationLabel?: string | null;
   locationText?: string | null;
   page?: number | null;
+  pageEnd?: number | null;
+  pageStart?: number | null;
   paragraphNumber?: number | null;
   printableText?: string | null;
   sourceDocumentId?: string | null;
@@ -168,6 +202,8 @@ export function citationMarkdown(input: {
       ? ["data-citation-source-document-id", citation.sourceDocumentId]
       : null,
     citation.page ? ["data-citation-page", String(citation.page)] : null,
+    citation.pageStart ? ["data-citation-page-start", String(citation.pageStart)] : null,
+    citation.pageEnd ? ["data-citation-page-end", String(citation.pageEnd)] : null,
     citation.paragraphNumber
       ? ["data-citation-paragraph-number", String(citation.paragraphNumber)]
       : null,
@@ -251,4 +287,67 @@ export function citationHtmlToMarkdown(element: HTMLElement) {
   }
 
   return `<span ${attributes.join(" ")}>${escapeHtmlAttribute(label)}</span>`;
+}
+
+function decodeHtmlAttribute(value: string) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function citationPageRange(attributes: Map<string, string>) {
+  const explicitStart = Number(attributes.get("data-citation-page-start") ?? attributes.get("data-citation-page"));
+  const printable = attributes.get("data-citation-printable-text") ?? "";
+  const printableMatch = /\bpp?\.\s*(\d+)(?:\s*[\-\u2013]\s*(\d+))?/i.exec(printable);
+  const pageStart = Number.isInteger(explicitStart) && explicitStart > 0
+    ? explicitStart
+    : Number(printableMatch?.[1]);
+  const explicitEnd = Number(attributes.get("data-citation-page-end"));
+  const pageEnd = Number.isInteger(explicitEnd) && explicitEnd >= pageStart
+    ? explicitEnd
+    : Number(printableMatch?.[2]) || pageStart;
+  return {
+    pageEnd: Number.isInteger(pageEnd) && pageEnd > 0 ? pageEnd : undefined,
+    pageStart: Number.isInteger(pageStart) && pageStart > 0 ? pageStart : undefined,
+  };
+}
+
+export function hydrateCitationMarkdown(input: {
+  markdown: string;
+  sourceDocuments: Array<{ documentId: string; documentName: string }>;
+}) {
+  const sourceNameById = new Map(
+    input.sourceDocuments.map((document) => [document.documentId, document.documentName]),
+  );
+  return input.markdown.replace(
+    /<span\b([^>]*\bdata-ml-citation=(?:"true"|'true')[^>]*)>[\s\S]*?<\/span>/gi,
+    (_match, rawAttributes: string) => {
+      const attributes = new Map<string, string>();
+      for (const match of rawAttributes.matchAll(/([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+        attributes.set(match[1], decodeHtmlAttribute(match[2] ?? match[3] ?? ""));
+      }
+      const documentId = attributes.get("data-citation-source-document-id")?.trim();
+      const resolvedName = documentId
+        ? sourceNameById.get(documentId)
+        : attributes.get("data-citation-source-document-name")?.trim();
+      const { pageEnd, pageStart } = citationPageRange(attributes);
+      const label = buildCitationDisplayLabel({ documentName: resolvedName, pageEnd, pageStart });
+      attributes.set("data-ml-citation", "true");
+      attributes.set("data-citation-label", label);
+      attributes.set("data-citation-printable-text", `(${label.replace(/ (pp?\.) /, ", $1 ")})`);
+      attributes.set("data-citation-source-document-name", resolvedName ?? "");
+      if (pageStart) {
+        attributes.set("data-citation-page", String(pageStart));
+        attributes.set("data-citation-page-start", String(pageStart));
+      }
+      if (pageEnd) attributes.set("data-citation-page-end", String(pageEnd));
+      const serialized = Array.from(attributes.entries())
+        .map(([name, value]) => `${name}="${escapeHtmlAttribute(value)}"`)
+        .join(" ");
+      return `<span ${serialized}>${escapeHtmlAttribute(label)}</span>`;
+    },
+  );
 }

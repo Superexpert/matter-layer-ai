@@ -11,6 +11,7 @@ import {
   type MatterFileStorageProviderName,
 } from "@/services/matter-documents/storage";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
+import { hydrateCitationMarkdown } from "@/workflow-steps/document-editor/citations";
 
 export type MatterDocumentSection = "workProduct" | "sourceDocument";
 
@@ -229,10 +230,22 @@ export async function getEditableMatterDocument(input: {
     throw new Error("Editable matter document Markdown content was not found.");
   }
 
+  const sourceDocuments = await prisma.matterDocument.findMany({
+    select: { fileName: true, id: true },
+    where: { matterId: input.matterId },
+  });
+  const contentMarkdown = hydrateCitationMarkdown({
+    markdown: markdownRepresentation.content,
+    sourceDocuments: sourceDocuments.map((sourceDocument) => ({
+      documentId: sourceDocument.id,
+      documentName: sourceDocument.fileName,
+    })),
+  });
+
   return {
     ...summary,
-    contentMarkdown: markdownRepresentation.content,
-    editorContentHtml: markdownToEditorHtml(markdownRepresentation.content),
+    contentMarkdown,
+    editorContentHtml: markdownToEditorHtml(contentMarkdown),
   };
 }
 

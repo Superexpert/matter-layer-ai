@@ -121,7 +121,7 @@ async function main() {
   console.info("- Provider: OpenAI");
   console.info("Registry:");
   console.info(`- Added to known OpenAI models: ${openAIModels.some((model) => model.id === "gpt-5.4-nano" && model.label === "GPT-5.4 nano") ? "PASS" : "FAIL"}`);
-  console.info(`- Existing models preserved: ${["gpt-5.5", "gpt-5.5-mini", "gpt-5.4-mini"].every((modelId) => openAIModels.some((model) => model.id === modelId)) ? "PASS" : "FAIL"}`);
+  console.info(`- Existing models preserved: ${["gpt-5.5", "gpt-5.4-mini"].every((modelId) => openAIModels.some((model) => model.id === modelId)) ? "PASS" : "FAIL"}`);
   console.info("Provider configuration:");
   console.info(`- Admin create supported: ${isRegisteredAIModel("openai", "gpt-5.4-nano") ? "PASS" : "FAIL"}`);
   console.info(`- Admin edit supported: ${openAIModels.some((model) => model.id === "gpt-5.4-nano") ? "PASS" : "FAIL"}`);

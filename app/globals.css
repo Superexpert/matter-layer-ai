@@ -219,10 +219,12 @@ body {
     font-weight: 700 !important;
     line-height: 1.2 !important;
     margin: 0 0.15rem !important;
-    max-width: 100% !important;
+    max-width: min(28rem, 100%) !important;
+    overflow: hidden !important;
     padding: 0.12rem 0.45rem !important;
     vertical-align: baseline !important;
-    white-space: normal !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
   }
 
   .ProseMirror.document-editor .document-citation-chip:hover,

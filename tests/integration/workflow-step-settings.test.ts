@@ -200,6 +200,21 @@ test("Admin provider config can save and reload GPT-5.4 nano", async () => {
   ]);
 });
 
+test.each([
+  ["gpt-5.6-sol", "GPT-5.6 Sol"],
+  ["gpt-5.6-terra", "GPT-5.6 Terra"],
+  ["gpt-5.6-luna", "GPT-5.6 Luna"],
+])("Admin provider config preserves %s", async (model, modelLabel) => {
+  const formData = new FormData();
+  formData.set("aiProvider", "openai");
+  formData.set("aiModel", model);
+  formData.set("aiApiKey", "test-openai-key");
+  await createAIProviderConfig(formData);
+  await expect(listAIProviderConfigs()).resolves.toMatchObject([
+    { model, modelLabel, provider: "openai" },
+  ]);
+});
+
 test("Workflow provider override can select GPT-5.4 nano", async () => {
   await createProvider({
     isActive: true,

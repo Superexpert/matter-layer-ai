@@ -27,8 +27,9 @@ Admin setup:
    internal Ollama server URL and refresh installed models.
 6. Save settings.
 
-Known OpenAI model options include `gpt-5.5`, `gpt-5.5-mini`,
-`gpt-5.4-mini`, and `gpt-5.4-nano`. `gpt-5.4-nano` is a lower-cost OpenAI
+Known OpenAI model options include `gpt-5.6-sol`, `gpt-5.6-terra`,
+`gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4-mini`, and `gpt-5.4-nano`.
+GPT-5.6 availability depends on the OpenAI account. `gpt-5.4-nano` is a lower-cost OpenAI
 option suited to high-volume extraction and classification workloads. It is not
 the default unless an administrator explicitly selects it.
 

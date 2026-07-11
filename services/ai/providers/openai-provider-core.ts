@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import type { AIRequest, AIResponse, AIStreamEvent } from "../types";
 import type { AIProvider } from "./ai-provider";
+import { getAIProviderModel } from "../provider-registry";
 
 type OpenAIProviderConfig = {
   apiKey: string;
@@ -19,6 +20,7 @@ type OpenAIResponseRequest = {
   input: OpenAIResponseInputMessage[];
   max_output_tokens?: number;
   model: string;
+  reasoning?: { effort: "none" | "low" | "medium" | "high" | "xhigh" | "max" };
   store: false;
   text?: {
     format:
@@ -72,6 +74,7 @@ function buildOpenAIResponseRequest(
   request: AIRequest,
   model: string,
 ): OpenAIResponseRequest {
+  const definition = getAIProviderModel("openai", model);
   const responseRequest: OpenAIResponseRequest = {
     input: request.messages.map((message) => ({
       content: message.content,
@@ -84,8 +87,25 @@ function buildOpenAIResponseRequest(
     // application state. Abuse-monitoring retention is controlled separately
     // by provider/account policy, including any zero data retention settings.
     store: false,
-    temperature: request.temperature,
   };
+
+  if (typeof request.temperature === "number" && definition?.supportsTemperature !== false) {
+    responseRequest.temperature = request.temperature;
+  }
+
+  if (request.reasoningEffort) {
+    if (!definition?.supportsReasoning) {
+      throw new Error(`OpenAI model ${model} does not support reasoning effort.`);
+    }
+    if (!definition.supportedReasoningEfforts?.includes(request.reasoningEffort)) {
+      throw new Error(`OpenAI model ${model} does not support reasoning effort ${request.reasoningEffort}.`);
+    }
+    responseRequest.reasoning = { effort: request.reasoningEffort };
+  }
+
+  if (request.responseFormat && definition?.supportsStructuredOutput === false) {
+    throw new Error(`OpenAI model ${model} does not support structured output.`);
+  }
 
   if (request.responseFormat?.type === "json_schema" && request.responseFormat.schema) {
     responseRequest.text = {

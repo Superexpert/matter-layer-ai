@@ -142,8 +142,10 @@ function formatMimeType(mimeType: string) {
 function locationParts(citation: CitationNodeAttributes) {
   const parts: string[] = [];
 
-  if (citation.page) {
-    parts.push(`Page ${citation.page}`);
+  const pageStart = citation.pageStart ?? citation.page;
+  const pageEnd = citation.pageEnd ?? pageStart;
+  if (pageStart) {
+    parts.push(pageEnd && pageEnd !== pageStart ? `Pages ${pageStart}-${pageEnd}` : `Page ${pageStart}`);
   }
 
   if (citation.paragraphNumber) {

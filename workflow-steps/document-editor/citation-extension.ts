@@ -1,4 +1,5 @@
 import { mergeAttributes, Node } from "@tiptap/core";
+import { buildCitationDisplayLabel } from "./citations";
 
 export type CitationNodeAttributes = {
   citedText: string | null;
@@ -7,6 +8,8 @@ export type CitationNodeAttributes = {
   locationLabel: string | null;
   locationText: string | null;
   page: number | null;
+  pageEnd: number | null;
+  pageStart: number | null;
   paragraphNumber: number | null;
   printableText: string;
   sourceDocumentId: string | null;
@@ -94,6 +97,16 @@ export const CitationNode = Node.create({
         renderHTML: (attributes) =>
           attributes.page ? { "data-citation-page": String(attributes.page) } : {},
       },
+      pageStart: {
+        default: null,
+        parseHTML: (element) => optionalPositiveIntegerAttribute(element, "data-citation-page-start") ?? optionalPositiveIntegerAttribute(element, "data-citation-page"),
+        renderHTML: (attributes) => attributes.pageStart ? { "data-citation-page-start": String(attributes.pageStart) } : {},
+      },
+      pageEnd: {
+        default: null,
+        parseHTML: (element) => optionalPositiveIntegerAttribute(element, "data-citation-page-end") ?? optionalPositiveIntegerAttribute(element, "data-citation-page"),
+        renderHTML: (attributes) => attributes.pageEnd ? { "data-citation-page-end": String(attributes.pageEnd) } : {},
+      },
       paragraphNumber: {
         default: null,
         parseHTML: (element) =>
@@ -153,7 +166,11 @@ export const CitationNode = Node.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-    const label = String(HTMLAttributes["data-citation-label"] ?? "");
+    const label = buildCitationDisplayLabel({
+      documentName: String(HTMLAttributes["data-citation-source-document-name"] ?? ""),
+      pageEnd: Number(HTMLAttributes["data-citation-page-end"] ?? HTMLAttributes["data-citation-page"]),
+      pageStart: Number(HTMLAttributes["data-citation-page-start"] ?? HTMLAttributes["data-citation-page"]),
+    });
 
     return [
       "span",
@@ -163,6 +180,7 @@ export const CitationNode = Node.create({
         "data-ml-citation": "true",
         role: "button",
         tabindex: "0",
+        title: label,
       }),
       label,
     ];

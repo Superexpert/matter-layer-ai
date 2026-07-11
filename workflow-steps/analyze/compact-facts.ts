@@ -3,7 +3,7 @@ import type { ExtractedFactEvidence } from "@/workflow-steps/extraction/extracte
 
 export type AnalyzeCitation = Pick<ExtractedFactEvidence,
   "documentId" | "documentName" | "pageStart" | "pageEnd" | "excerpt"
->;
+> & { citationId: string };
 
 export type AnalyzeFactPacket = {
   facts: Array<{
@@ -19,13 +19,14 @@ export type AnalyzeFactPacket = {
   sourceDocuments: Array<{ documentId: string; documentName: string }>;
 };
 
-function citationKey(value: AnalyzeCitation) {
+function citationKey(value: Pick<ExtractedFactEvidence, "documentId" | "documentName" | "pageStart" | "pageEnd" | "excerpt">) {
   return JSON.stringify([value.documentId, value.documentName, value.pageStart, value.pageEnd, value.excerpt]);
 }
 
-function citations(values: ExtractedFactEvidence[]) {
+function citations(values: ExtractedFactEvidence[], citationIdByKey: Map<string, string>) {
   return Array.from(new Map(values.map((value) => {
     const citation: AnalyzeCitation = {
+      citationId: citationIdByKey.get(citationKey(value))!,
       documentId: value.documentId,
       documentName: value.documentName,
       ...(value.pageStart === undefined ? {} : { pageStart: value.pageStart }),
@@ -36,22 +37,32 @@ function citations(values: ExtractedFactEvidence[]) {
   })).values()).sort((a, b) => citationKey(a).localeCompare(citationKey(b)));
 }
 
-function compactValue(value: CollapsedFieldValue) {
-  return { citations: citations(value.evidence), value: value.value };
+function compactValue(value: CollapsedFieldValue, citationIdByKey: Map<string, string>) {
+  return { citations: citations(value.evidence, citationIdByKey), value: value.value };
 }
 
 export function compactCollapsedFacts(input: {
   collapsedFacts: CollapsedFact[];
   profileId: string;
 }): AnalyzeFactPacket {
+  const evidence = input.collapsedFacts.flatMap((fact) => [
+    ...fact.evidence,
+    ...fact.conflicts.flatMap((conflict) => conflict.values.flatMap((value) => value.evidence)),
+    ...Object.values(fact.supportingValues ?? {}).flatMap((values) => values.flatMap((value) => value.evidence)),
+  ]);
+  const citationIdByKey = new Map(
+    [...new Set(evidence.map(citationKey))]
+      .sort()
+      .map((key, index) => [key, `citation-${index + 1}`]),
+  );
   const facts = [...input.collapsedFacts]
     .sort((a, b) => a.factType.localeCompare(b.factType) || a.id.localeCompare(b.id))
     .map((fact) => ({
-      citations: citations(fact.evidence),
+      citations: citations(fact.evidence, citationIdByKey),
       ...(fact.conflicts.length ? {
         conflicts: fact.conflicts.map((conflict) => ({
           field: conflict.field,
-          values: conflict.values.map(compactValue),
+          values: conflict.values.map((value) => compactValue(value, citationIdByKey)),
         })),
       } : {}),
       factType: fact.factType,
@@ -60,7 +71,7 @@ export function compactCollapsedFacts(input: {
       ...(fact.supportingValues && Object.keys(fact.supportingValues).length ? {
         supportingValues: Object.fromEntries(Object.entries(fact.supportingValues)
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([field, values]) => [field, values.map(compactValue)])),
+          .map(([field, values]) => [field, values.map((value) => compactValue(value, citationIdByKey))])),
       } : {}),
     }));
   const allCitations = facts.flatMap((fact) => fact.citations);

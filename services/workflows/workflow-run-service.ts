@@ -4,6 +4,7 @@ import { WorkflowRunStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { markdownToEditorHtml } from "@/workflow-steps/document-editor/conversion";
+import { hydrateCitationMarkdown } from "@/workflow-steps/document-editor/citations";
 import { createWorkflowArtifactRevision } from "./workflow-artifact-service";
 
 export type WorkflowRunWorkProductSummary = {
@@ -420,11 +421,22 @@ export async function getEditableWorkflowArtifact(input: {
     throw new Error("Work product does not belong to the current workflow run.");
   }
 
-  const contentMarkdown = artifact.currentRevision?.content ?? artifact.content ?? "";
+  const storedMarkdown = artifact.currentRevision?.content ?? artifact.content ?? "";
 
-  if (!contentMarkdown.trim()) {
+  if (!storedMarkdown.trim()) {
     throw new Error("Work product content was not found.");
   }
+  const sourceDocuments = await prisma.matterDocument.findMany({
+    select: { fileName: true, id: true },
+    where: { matterId: input.matterId },
+  });
+  const contentMarkdown = hydrateCitationMarkdown({
+    markdown: storedMarkdown,
+    sourceDocuments: sourceDocuments.map((document) => ({
+      documentId: document.id,
+      documentName: document.fileName,
+    })),
+  });
 
   return {
     artifactId: artifact.id,

@@ -12,14 +12,13 @@ describe("AI provider registry", () => {
 
     expect(openAI).toBeDefined();
     expect(openAI?.defaultModel).toBe("gpt-5.5");
-    expect(openAI?.models).toEqual([
+    expect(openAI?.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", supportsReasoning: true, supportsStructuredOutput: true, supportsTemperature: false }),
+      expect.objectContaining({ id: "gpt-5.6-terra", label: "GPT-5.6 Terra", supportsReasoning: true, supportsStructuredOutput: true, supportsTemperature: false }),
+      expect.objectContaining({ id: "gpt-5.6-luna", label: "GPT-5.6 Luna", supportsReasoning: true, supportsStructuredOutput: true, supportsTemperature: false }),
       {
         id: "gpt-5.5",
         label: "GPT-5.5",
-      },
-      {
-        id: "gpt-5.5-mini",
-        label: "GPT-5.5 mini",
       },
       {
         id: "gpt-5.4-mini",
@@ -29,12 +28,15 @@ describe("AI provider registry", () => {
         id: "gpt-5.4-nano",
         label: "GPT-5.4 nano",
       },
-    ]);
+    ]));
   });
 
   it("registers the smaller OpenAI models as valid selections", () => {
+    expect(isRegisteredAIModel("openai", "gpt-5.6-sol")).toBe(true);
+    expect(isRegisteredAIModel("openai", "gpt-5.6-terra")).toBe(true);
+    expect(isRegisteredAIModel("openai", "gpt-5.6-luna")).toBe(true);
     expect(isRegisteredAIModel("openai", "gpt-5.5")).toBe(true);
-    expect(isRegisteredAIModel("openai", "gpt-5.5-mini")).toBe(true);
+    expect(isRegisteredAIModel("openai", "gpt-5.5-mini")).toBe(false);
     expect(isRegisteredAIModel("openai", "gpt-5.4-mini")).toBe(true);
     expect(isRegisteredAIModel("openai", "gpt-5.4-nano")).toBe(true);
   });

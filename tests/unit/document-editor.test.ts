@@ -12,10 +12,17 @@ import {
   normalizeDocumentEditorStepConfig,
 } from "../../workflow-steps/document-editor/schema";
 import {
+  DOCX_STYLES,
   docxFileNameFromTitle,
   generateDocxBlobFromEditorJson,
 } from "../../workflow-steps/document-editor/docx-export";
-import { citationMarkdown } from "../../workflow-steps/document-editor/citations";
+import JSZip from "jszip";
+import { representativeWorkProductEditorJson } from "../fixtures/docx-work-product";
+import {
+  buildCitationDisplayLabel,
+  citationMarkdown,
+  hydrateCitationMarkdown,
+} from "../../workflow-steps/document-editor/citations";
 
 describe("document editor schema", () => {
   it("accepts valid config and applies defaults", () => {
@@ -70,6 +77,45 @@ describe("document editor schema", () => {
 });
 
 describe("document editor Markdown conversion", () => {
+  it("builds recognizable deterministic citation labels", () => {
+    expect(buildCitationDisplayLabel({ documentName: "2026-03-18 Petition in Condemnation.pdf", pageEnd: 2, pageStart: 2 })).toBe("Petition in Condemnation p. 2");
+    expect(buildCitationDisplayLabel({ documentName: "2026-02-20 Final Offer Letter - Parcel 14.pdf", pageStart: 1 })).toBe("Final Offer Letter - Parcel 14 p. 1");
+    expect(buildCitationDisplayLabel({ documentName: "2026-04-08 Special Commissioners Hearing Notice.pdf", pageEnd: 3, pageStart: 1 })).toBe("Special Commissioners Hearing Notice pp. 1–3");
+    expect(buildCitationDisplayLabel({ pageStart: 1 })).toBe("Source p. 1");
+  });
+
+  it("hydrates existing generic citations from authoritative source metadata", () => {
+    const markdown = hydrateCitationMarkdown({
+      markdown: 'Fact <span data-ml-citation="true" data-citation-label="Document p. 2" data-citation-printable-text="(Document, p. 2)" data-citation-source-document-id="petition" data-citation-page="2" data-citation-cited-text="support">Document p. 2</span>.',
+      sourceDocuments: [{ documentId: "petition", documentName: "2026-03-18 Petition in Condemnation.pdf" }],
+    });
+    expect(markdown).toContain('data-citation-source-document-id="petition"');
+    expect(markdown).toContain('data-citation-source-document-name="2026-03-18 Petition in Condemnation.pdf"');
+    expect(markdown).toContain('data-citation-label="Petition in Condemnation p. 2"');
+    expect(markdown).toContain('data-citation-printable-text="(Petition in Condemnation, p. 2)"');
+    expect(markdown).toContain('data-citation-cited-text="support"');
+    expect(markdown).toContain('>Petition in Condemnation p. 2</span>');
+
+    const inferredPage = hydrateCitationMarkdown({
+      markdown: '<span data-ml-citation="true" data-citation-label="Document p. 3" data-citation-printable-text="(2026-04-08 Special Commissioners Hearing Notice.pdf, p. 3)" data-citation-source-document-id="notice">Document p. 3</span>',
+      sourceDocuments: [{ documentId: "notice", documentName: "2026-04-08 Special Commissioners Hearing Notice.pdf" }],
+    });
+    expect(inferredPage).toContain("Special Commissioners Hearing Notice p. 3");
+    expect(inferredPage).toContain('data-citation-page="3"');
+  });
+
+  it("keeps distinct sources distinguishable and blocks unresolvable stored names", () => {
+    const markdown = hydrateCitationMarkdown({
+      markdown: [
+        '<span data-ml-citation="true" data-citation-label="Document p. 1" data-citation-source-document-id="petition" data-citation-page="1">Document p. 1</span>',
+        '<span data-ml-citation="true" data-citation-label="Document p. 1" data-citation-source-document-id="notice" data-citation-source-document-name="Other Matter Secret.pdf" data-citation-page="1">Document p. 1</span>',
+      ].join(" "),
+      sourceDocuments: [{ documentId: "petition", documentName: "2026-03-18 Petition in Condemnation.pdf" }],
+    });
+    expect(markdown).toContain("Petition in Condemnation p. 1");
+    expect(markdown).toContain("Source p. 1");
+    expect(markdown).not.toContain("Other Matter Secret");
+  });
   it("converts Markdown into editor HTML", () => {
     const html = markdownToEditorHtml([
       "# Chronology",
@@ -177,6 +223,10 @@ describe("document editor styling boundary", () => {
       join(process.cwd(), "app/globals.css"),
       "utf8",
     );
+    const citationExtensionSource = readFileSync(
+      join(process.cwd(), "workflow-steps/document-editor/citation-extension.ts"),
+      "utf8",
+    );
 
     expect(componentSource).toContain("document-editor");
     expect(componentSource).toContain("document-editor-content");
@@ -193,6 +243,9 @@ describe("document editor styling boundary", () => {
     expect(globalCss).toContain(".ProseMirror.document-editor blockquote");
     expect(componentSource).toContain("CitationNode");
     expect(globalCss).toContain(".document-citation-chip");
+    expect(globalCss).toContain("text-overflow: ellipsis");
+    expect(citationExtensionSource).toContain("title: label");
+    expect(citationExtensionSource).toContain("buildCitationDisplayLabel");
     expect(globalCss).not.toContain(".ProseMirror.chronology-editor");
   });
 });
@@ -302,5 +355,49 @@ describe("document editor DOCX export", () => {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     );
     expect(blob.size).toBeGreaterThan(1000);
+  });
+
+  it("uses shared professional semantic styles and native numbering", async () => {
+    const blob = await generateDocxBlobFromEditorJson({ editorJson: representativeWorkProductEditorJson, title: "Lawyer Memo" });
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const styles = await zip.file("word/styles.xml")!.async("string");
+    const documentXml = await zip.file("word/document.xml")!.async("string");
+    const numbering = await zip.file("word/numbering.xml")!.async("string");
+
+    expect(styles).toContain(`w:styleId="MatterLayerNormal"`);
+    expect(styles).toContain(`<w:sz w:val="${DOCX_STYLES.paragraph.size}"`);
+    expect(styles).toContain(`<w:spacing w:after="${DOCX_STYLES.paragraph.after}" w:line="${DOCX_STYLES.paragraph.line}"`);
+    expect(styles).toContain(`w:styleId="MatterLayerTitle"`);
+    expect(styles).toContain(`<w:sz w:val="${DOCX_STYLES.title.size}"`);
+    expect(styles).toContain(`<w:keepNext/>`);
+    expect(styles).toContain(`w:styleId="MatterLayerHeading1"`);
+    expect(styles).toContain(`<w:spacing w:after="${DOCX_STYLES.heading1.after}" w:before="${DOCX_STYLES.heading1.before}"`);
+    expect(documentXml).toContain(`<w:pgSz w:w="${DOCX_STYLES.page.width}" w:h="${DOCX_STYLES.page.height}"`);
+    expect(documentXml).toContain(`<w:pgMar w:top="${DOCX_STYLES.page.margin}" w:right="${DOCX_STYLES.page.margin}" w:bottom="${DOCX_STYLES.page.margin}" w:left="${DOCX_STYLES.page.margin}"`);
+    expect(documentXml).toContain(`<w:sz w:val="${DOCX_STYLES.citation.size}"`);
+    expect(documentXml).toContain(`<w:t xml:space="preserve"> (Scheduling Notice, p. 1)</w:t>`);
+    expect(documentXml).toContain(`<w:t xml:space="preserve"> (Initial Filing and Supporting Property Description`);
+    expect(documentXml).toContain("<w:b/>");
+    expect(documentXml).toContain("<w:i/>");
+    expect(documentXml).toContain("<w:u");
+    expect(documentXml).toContain("<w:hyperlink");
+    expect(numbering).toContain('<w:numFmt w:val="bullet"/>');
+    expect(numbering).toContain('<w:numFmt w:val="decimal"/>');
+
+    function numberingIdFor(text: string) {
+      const paragraph = documentXml.match(new RegExp(`<w:p(?:(?!</w:p>)[\\s\\S])*?<w:t[^>]*>${text}</w:t>(?:(?!</w:p>)[\\s\\S])*?</w:p>`))?.[0];
+      return paragraph?.match(/<w:numId w:val="(\d+)"\/>/)?.[1];
+    }
+    const firstListId = numberingIdFor("Review the filed documents.");
+    expect(numberingIdFor("Prepare for the hearing.")).toBe(firstListId);
+    expect(numberingIdFor("This separate list restarts at one.")).not.toBe(firstListId);
+  });
+
+  it.each(["Lawyer Memo", "Client Summary", "Chronology"])("uses the same style system for %s", async (title) => {
+    const blob = await generateDocxBlobFromEditorJson({ editorJson: representativeWorkProductEditorJson, title });
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const styles = await zip.file("word/styles.xml")!.async("string");
+    expect(styles).toContain('w:styleId="MatterLayerNormal"');
+    expect(styles).toContain('w:styleId="MatterLayerTitle"');
   });
 });

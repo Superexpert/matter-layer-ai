@@ -1,7 +1,16 @@
 export type AIProviderModel = {
+  description?: string;
+  family?: string;
   id: string;
   label: string;
+  supportedReasoningEfforts?: readonly ReasoningEffort[];
+  supportsReasoning?: boolean;
+  supportsStructuredOutput?: boolean;
+  supportsTemperature?: boolean;
 };
+
+export const REASONING_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -24,12 +33,38 @@ export const AI_PROVIDER_REGISTRY = [
     id: "openai",
     models: [
       {
-        id: "gpt-5.5",
-        label: "GPT-5.5",
+        description: "Highest-capability GPT-5.6 model for complex analysis and demanding workflows. Availability depends on the OpenAI account.",
+        family: "gpt-5.6",
+        id: "gpt-5.6-sol",
+        label: "GPT-5.6 Sol",
+        supportedReasoningEfforts: REASONING_EFFORTS,
+        supportsReasoning: true,
+        supportsStructuredOutput: true,
+        supportsTemperature: false,
       },
       {
-        id: "gpt-5.5-mini",
-        label: "GPT-5.5 mini",
+        description: "Balanced GPT-5.6 model for capability, speed, and cost. Availability depends on the OpenAI account.",
+        family: "gpt-5.6",
+        id: "gpt-5.6-terra",
+        label: "GPT-5.6 Terra",
+        supportedReasoningEfforts: REASONING_EFFORTS,
+        supportsReasoning: true,
+        supportsStructuredOutput: true,
+        supportsTemperature: false,
+      },
+      {
+        description: "Fastest and lowest-cost GPT-5.6 model. Availability depends on the OpenAI account.",
+        family: "gpt-5.6",
+        id: "gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        supportedReasoningEfforts: REASONING_EFFORTS,
+        supportsReasoning: true,
+        supportsStructuredOutput: true,
+        supportsTemperature: false,
+      },
+      {
+        id: "gpt-5.5",
+        label: "GPT-5.5",
       },
       {
         id: "gpt-5.4-mini",
@@ -92,4 +127,8 @@ export function isRegisteredAIModel(providerId: string, modelId: string) {
   }
 
   return Boolean(provider?.models.some((model) => model.id === modelId));
+}
+
+export function getAIProviderModel(providerId: string, modelId: string) {
+  return getAIProviderRegistration(providerId)?.models.find((model) => model.id === modelId);
 }

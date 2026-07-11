@@ -408,9 +408,9 @@ test("Admin can manage multiple AI providers without exposing saved API keys", a
       "Anthropic",
     );
     await expect(page.getByTestId("ai-model-select")).toContainText("GPT-5.5");
-    await expect(page.getByTestId("ai-model-select")).toContainText(
-      "GPT-5.5 mini",
-    );
+    await expect(page.getByTestId("ai-model-select")).toContainText("GPT-5.6 Sol");
+    await expect(page.getByTestId("ai-model-select")).toContainText("GPT-5.6 Terra");
+    await expect(page.getByTestId("ai-model-select")).toContainText("GPT-5.6 Luna");
     await expect(page.getByTestId("ai-model-select")).toContainText(
       "GPT-5.4 mini",
     );
@@ -450,7 +450,8 @@ test("Admin can manage multiple AI providers without exposing saved API keys", a
 
     await page.getByTestId("ai-provider-select").selectOption("openai");
     await expect(page.getByTestId("ai-model-select")).toHaveValue("gpt-5.5");
-    await page.getByTestId("ai-model-select").selectOption("gpt-5.5-mini");
+    await page.getByTestId("ai-model-select").selectOption("gpt-5.6-luna");
+    await expect(page.getByTestId("ai-model-description")).toContainText("Fastest and lowest-cost");
     await page.getByTestId("ai-api-key-input").fill("test-openai-key-654321");
     await page.getByTestId("save-ai-settings-button").click();
 
@@ -465,14 +466,14 @@ test("Admin can manage multiple AI providers without exposing saved API keys", a
     expect(configs.filter((config) => config.isActive)).toHaveLength(1);
     expect(configs.find((config) => config.isActive)?.provider).toBe("openai");
     expect(configs.find((config) => config.provider === "openai")?.model).toBe(
-      "gpt-5.5-mini",
+      "gpt-5.6-luna",
     );
     const openAICard = page
       .getByTestId("ai-provider-card")
       .filter({ hasText: "OpenAI" });
 
     await expect(openAICard.getByTestId("provider-model")).toContainText(
-      "GPT-5.5 mini",
+      "GPT-5.4 mini",
     );
 
     const anthropicCard = page

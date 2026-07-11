@@ -3,6 +3,30 @@ import { describe, expect, it } from "vitest";
 import { OpenAIProvider } from "@/services/ai/providers/openai-provider-core";
 
 describe("OpenAIProvider", () => {
+  it.each(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])(
+    "uses shared capabilities for %s structured requests",
+    async (model) => {
+      const capturedRequests: Array<Record<string, unknown>> = [];
+      const provider = new OpenAIProvider({
+        apiKey: "test-openai-api-key",
+        client: { responses: {
+          async create(request) { capturedRequests.push(request as unknown as Record<string, unknown>); return { output_text: "{}" }; },
+          async *stream() { yield { type: "response.completed" }; },
+        } },
+        model,
+      });
+      await provider.generateText({
+        messages: [{ content: "Extract.", role: "user" }],
+        reasoningEffort: "max",
+        responseFormat: { name: "extraction", schema: { additionalProperties: false, properties: {}, required: [], type: "object" }, type: "json_schema" },
+        temperature: 0.2,
+      });
+      expect(capturedRequests[0]).toMatchObject({ model, reasoning: { effort: "max" }, store: false });
+      expect(capturedRequests[0]).not.toHaveProperty("temperature");
+      expect(capturedRequests[0]).toHaveProperty("text.format.type", "json_schema");
+    },
+  );
+
   it("passes Responses structured JSON schema format when requested", async () => {
     const capturedRequests: unknown[] = [];
     const schema = {

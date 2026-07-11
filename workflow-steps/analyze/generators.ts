@@ -7,7 +7,7 @@ Do not invent facts, dates, amounts, documents, legal conclusions, or procedural
 Treat conflicting values as unresolved and do not choose a winner unless supplied facts resolve it.
 Distinguish allegations, assumptions, anticipated impacts, and confirmed facts.
 Do not expose extraction, identity-collapse, packet, AI, prompt, or workflow implementation details.
-Return Markdown only. Cite material factual statements using the supplied Matter Layer citation syntax.`;
+Return the required structured response. Put the work product in the Markdown field. Cite material factual statements only with supplied Matter Layer citation IDs.`;
 
 export function analyzeGeneratorMessages(input: {
   generator: AnalyzeGeneratorConfig;
@@ -21,8 +21,8 @@ export function analyzeGeneratorMessages(input: {
         "Generator instructions:",
         input.generator.instructions,
         "Citation instructions:",
-        "Use inline citation chips in this exact form, filling values from packet citations:",
-        '<span data-ml-citation="true" data-citation-label="Document p. 1" data-citation-printable-text="(Document, p. 1)" data-citation-source-document-id="..." data-citation-source-document-name="..." data-citation-page="1" data-citation-cited-text="supporting excerpt">Document p. 1</span>',
+        "Insert {{ml-citation:CITATION_ID}} immediately after the supported sentence. Use only citationId values supplied in the compact fact packet.",
+        "For multiple sources, insert multiple adjacent citation tokens. Never type a source filename as citation text and never create HTML citation spans.",
         "Compact fact packet:",
         JSON.stringify(input.packet),
       ].join("\n\n"),

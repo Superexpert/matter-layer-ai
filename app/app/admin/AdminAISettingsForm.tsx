@@ -41,6 +41,8 @@ type OllamaTestResponse =
       error: string;
     };
 
+type ProviderTestResponse = OllamaTestResponse;
+
 async function postJson<TResponse>(url: string, body: Record<string, string>) {
   const response = await fetch(url, {
     body: JSON.stringify(body),
@@ -186,6 +188,12 @@ export function AdminAISettingsForm({
     }));
   }
 
+  async function testSavedOpenAIConfig(config: AIProviderConfigSummary) {
+    setCardTestMessages((messages) => ({ ...messages, [config.id]: `Testing ${config.modelLabel}...` }));
+    const result = await postJson<ProviderTestResponse>("/api/admin/openai/test", { configId: config.id });
+    setCardTestMessages((messages) => ({ ...messages, [config.id]: result.ok ? result.message : result.error }));
+  }
+
   return (
     <div className="mt-6 grid gap-8">
       <section data-testid="configured-ai-providers-section">
@@ -274,11 +282,11 @@ export function AdminAISettingsForm({
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      {isOllamaConfig ? (
+                      {isOllamaConfig || config.provider === "openai" ? (
                         <button
                           className="inline-flex h-9 items-center justify-center rounded-lg border border-[#CFC5DA] bg-white px-3 text-sm font-semibold text-[#42305B] hover:bg-[#F7F6FA]"
                           data-testid="test-provider-button"
-                          onClick={() => void testSavedOllamaConfig(config)}
+                          onClick={() => void (isOllamaConfig ? testSavedOllamaConfig(config) : testSavedOpenAIConfig(config))}
                           type="button"
                         >
                           Test
@@ -539,6 +547,11 @@ export function AdminAISettingsForm({
                     </option>
                   ))}
                 </select>
+                {models.find((model) => model.id === (selectedCloudModel || defaultModel))?.description ? (
+                  <p className="mt-2 text-sm leading-6 text-zinc-600" data-testid="ai-model-description">
+                    {models.find((model) => model.id === (selectedCloudModel || defaultModel))?.description}
+                  </p>
+                ) : null}
               </div>
 
               <div>
